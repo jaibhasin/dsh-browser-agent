@@ -1,6 +1,7 @@
 import { PROTOCOL_VERSION, type BridgeMessage, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
 
 const DEFAULT_URL = "ws://127.0.0.1:7331";
+const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
 const RECONNECT_MAX_MS = 30_000;
 export type BridgeConfiguration = { url: string; token: string };
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -30,7 +31,7 @@ export class ExtensionBridge {
   private async getConfiguration(): Promise<BridgeConfiguration> {
     const stored = await chrome.storage.local.get("dshBridge");
     const config = stored.dshBridge as Partial<BridgeConfiguration> | undefined;
-    return { url: config?.url ?? DEFAULT_URL, token: config?.token ?? "" };
+    return { url: config?.url ?? DEFAULT_URL, token: config?.token ?? BUILD_TOKEN };
   }
   private connect(config: BridgeConfiguration): void {
     if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) return;

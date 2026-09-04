@@ -3,3 +3,4 @@ node_modules/
 extension/dist/
 dsh-plugin/dist/
 .DS_Store
+extension/.env.local

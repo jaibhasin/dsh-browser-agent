@@ -7,6 +7,10 @@ bridge.setRequestHandler(async (request) => {
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
 
+// MV3 workers can be reloaded without firing onInstalled or onStartup.
+// Starting here ensures opening the side panel always reconnects the bridge.
+void bridge.start();
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   void bridge.start();

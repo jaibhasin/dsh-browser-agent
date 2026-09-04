@@ -1,0 +1,20 @@
+{
+  "name": "@jaibhasin/dsh-browser-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/dsh-plugin/index.js",
+  "types": "./dist/dsh-plugin/index.d.ts",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "^0.1.2-rc.1"
+  }
+}
