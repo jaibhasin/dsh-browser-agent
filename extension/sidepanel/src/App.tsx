@@ -60,11 +60,11 @@ function App() {
     setPrompt("");
     setIsLoading(true);
     try {
-      const response = await chrome.runtime.sendMessage({ type: "dsh-browser-snapshot" }) as { ok?: boolean; snapshot?: { text?: string }; error?: string };
+      const response = await chrome.runtime.sendMessage({ type: "dsh-chat", text }) as { ok?: boolean; text?: string; error?: string };
       setMessages((currentMessages) => [...currentMessages, {
         id: Date.now() + 1,
         role: "assistant",
-        text: response?.ok && response.snapshot?.text ? response.snapshot.text : `I couldn't read the current page: ${response?.error ?? "The snapshot bridge is unavailable."}`,
+        text: response?.ok && response.text ? response.text : `I couldn't complete that request: ${response?.error ?? "The DSH bridge is unavailable."}`,
       }]);
     } catch (error) {
       setMessages((currentMessages) => [...currentMessages, { id: Date.now() + 1, role: "assistant", text: error instanceof Error ? error.message : "The snapshot bridge is unavailable." }]);

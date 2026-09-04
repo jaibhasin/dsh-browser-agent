@@ -8,6 +8,7 @@ export type DshBrowserBridgeOptions = {
   port?: number;
   requestTimeoutMs?: number;
   onExtensionEvent?: (event: string, payload: JsonValue) => void;
+  onChat?: (text: string) => Promise<string>;
 };
 type PendingRequest = { resolve: (value: JsonValue) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout>; cleanup: () => void };
 
@@ -36,6 +37,7 @@ export class DshBrowserWebSocketBridge {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
   isConnected(): boolean { return this.extension?.readyState === WebSocket.OPEN; }
+  setChatHandler(handler: (text: string) => Promise<string>): void { this.options.onChat = handler; }
   async request(method: string, params: JsonValue = null, signal?: AbortSignal): Promise<JsonValue> {
     if (signal?.aborted) throw new Error("Browser request was cancelled.");
     const socket = this.extension;
@@ -71,17 +73,25 @@ export class DshBrowserWebSocketBridge {
         this.extension?.close(1012, "Replaced by a new extension connection"); this.extension = socket;
         return this.send(socket, { type: "welcome", protocolVersion: PROTOCOL_VERSION });
       }
-      this.handleAuthenticatedMessage(message);
+    void this.handleAuthenticatedMessage(message, socket);
     });
     socket.on("close", () => {
       clearTimeout(authenticationTimeout);
       if (this.extension === socket) { this.extension = undefined; this.rejectAll("The Chrome extension disconnected."); }
     });
   }
-  private handleAuthenticatedMessage(message: BridgeMessage): void {
+  private async handleAuthenticatedMessage(message: BridgeMessage, socket: WebSocket): Promise<void> {
     if (message.type === "pong") return;
     if (message.type === "event") return this.options.onExtensionEvent?.(message.event, message.payload);
     if (message.type === "response") this.resolveRequest(message);
+    if (message.type === "chat") {
+      try {
+        if (!this.options.onChat) throw new Error("DSH chat is not configured.");
+        this.send(socket, { type: "chat_response", id: message.id, text: await this.options.onChat(message.text) });
+      } catch (error) {
+        this.send(socket, { type: "chat_response", id: message.id, error: { code: "DSH_CHAT_FAILED", message: error instanceof Error ? error.message : "DSH chat failed." } });
+      }
+    }
   }
   private resolveRequest(message: BridgeResponse): void {
     const pending = this.pending.get(message.id); if (!pending) return;

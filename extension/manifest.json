@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "A minimal side panel for the DeepSeek Harness browser agent.",
   "permissions": ["activeTab", "sidePanel", "scripting", "storage", "tabs"],
-  "host_permissions": ["ws://127.0.0.1/*", "ws://localhost/*"],
+  "host_permissions": ["<all_urls>", "ws://127.0.0.1/*", "ws://localhost/*"],
   "action": {
     "default_title": "Open DeepSeek Harness Browser Agent"
   },

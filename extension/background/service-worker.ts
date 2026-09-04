@@ -27,6 +27,14 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Snapshot failed." }));
     return true;
   }
+  if (message.type === "dsh-chat") {
+    const text = (message as { text?: unknown }).text;
+    if (typeof text !== "string" || !text.trim()) { sendResponse({ ok: false, error: "Message is empty." }); return; }
+    void bridge.chat(text.trim())
+      .then((reply) => sendResponse({ ok: true, text: reply }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "DSH chat failed." }));
+    return true;
+  }
   if (message.type === "dsh-bridge-configure") {
     const config = (message as { config?: unknown }).config;
     if (!isBridgeConfiguration(config)) { sendResponse({ ok: false, error: "Invalid bridge configuration." }); return; }
