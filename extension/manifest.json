@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "DeepSeek Harness Browser Agent",
+  "version": "0.1.0",
+  "description": "A minimal side panel for the DeepSeek Harness browser agent.",
+  "permissions": ["sidePanel"],
+  "action": {
+    "default_title": "Open DeepSeek Harness Browser Agent"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
+  }
+}

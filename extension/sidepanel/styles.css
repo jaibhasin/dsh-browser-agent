@@ -1,0 +1,281 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  color: #d6deea;
+  background: #0b0f14;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 280px;
+  min-height: 100vh;
+  margin: 0;
+  background: #0b0f14;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 18px 16px;
+  background: #111827;
+  border-bottom: 1px solid #263449;
+}
+
+.brand-mark,
+.message-avatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #0b0f14;
+  background: #8da2ff;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0 0 2px;
+  color: #718096;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  color: #e5e7eb;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: #718096;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  background: #f59e0b;
+  border-radius: 50%;
+}
+
+.conversation {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 20px 16px 12px;
+}
+
+.conversation-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  color: #9aa8bd;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.conversation-date {
+  color: #536176;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  max-width: 100%;
+}
+
+.message-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.message-content {
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.message-author {
+  margin: 0 0 4px;
+  color: #8da2ff;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.message-content p:last-child {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.message-assistant .message-content p:last-child::before {
+  margin-right: 6px;
+  color: #8da2ff;
+  content: ">";
+}
+
+.message-user {
+  justify-content: flex-end;
+}
+
+.message-user .message-content {
+  max-width: calc(100% - 33px);
+  padding: 10px 12px;
+  background: #161f31;
+  border: 1px solid #334a78;
+  border-radius: 9px 9px 3px 9px;
+}
+
+.message-user .message-content p:last-child {
+  color: #c7d2fe;
+}
+
+.message-user .message-author {
+  display: none;
+}
+
+.message-user .message-avatar {
+  order: 2;
+  color: #a5b4fc;
+  background: #161f31;
+}
+
+.composer {
+  margin: 0 12px 12px;
+  padding: 9px 10px 8px 12px;
+  background: #111827;
+  border: 1px solid #2d3b53;
+  border-radius: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  min-height: 24px;
+  padding: 2px 0;
+  color: #dbe4f0;
+  resize: none;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+textarea::placeholder {
+  color: #66758e;
+}
+
+.composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 7px;
+}
+
+.composer-hint {
+  overflow: hidden;
+  color: #536176;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.send-button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  color: #0b0f14;
+  cursor: pointer;
+  background: #8da2ff;
+  border: 0;
+  border-radius: 8px;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.send-button:hover {
+  background: #a7b7ff;
+}
+
+.send-button:active {
+  transform: scale(0.94);
+}
+
+.send-button:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #8da2ff;
+  outline-offset: 2px;
+}
+
+.send-button svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

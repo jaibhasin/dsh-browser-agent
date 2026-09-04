@@ -1,24 +1,25 @@
 ```text
-Chrome extension
-  - Observes tabs, pages, DOM, and screenshots
-  - Executes scrolling, clicking, typing, navigation, and other actions
-  - Requests explicit user approval for dangerous actions
+Chrome Extension
+  - Side panel UI
+  - DOM + vision observations
+  - Scrolling, browsing, clicks, typing, and navigation
+  - Multi-tab awareness
+  - Human approval for dangerous actions
              │
-             │ WebSocket
+             │ Secure WebSocket
              ▼
-TypeScript backend
-  - Maintains browser sessions and multi-tab state
-  - Coordinates observations, actions, approvals, and events
-  - Uses @deepseek-ai/dsh-sdk-client
-             │
-             │ stdio JSON-RPC
-             ▼
-DeepSeek Harness process
-  - Acts as the agent brain
-  - Reasons about goals and browser state
-  - Chooses tools/actions
-  - Potentially coordinates sub-agents
+DSH Browser Plugin
+  - Runs inside the local DSH Web host
+  - Registers browser tools with the agent
+  - Bridges tool calls to the Chrome extension
+  - Maintains browser and tab state
              │
              ▼
-LLM, agents, and tools
+DeepSeek Harness Web
+  - Agent brain and tool orchestration
+  - LLM integration
+  - Sessions, approvals, skills, and subagents
+             │
+             ▼
+LLM / Agents / Tools
 ```
