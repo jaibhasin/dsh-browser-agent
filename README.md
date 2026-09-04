@@ -2,11 +2,12 @@
 
 Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 
-It provides `browser_snapshot`, `browser_scroll`, and `browser_click`.
+It provides `browser_snapshot`, `browser_scroll`, `browser_click`, and `browser_screenshot`.
 
 `browser_scroll` takes a direction (`up`, `down`, `left`, or `right`) and a pixel value from 1 to 1,000,000.
 It returns a fresh snapshot after scrolling.
 `browser_click` uses a visible, enabled `ref` from the latest snapshot.
+`browser_screenshot` attaches the active tab's visible viewport as a PNG image.
 
 ## Workspace
 

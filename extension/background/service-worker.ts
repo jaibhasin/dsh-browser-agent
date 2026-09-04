@@ -1,9 +1,10 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserSnapshot, clickBrowserRef, scrollBrowser } from "./browser-snapshot";
+import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, scrollBrowser } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setRequestHandler(async (request) => {
   if (request.method === "snapshot") return await captureBrowserSnapshot();
+  if (request.method === "screenshot") return await captureBrowserScreenshot();
   if (request.method === "scroll") {
     const params = request.params;
     if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("Scroll parameters are required.");
