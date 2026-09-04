@@ -2,7 +2,13 @@
 
 Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 
-Provides read-only `browser_snapshot` and `browser_type(ref, text)` tools.
+It provides `browser_snapshot`, `browser_scroll`, `browser_click`, and `browser_screenshot`.
+It also provides `browser_type(ref, text)` for filling visible text controls.
+
+`browser_scroll` takes a direction (`up`, `down`, `left`, or `right`) and a pixel value from 1 to 1,000,000.
+It returns a fresh snapshot after scrolling.
+`browser_click` uses a visible, enabled `ref` from the latest snapshot.
+`browser_screenshot` attaches the active tab's visible viewport as a PNG image.
 
 ## Workspace
 

@@ -1,15 +1,29 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserSnapshot, typeIntoBrowser } from "./browser-snapshot";
+import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, scrollBrowser, typeBrowserRef } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setRequestHandler(async (request) => {
   if (request.method === "snapshot") return await captureBrowserSnapshot();
-  if (request.method === "type") {
+  if (request.method === "screenshot") return await captureBrowserScreenshot();
+  if (request.method === "scroll") {
     const params = request.params;
-    if (!params || typeof params !== "object" || Array.isArray(params) || typeof params.ref !== "string" || typeof params.text !== "string") {
-      throw new Error("Typing requires a ref and text.");
-    }
-    return await typeIntoBrowser(params.ref, params.text);
+    if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("Scroll parameters are required.");
+    const direction = (params as { direction?: unknown }).direction;
+    const value = (params as { value?: unknown }).value;
+    if (!["up", "down", "left", "right"].includes(direction as string)) throw new Error("Scroll direction must be up, down, left, or right.");
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 1_000_000) throw new Error("Scroll value must be an integer from 1 to 1,000,000 pixels.");
+    return await scrollBrowser(direction as "up" | "down" | "left" | "right", value);
+  }
+  if (request.method === "click") {
+    const ref = (request.params as { ref?: unknown })?.ref;
+    if (!Number.isInteger(ref) || (ref as number) < 1) throw new Error("Browser ref must be a positive integer.");
+    return await clickBrowserRef(ref as number);
+  }
+  if (request.method === "type") {
+    const ref = (request.params as { ref?: unknown })?.ref;
+    const text = (request.params as { text?: unknown })?.text;
+    if (!Number.isInteger(ref) || (ref as number) < 1 || typeof text !== "string") throw new Error("Browser type requires a positive ref and text.");
+    return await typeBrowserRef(ref as number, text);
   }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
@@ -34,13 +48,21 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Snapshot failed." }));
     return true;
   }
+  if (message.type === "dsh-browser-click") {
+    const ref = (message as { ref?: unknown }).ref;
+    if (!Number.isInteger(ref) || (ref as number) < 1) { sendResponse({ ok: false, error: "Browser ref must be a positive integer." }); return; }
+    void clickBrowserRef(ref as number)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Click failed." }));
+    return true;
+  }
   if (message.type === "dsh-browser-type") {
     const ref = (message as { ref?: unknown }).ref;
     const text = (message as { text?: unknown }).text;
-    if (typeof ref !== "string" || typeof text !== "string") { sendResponse({ ok: false, error: "Typing requires a ref and text." }); return; }
-    void typeIntoBrowser(ref, text)
+    if (!Number.isInteger(ref) || (ref as number) < 1 || typeof text !== "string") { sendResponse({ ok: false, error: "Browser type requires a positive ref and text." }); return; }
+    void typeBrowserRef(ref as number, text)
       .then((result) => sendResponse({ ok: true, result }))
-      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Typing failed." }));
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Type failed." }));
     return true;
   }
   if (message.type === "dsh-chat") {

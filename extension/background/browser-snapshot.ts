@@ -1,10 +1,16 @@
 import type { JsonValue } from "../../shared/protocol";
 
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
+const SCROLL_MESSAGE = "dsh-browser-scroll";
 type SnapshotResult = { text: string };
-type TypeResult = { text: string };
+type BrowserScreenshotResult = { data: string; mediaType: "image/png" };
+type ScrollDirection = "up" | "down" | "left" | "right";
+const CLICK_MESSAGE = "dsh-browser-click";
+const TYPE_MESSAGE = "dsh-browser-type";
+type ClickResult = { ok: true } | { ok: false; error: string };
+type TypeResult = { typed: true } | { typed: false; error: string };
 
-/** Idempotently inject and ask the content script to read the current active page. */
+/** Read the active tab's snapshot. */
 export async function captureBrowserSnapshot(): Promise<JsonValue> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (tab?.id === undefined) throw new Error("No active browser tab is available.");
@@ -16,17 +22,53 @@ export async function captureBrowserSnapshot(): Promise<JsonValue> {
   return result as SnapshotResult;
 }
 
-/** Fill a visible control by snapshot ref. */
-export async function typeIntoBrowser(ref: string, text: string): Promise<JsonValue> {
+/** Capture the visible portion of the active tab as a PNG data payload. */
+export async function captureBrowserScreenshot(): Promise<JsonValue> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (tab?.windowId === undefined) throw new Error("No active browser tab is available.");
+  const data = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+  if (typeof data !== "string" || !data.startsWith("data:image/png;base64,")) {
+    throw new Error("The browser returned an invalid screenshot.");
+  }
+  return { data: data.slice("data:image/png;base64,".length), mediaType: "image/png" } satisfies BrowserScreenshotResult;
+}
+
+/** Scroll the active tab and return its new snapshot. */
+export async function scrollBrowser(direction: ScrollDirection, value: number): Promise<JsonValue> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (tab?.id === undefined) throw new Error("No active browser tab is available.");
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
-  const result = await chrome.tabs.sendMessage(tab.id, { type: "dsh-browser-type", ref, text }) as unknown;
-  if (result && typeof result === "object" && !Array.isArray(result) && typeof (result as { error?: unknown }).error === "string") {
-    throw new Error((result as { error: string }).error);
-  }
+  const result = await chrome.tabs.sendMessage(tab.id, { type: SCROLL_MESSAGE, direction, value }) as unknown;
   if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { text?: unknown }).text !== "string") {
-    throw new Error("The content script returned an invalid typing result.");
+    throw new Error("The content script returned an invalid scroll result.");
   }
-  return result as TypeResult;
+  return result as SnapshotResult;
+}
+
+/** Click a ref from the latest snapshot. */
+export async function clickBrowserRef(ref: number): Promise<JsonValue> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (tab?.id === undefined) throw new Error("No active browser tab is available.");
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
+  const result = await chrome.tabs.sendMessage(tab.id, { type: CLICK_MESSAGE, ref }) as unknown;
+  if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { ok?: unknown }).ok !== "boolean") {
+    throw new Error("The content script returned an invalid click result.");
+  }
+  const click = result as ClickResult;
+  if (!click.ok) throw new Error(click.error);
+  return { clicked: true };
+}
+
+/** Fill a text control from the latest snapshot. */
+export async function typeBrowserRef(ref: number, text: string): Promise<JsonValue> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (tab?.id === undefined) throw new Error("No active browser tab is available.");
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
+  const result = await chrome.tabs.sendMessage(tab.id, { type: TYPE_MESSAGE, ref, text }) as unknown;
+  if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { typed?: unknown }).typed !== "boolean") {
+    throw new Error("The content script returned an invalid type result.");
+  }
+  const typed = result as TypeResult;
+  if (!typed.typed) throw new Error(typed.error);
+  return { typed: true };
 }
