@@ -6,17 +6,21 @@
   "scripts": {
     "dev": "vite --config vite.config.js",
     "build": "tsc --noEmit && vite build --config vite.config.js",
+    "build:dsh-plugin": "tsc --project dsh-plugin/tsconfig.json",
     "preview": "vite preview --config vite.config.js",
     "test": "echo \"No tests configured yet\""
   },
   "dependencies": {
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",
+    "@types/node": "^24.10.1",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
+    "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.7.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.3"

@@ -1,4 +1,5 @@
 node_modules/
 .pnpm-store/
 extension/dist/
+dsh-plugin/dist/
 .DS_Store
