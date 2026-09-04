@@ -5,58 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0b0f14" />
     <title>DeepSeek Harness Browser Agent</title>
-    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <header class="app-header">
-        <div class="brand-mark" aria-hidden="true">D</div>
-        <div class="brand-copy">
-          <p class="eyebrow">DeepSeek Harness</p>
-          <h1>Browser Agent</h1>
-        </div>
-        <span class="connection-status">
-          <span class="status-dot" aria-hidden="true"></span>
-          UI preview
-        </span>
-      </header>
-
-      <section class="conversation" aria-label="Current chat">
-        <div class="conversation-heading">
-          <span>Current chat</span>
-          <span class="conversation-date">Today</span>
-        </div>
-
-        <div class="messages" id="messages" aria-live="polite">
-          <article class="message message-assistant">
-            <div class="message-avatar" aria-hidden="true">D</div>
-            <div class="message-content">
-              <p class="message-author">DeepSeek Harness</p>
-              <p>Ready when you are. Browser actions will appear here.</p>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <form class="composer" id="composer">
-        <label class="sr-only" for="prompt">Message the browser agent</label>
-        <textarea
-          id="prompt"
-          name="prompt"
-          rows="1"
-          placeholder="Ask the browser agent..."
-          autocomplete="off"
-        ></textarea>
-        <div class="composer-footer">
-          <span class="composer-hint">Enter to send · Shift + Enter for a new line</span>
-          <button class="send-button" type="submit" aria-label="Send message">
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" />
-            </svg>
-          </button>
-        </div>
-      </form>
-    </main>
-    <script src="./app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>
