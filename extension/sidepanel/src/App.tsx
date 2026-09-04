@@ -14,10 +14,12 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
+  const [sessionNotice, setSessionNotice] = useState("");
   const [agentTabState, setAgentTabState] = useState<AgentTabState>({});
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
   const [dismissedTabId, setDismissedTabId] = useState<number>();
   const activeChatIds = useRef(new Set<string>());
+  const sessionResetPending = useRef(false);
   const currentTabId = useRef<number | undefined>(undefined);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -93,14 +95,27 @@ function App() {
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = prompt.trim();
-    if (!text) return;
+    if (!text || isLoading) return;
+
+    if (connectionStatus !== "connected") {
+      setSessionNotice("Start DSH to send this message. Your new chat is ready when it reconnects.");
+      return;
+    }
 
     const id = crypto.randomUUID();
-    activeChatIds.current.add(id);
-    setMessages((currentMessages) => [...currentMessages, { kind: "message", id: crypto.randomUUID(), role: "user", text }]);
-    setPrompt("");
     setIsLoading(true);
+    let userMessageAdded = false;
     try {
+      if (sessionResetPending.current) {
+        const sessionResponse = await chrome.runtime.sendMessage({ type: "dsh-new-session" }) as { ok?: boolean; error?: string };
+        if (!sessionResponse?.ok) throw new Error(sessionResponse?.error ?? "The new session could not be started.");
+        sessionResetPending.current = false;
+      }
+      activeChatIds.current.add(id);
+      setMessages((currentMessages) => [...currentMessages, { kind: "message", id: crypto.randomUUID(), role: "user", text }]);
+      userMessageAdded = true;
+      setPrompt("");
+      setSessionNotice("");
       const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text }) as { ok?: boolean; text?: string; error?: string };
       setMessages((currentMessages) => [...currentMessages, {
         kind: "message",
@@ -109,6 +124,10 @@ function App() {
         text: response?.ok && response.text ? response.text : `I couldn't complete that request: ${response?.error ?? "The DSH bridge is unavailable."}`,
       }]);
     } catch (error) {
+      if (!userMessageAdded && sessionResetPending.current) {
+        setSessionNotice("New chat is ready. It will start when DSH reconnects.");
+        return;
+      }
       setMessages((currentMessages) => [...currentMessages, {
         kind: "message",
         id: crypto.randomUUID(),
@@ -123,20 +142,24 @@ function App() {
 
   async function startNewSession() {
     if (isLoading || isStartingSession) return;
+    sessionResetPending.current = true;
+    setMessages([]);
+    setPrompt("");
+    setSessionNotice("");
+    textareaRef.current?.focus();
+
+    if (connectionStatus !== "connected") {
+      setSessionNotice("New chat is ready. It will start when DSH reconnects.");
+      return;
+    }
+
     setIsStartingSession(true);
     try {
       const response = await chrome.runtime.sendMessage({ type: "dsh-new-session" }) as { ok?: boolean; error?: string };
       if (!response?.ok) throw new Error(response?.error ?? "The new session could not be started.");
-      setMessages([]);
-      setPrompt("");
-      textareaRef.current?.focus();
+      sessionResetPending.current = false;
     } catch (error) {
-      setMessages((currentMessages) => [...currentMessages, {
-        kind: "message",
-        id: crypto.randomUUID(),
-        role: "assistant",
-        text: error instanceof Error ? error.message : "The new session could not be started.",
-      }]);
+      setSessionNotice("New chat is ready. It will start when DSH reconnects.");
     } finally {
       setIsStartingSession(false);
     }
@@ -212,6 +235,7 @@ function App() {
 
       <section className="conversation" aria-label="Current chat">
         <div className="conversation-heading"><span>Current chat</span><span className="conversation-date">Today</span></div>
+        {sessionNotice && <p className="session-notice" role="status">{sessionNotice}</p>}
         <div className="messages" ref={messagesRef} aria-live="polite">
           {messages.map((message) => message.kind === "message" ? (
             <article className={`message message-${message.role}`} key={message.id}>
@@ -246,7 +270,7 @@ function App() {
         <textarea ref={textareaRef} id="prompt" name="prompt" rows={1} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder="Ask the browser agent..." autoComplete="off" />
         <div className="composer-footer">
           <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
-          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading}>
+          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading || connectionStatus !== "connected"}>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" /></svg>
           </button>
         </div>

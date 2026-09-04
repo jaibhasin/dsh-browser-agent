@@ -238,6 +238,17 @@ h1 {
   font-weight: 650;
 }
 
+.session-notice {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid #2c3d61;
+  border-radius: 10px;
+  color: #93a4c2;
+  background: #101a2e;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .conversation-date {
   color: #536176;
   font-size: 11px;
