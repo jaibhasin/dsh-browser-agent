@@ -3,7 +3,7 @@ import type { JsonValue } from "../../shared/protocol";
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
 type SnapshotResult = { text: string };
 
-/** Inject and ask the content script to read the current active page. */
+/** Idempotently inject and ask the content script to read the current active page. */
 export async function captureBrowserSnapshot(): Promise<JsonValue> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (tab?.id === undefined) throw new Error("No active browser tab is available.");

@@ -1,10 +1,17 @@
 type SnapshotResult = { text: string };
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
+const LISTENER_INSTALLED_KEY = "__dshBrowserSnapshotListenerInstalled";
 
-chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-  if (!message || typeof message !== "object" || !("type" in message) || message.type !== SNAPSHOT_MESSAGE) return;
-  sendResponse(collectSnapshot());
-});
+// executeScript may run this file repeatedly in the same tab. Keep one listener
+// for the lifetime of that page, then reuse it for every snapshot request.
+const contentScriptState = globalThis as typeof globalThis & { [LISTENER_INSTALLED_KEY]?: boolean };
+if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
+  chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+    if (!message || typeof message !== "object" || !("type" in message) || message.type !== SNAPSHOT_MESSAGE) return;
+    sendResponse(collectSnapshot());
+  });
+  contentScriptState[LISTENER_INSTALLED_KEY] = true;
+}
 
 /** Runs in the current page and produces a bounded semantic DOM representation. */
 function collectSnapshot(): SnapshotResult {
