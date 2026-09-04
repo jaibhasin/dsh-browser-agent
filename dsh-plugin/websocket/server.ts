@@ -9,7 +9,7 @@ export type DshBrowserBridgeOptions = {
   requestTimeoutMs?: number;
   onExtensionEvent?: (event: string, payload: JsonValue) => void;
 };
-type PendingRequest = { resolve: (value: JsonValue) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout> };
+type PendingRequest = { resolve: (value: JsonValue) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout>; cleanup: () => void };
 
 /** Local DSH plugin transport. Registered DSH tools can delegate to request(). */
 export class DshBrowserWebSocketBridge {
@@ -36,16 +36,24 @@ export class DshBrowserWebSocketBridge {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
   isConnected(): boolean { return this.extension?.readyState === WebSocket.OPEN; }
-  async request(method: string, params: JsonValue = null): Promise<JsonValue> {
+  async request(method: string, params: JsonValue = null, signal?: AbortSignal): Promise<JsonValue> {
+    if (signal?.aborted) throw new Error("Browser request was cancelled.");
     const socket = this.extension;
     if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("The Chrome extension is not connected.");
     const id = randomUUID();
     return new Promise<JsonValue>((resolve, reject) => {
-      const timeout = setTimeout(() => { this.pending.delete(id); reject(new Error(`Browser request timed out: ${method}`)); }, this.options.requestTimeoutMs);
-      this.pending.set(id, { resolve, reject, timeout });
+      const abort = () => settle(new Error("Browser request was cancelled."));
+      const cleanup = () => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); };
+      const settle = (error: Error) => {
+        const pending = this.pending.get(id); if (!pending) return;
+        this.pending.delete(id); pending.cleanup(); pending.reject(error);
+      };
+      const timeout = setTimeout(() => settle(new Error(`Browser request timed out: ${method}`)), this.options.requestTimeoutMs);
+      signal?.addEventListener("abort", abort, { once: true });
+      this.pending.set(id, { resolve, reject, timeout, cleanup });
       socket.send(JSON.stringify({ type: "request", id, method, params } satisfies BridgeMessage), (error) => {
         if (!error) return;
-        clearTimeout(timeout); this.pending.delete(id); reject(error);
+        settle(error);
       });
     });
   }
@@ -77,11 +85,11 @@ export class DshBrowserWebSocketBridge {
   }
   private resolveRequest(message: BridgeResponse): void {
     const pending = this.pending.get(message.id); if (!pending) return;
-    clearTimeout(pending.timeout); this.pending.delete(message.id);
+    this.pending.delete(message.id); pending.cleanup();
     if (message.error) pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
     else pending.resolve(message.result ?? null);
   }
   private parse(raw: string): BridgeMessage | undefined { try { return parseBridgeMessage(JSON.parse(raw)); } catch { return undefined; } }
   private send(socket: WebSocket, message: BridgeMessage): void { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
-  private rejectAll(message: string): void { for (const pending of this.pending.values()) { clearTimeout(pending.timeout); pending.reject(new Error(message)); } this.pending.clear(); }
+  private rejectAll(message: string): void { for (const pending of this.pending.values()) { pending.cleanup(); pending.reject(new Error(message)); } this.pending.clear(); }
 }

@@ -10,5 +10,5 @@
     "outDir": "dist",
     "types": ["node"]
   },
-  "include": ["index.ts", "websocket/**/*.ts", "../shared/protocol.ts"]
+  "include": ["index.ts", "tools/**/*.ts", "websocket/**/*.ts", "../shared/protocol.ts"]
 }

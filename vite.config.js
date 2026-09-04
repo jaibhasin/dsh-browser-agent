@@ -24,10 +24,15 @@ export default defineConfig({
       input: {
         sidepanel: resolve(extensionRoot, "sidepanel/index.html"),
         background: resolve(extensionRoot, "background/service-worker.ts"),
+        contentSnapshot: resolve(extensionRoot, "content/snapshot.ts"),
       },
       output: {
         entryFileNames: (chunk) =>
-          chunk.name === "background" ? "background/service-worker.js" : "assets/[name]-[hash].js",
+          chunk.name === "background"
+            ? "background/service-worker.js"
+            : chunk.name === "contentSnapshot"
+              ? "content/snapshot.js"
+              : "assets/[name]-[hash].js",
       },
     },
   },

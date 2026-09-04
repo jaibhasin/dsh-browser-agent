@@ -17,5 +17,5 @@
     "jsx": "react-jsx",
     "types": ["vite/client", "chrome"]
   },
-  "include": ["extension/sidepanel/src", "extension/background", "shared"]
+  "include": ["extension/sidepanel/src", "extension/background", "extension/content", "shared"]
 }

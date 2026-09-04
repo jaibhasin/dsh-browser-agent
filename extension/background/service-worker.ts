@@ -1,6 +1,11 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
+import { captureBrowserSnapshot } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
+bridge.setRequestHandler(async (request) => {
+  if (request.method === "snapshot") return await captureBrowserSnapshot();
+  throw new Error(`Unsupported browser method: ${request.method}`);
+});
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
