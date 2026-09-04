@@ -1,10 +1,24 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserScreenshot, captureBrowserSnapshot } from "./browser-snapshot";
+import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, scrollBrowser } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setRequestHandler(async (request) => {
   if (request.method === "snapshot") return await captureBrowserSnapshot();
   if (request.method === "screenshot") return await captureBrowserScreenshot();
+  if (request.method === "scroll") {
+    const params = request.params;
+    if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("Scroll parameters are required.");
+    const direction = (params as { direction?: unknown }).direction;
+    const value = (params as { value?: unknown }).value;
+    if (!["up", "down", "left", "right"].includes(direction as string)) throw new Error("Scroll direction must be up, down, left, or right.");
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 1_000_000) throw new Error("Scroll value must be an integer from 1 to 1,000,000 pixels.");
+    return await scrollBrowser(direction as "up" | "down" | "left" | "right", value);
+  }
+  if (request.method === "click") {
+    const ref = (request.params as { ref?: unknown })?.ref;
+    if (!Number.isInteger(ref) || (ref as number) < 1) throw new Error("Browser ref must be a positive integer.");
+    return await clickBrowserRef(ref as number);
+  }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
 
@@ -26,6 +40,14 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     void captureBrowserSnapshot()
       .then((snapshot) => sendResponse({ ok: true, snapshot }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Snapshot failed." }));
+    return true;
+  }
+  if (message.type === "dsh-browser-click") {
+    const ref = (message as { ref?: unknown }).ref;
+    if (!Number.isInteger(ref) || (ref as number) < 1) { sendResponse({ ok: false, error: "Browser ref must be a positive integer." }); return; }
+    void clickBrowserRef(ref as number)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Click failed." }));
     return true;
   }
   if (message.type === "dsh-chat") {
