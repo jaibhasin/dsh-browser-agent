@@ -5,6 +5,8 @@ type Message = { kind: "message"; id: string; role: "assistant" | "user"; text: 
 type ToolActivity = { callId: string; tool: string; input?: string; output?: string; status: "running" | "success" | "error"; error?: string };
 type ActivityGroup = { kind: "activity"; id: string; steps: ToolActivity[] };
 type ConversationItem = Message | ActivityGroup;
+type TabSummary = { id?: number; title?: string; url?: string; windowId?: number };
+type AgentTabState = { agentTabId?: number; agentTab?: TabSummary; currentTab?: TabSummary };
 
 function App() {
   const [messages, setMessages] = useState<ConversationItem[]>([]);
@@ -13,8 +15,12 @@ function App() {
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [sessionNotice, setSessionNotice] = useState("");
+  const [agentTabState, setAgentTabState] = useState<AgentTabState>({});
+  const [isSwitchingTab, setIsSwitchingTab] = useState(false);
+  const [dismissedTabId, setDismissedTabId] = useState<number>();
   const activeChatIds = useRef(new Set<string>());
   const sessionResetPending = useRef(false);
+  const currentTabId = useRef<number | undefined>(undefined);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
 
@@ -34,16 +40,33 @@ function App() {
     chrome.runtime.sendMessage({ type: "dsh-bridge-status" }, (response) => {
       if (!chrome.runtime.lastError) setConnectionStatus(response?.status === "connected" ? "connected" : response?.status ?? "disconnected");
     });
-    const onMessage = (message: { type?: string; status?: string; progress?: BridgeChatProgress }) => {
+    chrome.runtime.sendMessage({ type: "dsh-agent-tab-state-request" }, (response) => {
+      if (!chrome.runtime.lastError && response?.ok && response.state) {
+        currentTabId.current = response.state.currentTab?.id;
+        setAgentTabState(response.state);
+      }
+    });
+    const onMessage = (message: { type?: string; status?: string; progress?: BridgeChatProgress; state?: AgentTabState }) => {
       if (message.type === "dsh-bridge-status" && message.status) {
         setConnectionStatus(message.status);
       } else if (message.type === "dsh-chat-progress" && message.progress && activeChatIds.current.has(message.progress.id)) {
         addToolProgress(message.progress);
+      } else if (message.type === "dsh-agent-tab-state" && message.state) {
+        if (message.state.currentTab?.id !== currentTabId.current) setDismissedTabId(undefined);
+        currentTabId.current = message.state.currentTab?.id;
+        setAgentTabState(message.state);
       }
     };
     chrome.runtime.onMessage.addListener(onMessage);
     return () => chrome.runtime.onMessage.removeListener(onMessage);
   }, []);
+
+  const suggestedTab = agentTabState.agentTabId !== undefined &&
+    agentTabState.currentTab?.id !== undefined &&
+    agentTabState.agentTabId !== agentTabState.currentTab.id &&
+    dismissedTabId !== agentTabState.currentTab.id
+    ? agentTabState.currentTab
+    : undefined;
 
   function addToolProgress(progress: BridgeChatProgress) {
     setMessages((currentMessages) => {
@@ -80,8 +103,8 @@ function App() {
     }
 
     const id = crypto.randomUUID();
-    let userMessageAdded = false;
     setIsLoading(true);
+    let userMessageAdded = false;
     try {
       if (sessionResetPending.current) {
         const sessionResponse = await chrome.runtime.sendMessage({ type: "dsh-new-session" }) as { ok?: boolean; error?: string };
@@ -142,6 +165,25 @@ function App() {
     }
   }
 
+  async function moveAgentToCurrentTab() {
+    if (suggestedTab?.id === undefined || isSwitchingTab) return;
+    setIsSwitchingTab(true);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-switch-tab", id: suggestedTab.id }) as { ok?: boolean; error?: string };
+      if (!response?.ok) throw new Error(response?.error ?? "The agent tab could not be changed.");
+      setDismissedTabId(undefined);
+    } catch (error) {
+      setMessages((currentMessages) => [...currentMessages, {
+        kind: "message",
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: error instanceof Error ? error.message : "The agent tab could not be changed.",
+      }]);
+    } finally {
+      setIsSwitchingTab(false);
+    }
+  }
+
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -168,6 +210,28 @@ function App() {
           {isStartingSession ? "Starting..." : "New chat"}
         </button>
       </header>
+
+      {agentTabState.agentTabId !== undefined && (
+        <section className="agent-tab-status" aria-label="Agent tab">
+          <span className="agent-tab-dot" aria-hidden="true" />
+          <span><strong>Agent tab</strong>{agentTabState.agentTab ? tabLabel(agentTabState.agentTab) : "Closed"}</span>
+        </section>
+      )}
+
+      {suggestedTab && (
+        <section className="tab-switch-prompt" role="dialog" aria-label="Switch agent tab">
+          <div>
+            <strong>Switch agent to {tabLabel(suggestedTab)}?</strong>
+            <p>{agentTabState.agentTab ? `The agent is still working on ${tabLabel(agentTabState.agentTab)}.` : "The assigned tab was closed."}</p>
+          </div>
+          <div className="tab-switch-actions">
+            <button type="button" onClick={() => setDismissedTabId(suggestedTab.id)}>Keep current task</button>
+            <button className="tab-switch-primary" type="button" onClick={() => void moveAgentToCurrentTab()} disabled={isSwitchingTab}>
+              {isSwitchingTab ? "Switching..." : "Switch agent here"}
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="conversation" aria-label="Current chat">
         <div className="conversation-heading"><span>Current chat</span><span className="conversation-date">Today</span></div>
@@ -224,6 +288,15 @@ function toolLabel(tool: string): string {
 
 function statusLabel(status: ToolActivity["status"]): string {
   return status === "running" ? "Working" : status === "success" ? "Done" : "Failed";
+}
+
+function tabLabel(tab?: TabSummary): string {
+  if (!tab) return "the assigned tab";
+  if (tab.title?.trim()) return tab.title.trim();
+  if (tab.url) {
+    try { return new URL(tab.url).hostname; } catch { return "this tab"; }
+  }
+  return "this tab";
 }
 
 export default App;

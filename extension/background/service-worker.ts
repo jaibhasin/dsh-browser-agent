@@ -1,5 +1,6 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
 import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, switchBrowserTab, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
+import { broadcastAgentTabState, ensureAgentTab, getAgentTabState, releaseAgentTab, switchAgentTab } from "./agent-tab";
 
 const bridge = new ExtensionBridge();
 bridge.setChatProgressHandler((progress) => {
@@ -60,10 +61,27 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(() => void bridge.start());
+chrome.tabs.onActivated.addListener(() => void broadcastAgentTabState());
+chrome.tabs.onRemoved.addListener(() => void broadcastAgentTabState());
+chrome.windows.onFocusChanged.addListener(() => void broadcastAgentTabState());
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (!message || typeof message !== "object" || !("type" in message)) return;
   if (message.type === "dsh-bridge-status") { sendResponse({ status: bridge.getStatus() }); return; }
+  if (message.type === "dsh-agent-tab-state-request") {
+    void getAgentTabState()
+      .then((state) => sendResponse({ ok: true, state }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Agent tab state is unavailable." }));
+    return true;
+  }
+  if (message.type === "dsh-agent-switch-tab") {
+    const id = (message as { id?: unknown }).id;
+    if (!Number.isInteger(id) || (id as number) < 0) { sendResponse({ ok: false, error: "Browser tab ID must be a non-negative integer." }); return; }
+    void switchAgentTab(id as number)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The agent tab could not be changed." }));
+    return true;
+  }
   if (message.type === "dsh-browser-snapshot") {
     void captureBrowserSnapshot()
       .then((snapshot) => sendResponse({ ok: true, snapshot }))
@@ -92,13 +110,16 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     const id = (message as { id?: unknown }).id;
     if (typeof text !== "string" || !text.trim()) { sendResponse({ ok: false, error: "Message is empty." }); return; }
     if (typeof id !== "string" || !id) { sendResponse({ ok: false, error: "Chat request ID is invalid." }); return; }
-    void bridge.chat(id, text.trim())
+    if (bridge.getStatus() !== "connected") { sendResponse({ ok: false, error: "The DSH browser bridge is not connected." }); return; }
+    void ensureAgentTab()
+      .then(() => bridge.chat(id, text.trim()))
       .then((reply) => sendResponse({ ok: true, text: reply }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "DSH chat failed." }));
     return true;
   }
   if (message.type === "dsh-new-session") {
     void bridge.newSession()
+      .then(() => releaseAgentTab())
       .then(() => sendResponse({ ok: true }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "New session failed." }));
     return true;

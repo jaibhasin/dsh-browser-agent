@@ -8,9 +8,10 @@
     "build": "tsc --noEmit && vite build --config vite.config.js",
     "build:dsh-plugin": "tsc --project dsh-plugin/tsconfig.json",
     "test:bridge": "pnpm --dir dsh-plugin run test:bridge",
+    "test:agent-tab": "node --experimental-strip-types tests/agent-tab.test.mjs",
     "setup:dsh-profile": "node scripts/setup-dsh-browser-profile.mjs",
     "preview": "vite preview --config vite.config.js",
-    "test": "echo \"No tests configured yet\""
+    "test": "pnpm test:agent-tab"
   },
   "dependencies": {
     "react": "^19.1.1",
