@@ -2,7 +2,7 @@
 
 Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 
-It currently provides one read-only `browser_snapshot` tool.
+It provides a read-only `browser_snapshot` tool and a `browser_screenshot` tool that attaches the active tab's visible viewport as a PNG image.
 
 ## Workspace
 

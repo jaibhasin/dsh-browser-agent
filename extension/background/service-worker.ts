@@ -1,9 +1,10 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserSnapshot } from "./browser-snapshot";
+import { captureBrowserScreenshot, captureBrowserSnapshot } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setRequestHandler(async (request) => {
   if (request.method === "snapshot") return await captureBrowserSnapshot();
+  if (request.method === "screenshot") return await captureBrowserScreenshot();
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
 
