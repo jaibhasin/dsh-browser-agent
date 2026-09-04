@@ -48,7 +48,7 @@ interface AssistantMessageEvent {
   data?: { message?: { content?: unknown } };
 }
 
-/** Register the single browser_snapshot tool plus the side-panel chat bridge. */
+/** Register browser tools and the chat bridge. */
 export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): Promise<void> {
   const bridge = new DshBrowserWebSocketBridge({ token: config.token, port: config.port });
   const agents = ctx.agents;
@@ -154,6 +154,28 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         throw new Error("The browser extension returned an invalid snapshot.");
       }
       return { snapshot: (result as { text: string }).text };
+    },
+  }));
+  ctx.tools.register(defineTool({
+    name: "browser_click",
+    description: "Click a currently visible interactive element identified by its [ref] number in the most recent browser_snapshot. Use only refs present in that snapshot. This changes browser state.",
+    parameters: { ref: { type: "integer", required: true, description: "The [ref] number from the most recent browser_snapshot." } },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: { clicked: { type: "boolean", required: true } },
+      },
+      render: (_args, value) => [{ type: "text", text: (value as { clicked: boolean }).clicked ? "Browser element clicked." : "Browser element was not clicked." }],
+    },
+    async execute(args, exec) {
+      const ref = (args as { ref?: unknown }).ref;
+      if (!Number.isInteger(ref) || (ref as number) < 1) throw new Error("Browser ref must be a positive integer.");
+      const result = await bridge.request("click", { ref: ref as number }, exec.signal);
+      if (!result || typeof result !== "object" || Array.isArray(result) || (result as { clicked?: unknown }).clicked !== true) {
+        throw new Error("The browser extension returned an invalid click result.");
+      }
+      return { clicked: true };
     },
   }));
 }
