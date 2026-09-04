@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BridgeChatResponse, type BridgeMessage, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
+import { PROTOCOL_VERSION, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
 
 const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
@@ -14,6 +14,7 @@ export class ExtensionBridge {
   private status: BridgeStatus = "disconnected";
   private requestHandler?: RequestHandler;
   private chatRequests = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
+  private sessionRequests = new Map<string, { resolve: () => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
 
   async start(): Promise<void> {
     const config = await this.getConfiguration();
@@ -36,6 +37,15 @@ export class ExtensionBridge {
       const timeout = setTimeout(() => { this.chatRequests.delete(id); reject(new Error("DSH chat timed out.")); }, 120_000);
       this.chatRequests.set(id, { resolve, reject, timeout });
       this.send({ type: "chat", id, text });
+    });
+  }
+  newSession(): Promise<void> {
+    if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("The DSH browser bridge is not connected."));
+    const id = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { this.sessionRequests.delete(id); reject(new Error("New session timed out.")); }, 120_000);
+      this.sessionRequests.set(id, { resolve, reject, timeout });
+      this.send({ type: "new_session", id });
     });
   }
   private async getConfiguration(): Promise<BridgeConfiguration> {
@@ -66,6 +76,7 @@ export class ExtensionBridge {
       else if (message.type === "ping") this.send({ type: "pong" });
       else if (message.type === "request") void this.handleRequest(message);
       else if (message.type === "chat_response") this.resolveChat(message);
+      else if (message.type === "new_session_response") this.resolveNewSession(message);
     } catch { /* Invalid peer data never reaches browser automation code. */ }
   }
   private resolveChat(message: BridgeChatResponse): void {
@@ -73,6 +84,12 @@ export class ExtensionBridge {
     this.chatRequests.delete(message.id); clearTimeout(pending.timeout);
     if (message.error) pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
     else pending.resolve(message.text ?? "");
+  }
+  private resolveNewSession(message: BridgeNewSessionResponse): void {
+    const pending = this.sessionRequests.get(message.id); if (!pending) return;
+    this.sessionRequests.delete(message.id); clearTimeout(pending.timeout);
+    if (message.error) pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
+    else pending.resolve();
   }
   private async handleRequest(request: BridgeRequest): Promise<void> {
     try {

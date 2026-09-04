@@ -73,6 +73,12 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "DSH chat failed." }));
     return true;
   }
+  if (message.type === "dsh-new-session") {
+    void bridge.newSession()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "New session failed." }));
+    return true;
+  }
   if (message.type === "dsh-bridge-configure") {
     const config = (message as { config?: unknown }).config;
     if (!isBridgeConfiguration(config)) { sendResponse({ ok: false, error: "Invalid bridge configuration." }); return; }

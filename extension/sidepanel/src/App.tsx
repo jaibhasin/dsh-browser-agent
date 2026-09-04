@@ -10,6 +10,7 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isStartingSession, setIsStartingSession] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -67,6 +68,26 @@ function App() {
     }
   }
 
+  async function startNewSession() {
+    if (isLoading || isStartingSession) return;
+    setIsStartingSession(true);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-new-session" }) as { ok?: boolean; error?: string };
+      if (!response?.ok) throw new Error(response?.error ?? "The new session could not be started.");
+      setMessages([]);
+      setPrompt("");
+      textareaRef.current?.focus();
+    } catch (error) {
+      setMessages((currentMessages) => [...currentMessages, {
+        id: Date.now(),
+        role: "assistant",
+        text: error instanceof Error ? error.message : "The new session could not be started.",
+      }]);
+    } finally {
+      setIsStartingSession(false);
+    }
+  }
+
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -86,6 +107,12 @@ function App() {
           <span className="status-dot" aria-hidden="true" />
           {connectionStatus}
         </span>
+        <button className="new-chat-button" type="button" onClick={() => void startNewSession()} disabled={isLoading || isStartingSession}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 1.25a.75.75 0 0 1 .75.75v5.25H14a.75.75 0 0 1 0 1.5H8.75V14a.75.75 0 0 1-1.5 0V8.75H2a.75.75 0 0 1 0-1.5h5.25V2A.75.75 0 0 1 8 1.25Z" />
+          </svg>
+          {isStartingSession ? "Starting..." : "New chat"}
+        </button>
       </header>
 
       <section className="conversation" aria-label="Current chat">

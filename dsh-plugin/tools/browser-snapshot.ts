@@ -144,7 +144,17 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     turn = run.then(() => undefined, () => undefined);
     return run;
   };
+  const onNewSession = () => {
+    const run = turn.then(async () => {
+      await handle?.agent.whenIdle();
+      handle?.dispose();
+      handle = undefined;
+    });
+    turn = run.then(() => undefined, () => undefined);
+    return run;
+  };
   bridge.setChatHandler(onChat);
+  bridge.setNewSessionHandler(onNewSession);
   await bridge.start();
   ctx.effect(() => () => { handle?.dispose(); return bridge.stop(); }, "dsh-browser-snapshot: websocket bridge");
   ctx.tools.register(defineTool({

@@ -86,6 +86,44 @@ h1 {
   white-space: nowrap;
 }
 
+.new-chat-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  color: #c7d2fe;
+  cursor: pointer;
+  background: #1b2944;
+  border: 1px solid #3b4f7b;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.new-chat-button:hover:not(:disabled) {
+  background: #26395e;
+  border-color: #6479b4;
+}
+
+.new-chat-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.new-chat-button:focus-visible {
+  outline: 2px solid #8da2ff;
+  outline-offset: 2px;
+}
+
+.new-chat-button svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
 .status-dot {
   width: 6px;
   height: 6px;
