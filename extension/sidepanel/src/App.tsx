@@ -15,6 +15,8 @@ const initialMessage: Message = {
 function App() {
   const [messages, setMessages] = useState<Message[]>([initialMessage]);
   const [prompt, setPrompt] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState("connecting");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
 
@@ -31,7 +33,19 @@ function App() {
     messagesRef.current?.lastElementChild?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  function sendMessage(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    chrome.runtime.sendMessage({ type: "dsh-bridge-status" }, (response) => {
+      if (chrome.runtime.lastError) return;
+      setConnectionStatus(response?.status === "connected" ? "connected" : response?.status ?? "disconnected");
+    });
+    const onMessage = (message: { type?: string; status?: string }) => {
+      if (message.type === "dsh-bridge-status" && message.status) setConnectionStatus(message.status);
+    };
+    chrome.runtime.onMessage.addListener(onMessage);
+    return () => chrome.runtime.onMessage.removeListener(onMessage);
+  }, []);
+
+  async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = prompt.trim();
 
@@ -44,6 +58,19 @@ function App() {
       { id: Date.now(), role: "user", text },
     ]);
     setPrompt("");
+    setIsLoading(true);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-browser-snapshot" }) as { ok?: boolean; snapshot?: { text?: string }; error?: string };
+      setMessages((currentMessages) => [...currentMessages, {
+        id: Date.now() + 1,
+        role: "assistant",
+        text: response?.ok && response.snapshot?.text ? response.snapshot.text : `I couldn't read the current page: ${response?.error ?? "The snapshot bridge is unavailable."}`,
+      }]);
+    } catch (error) {
+      setMessages((currentMessages) => [...currentMessages, { id: Date.now() + 1, role: "assistant", text: error instanceof Error ? error.message : "The snapshot bridge is unavailable." }]);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -63,7 +90,7 @@ function App() {
         </div>
         <span className="connection-status">
           <span className="status-dot" aria-hidden="true" />
-          UI preview
+          {connectionStatus}
         </span>
       </header>
 
@@ -105,7 +132,7 @@ function App() {
         />
         <div className="composer-footer">
           <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
-          <button className="send-button" type="submit" aria-label="Send message">
+          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading}>
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" />
             </svg>
