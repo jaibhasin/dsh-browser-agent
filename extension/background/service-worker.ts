@@ -1,5 +1,5 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, scrollBrowser } from "./browser-snapshot";
+import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, scrollBrowser, typeBrowserRef } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setRequestHandler(async (request) => {
@@ -18,6 +18,12 @@ bridge.setRequestHandler(async (request) => {
     const ref = (request.params as { ref?: unknown })?.ref;
     if (!Number.isInteger(ref) || (ref as number) < 1) throw new Error("Browser ref must be a positive integer.");
     return await clickBrowserRef(ref as number);
+  }
+  if (request.method === "type") {
+    const ref = (request.params as { ref?: unknown })?.ref;
+    const text = (request.params as { text?: unknown })?.text;
+    if (!Number.isInteger(ref) || (ref as number) < 1 || typeof text !== "string") throw new Error("Browser type requires a positive ref and text.");
+    return await typeBrowserRef(ref as number, text);
   }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
@@ -48,6 +54,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     void clickBrowserRef(ref as number)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Click failed." }));
+    return true;
+  }
+  if (message.type === "dsh-browser-type") {
+    const ref = (message as { ref?: unknown }).ref;
+    const text = (message as { text?: unknown }).text;
+    if (!Number.isInteger(ref) || (ref as number) < 1 || typeof text !== "string") { sendResponse({ ok: false, error: "Browser type requires a positive ref and text." }); return; }
+    void typeBrowserRef(ref as number, text)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Type failed." }));
     return true;
   }
   if (message.type === "dsh-chat") {

@@ -2,6 +2,7 @@ type SnapshotResult = { text: string };
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
 const SCROLL_MESSAGE = "dsh-browser-scroll";
 const CLICK_MESSAGE = "dsh-browser-click";
+const TYPE_MESSAGE = "dsh-browser-type";
 const LISTENER_INSTALLED_KEY = "__dshBrowserSnapshotListenerInstalled";
 const REFS_KEY = "__dshBrowserSnapshotRefs";
 
@@ -33,6 +34,12 @@ if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
     if (message.type === CLICK_MESSAGE) {
       const ref = (message as { ref?: unknown }).ref;
       sendResponse(clickRef(ref));
+      return;
+    }
+    if (message.type === TYPE_MESSAGE) {
+      const ref = (message as { ref?: unknown }).ref;
+      const text = (message as { text?: unknown }).text;
+      sendResponse(typeRef(ref, text));
     }
   });
   contentScriptState[LISTENER_INSTALLED_KEY] = true;
@@ -59,6 +66,39 @@ function clickRef(value: unknown): ClickResult {
   }
   (element as HTMLElement).click();
   return { ok: true };
+}
+
+type TypeResult = { typed: true } | { typed: false; error: string };
+
+function typeRef(value: unknown, text: unknown): TypeResult {
+  if (!Number.isInteger(value) || (value as number) < 1 || typeof text !== "string") return { typed: false, error: "Browser type requires a positive ref and text." };
+  const element = contentScriptState[REFS_KEY]?.get(value as number);
+  if (!element || !element.isConnected) return { typed: false, error: `No browser element found for ref [${value}]. Take a new browser_snapshot.` };
+  const style = getComputedStyle(element);
+  const rect = element.getBoundingClientRect();
+  const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
+  const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
+  if (element.closest('[aria-hidden="true"]') || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 ||
+    rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0 || rect.top >= viewportHeight || rect.left >= viewportWidth) {
+    return { typed: false, error: `Browser ref [${value}] is no longer visible. Take a new browser_snapshot.` };
+  }
+  if (element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true" || element.hasAttribute("readonly")) return { typed: false, error: `Browser ref [${value}] is disabled or readonly.` };
+  if (element instanceof HTMLInputElement) {
+    if (!["text", "search", "email", "url", "tel", "password", "number"].includes(element.type)) return { typed: false, error: "The referenced control is not a text input." };
+    element.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(element, text);
+  } else if (element instanceof HTMLTextAreaElement) {
+    element.focus();
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(element, text);
+  } else if (element instanceof HTMLElement && element.isContentEditable) {
+    element.focus();
+    element.textContent = text;
+  } else {
+    return { typed: false, error: "The referenced control is not a text input." };
+  }
+  element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+  return { typed: true };
 }
 
 /** Runs in the current page and produces a bounded semantic DOM representation. */
@@ -105,7 +145,7 @@ function collectSnapshot(): SnapshotResult {
   const interactive = (element: Element): boolean => {
     const tag = element.tagName.toLowerCase();
     const role = element.getAttribute("role");
-    return tag === "button" || (tag === "a" && element.hasAttribute("href")) || (tag === "input" && (element as HTMLInputElement).type !== "hidden") || tag === "select" || tag === "textarea" || element.hasAttribute("contenteditable") || role === "button" || role === "link" || role === "menuitem" || role === "option" || role === "tab" || element.hasAttribute("onclick");
+    return tag === "button" || (tag === "a" && element.hasAttribute("href")) || (tag === "input" && (element as HTMLInputElement).type !== "hidden") || tag === "select" || tag === "textarea" || element.hasAttribute("contenteditable") || role === "textbox" || role === "button" || role === "link" || role === "menuitem" || role === "option" || role === "tab" || element.hasAttribute("onclick");
   };
   for (const element of Array.from(document.querySelectorAll("body *"))) {
     const rendered = renderedState(element);

@@ -6,7 +6,9 @@ type SnapshotResult = { text: string };
 type BrowserScreenshotResult = { data: string; mediaType: "image/png" };
 type ScrollDirection = "up" | "down" | "left" | "right";
 const CLICK_MESSAGE = "dsh-browser-click";
+const TYPE_MESSAGE = "dsh-browser-type";
 type ClickResult = { ok: true } | { ok: false; error: string };
+type TypeResult = { typed: true } | { typed: false; error: string };
 
 /** Read the active tab's snapshot. */
 export async function captureBrowserSnapshot(): Promise<JsonValue> {
@@ -55,4 +57,18 @@ export async function clickBrowserRef(ref: number): Promise<JsonValue> {
   const click = result as ClickResult;
   if (!click.ok) throw new Error(click.error);
   return { clicked: true };
+}
+
+/** Fill a text control from the latest snapshot. */
+export async function typeBrowserRef(ref: number, text: string): Promise<JsonValue> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (tab?.id === undefined) throw new Error("No active browser tab is available.");
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
+  const result = await chrome.tabs.sendMessage(tab.id, { type: TYPE_MESSAGE, ref, text }) as unknown;
+  if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { typed?: unknown }).typed !== "boolean") {
+    throw new Error("The content script returned an invalid type result.");
+  }
+  const typed = result as TypeResult;
+  if (!typed.typed) throw new Error(typed.error);
+  return { typed: true };
 }
