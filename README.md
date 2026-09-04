@@ -2,7 +2,10 @@
 
 Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 
-It currently provides one read-only `browser_snapshot` tool.
+It provides `browser_snapshot` and `browser_scroll`.
+
+`browser_scroll` takes a direction (`up`, `down`, `left`, or `right`) and a pixel value from 1 to 1,000,000.
+It returns a fresh snapshot after scrolling.
 
 ## Workspace
 

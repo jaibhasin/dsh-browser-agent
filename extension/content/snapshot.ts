@@ -1,5 +1,6 @@
 type SnapshotResult = { text: string };
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
+const SCROLL_MESSAGE = "dsh-browser-scroll";
 const LISTENER_INSTALLED_KEY = "__dshBrowserSnapshotListenerInstalled";
 
 // executeScript may run this file repeatedly in the same tab. Keep one listener
@@ -7,8 +8,22 @@ const LISTENER_INSTALLED_KEY = "__dshBrowserSnapshotListenerInstalled";
 const contentScriptState = globalThis as typeof globalThis & { [LISTENER_INSTALLED_KEY]?: boolean };
 if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-    if (!message || typeof message !== "object" || !("type" in message) || message.type !== SNAPSHOT_MESSAGE) return;
-    sendResponse(collectSnapshot());
+    if (!message || typeof message !== "object" || !("type" in message)) return;
+    if (message.type === SNAPSHOT_MESSAGE) {
+      sendResponse(collectSnapshot());
+      return;
+    }
+    if (message.type === SCROLL_MESSAGE) {
+      const direction = (message as { direction?: unknown }).direction;
+      const value = (message as { value?: unknown }).value;
+      if (!["up", "down", "left", "right"].includes(direction as string) || typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 1_000_000) {
+        sendResponse({ error: "Invalid scroll parameters." });
+        return;
+      }
+      const distance = direction === "up" || direction === "left" ? -value : value;
+      window.scrollBy({ left: direction === "left" || direction === "right" ? distance : 0, top: direction === "up" || direction === "down" ? distance : 0, behavior: "instant" });
+      sendResponse(collectSnapshot());
+    }
   });
   contentScriptState[LISTENER_INSTALLED_KEY] = true;
 }

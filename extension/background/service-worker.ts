@@ -1,9 +1,18 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserSnapshot } from "./browser-snapshot";
+import { captureBrowserSnapshot, scrollBrowser } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setRequestHandler(async (request) => {
   if (request.method === "snapshot") return await captureBrowserSnapshot();
+  if (request.method === "scroll") {
+    const params = request.params;
+    if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("Scroll parameters are required.");
+    const direction = (params as { direction?: unknown }).direction;
+    const value = (params as { value?: unknown }).value;
+    if (!["up", "down", "left", "right"].includes(direction as string)) throw new Error("Scroll direction must be up, down, left, or right.");
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 1_000_000) throw new Error("Scroll value must be an integer from 1 to 1,000,000 pixels.");
+    return await scrollBrowser(direction as "up" | "down" | "left" | "right", value);
+  }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
 
