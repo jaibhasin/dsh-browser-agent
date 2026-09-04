@@ -1,18 +1,17 @@
 ```text
 Chrome Extension
-  - Side panel UI
-  - DOM + vision observations
-  - Scrolling, browsing, clicks, typing, and navigation
-  - Multi-tab awareness
-  - Human approval for dangerous actions
+  - Side panel chat UI
+  - DOM and accessibility snapshots
+  - Viewport and offscreen page state
              │
-             │ Secure WebSocket
+             │ Authenticated WebSocket
              ▼
 DSH Browser Plugin
   - Runs inside the local DSH Web host
-  - Registers browser tools with the agent
-  - Bridges tool calls to the Chrome extension
-  - Maintains browser and tab state
+  - Creates DSH agent sessions for extension chat
+  - Registers the browser_snapshot tool
+  - Bridges chat and tool calls to the Chrome extension
+  - Groups extension sessions by workspace
              │
              ▼
 DeepSeek Harness Web
