@@ -131,6 +131,95 @@ h1 {
   border-radius: 50%;
 }
 
+.agent-tab-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 16px;
+  color: #93a1b8;
+  background: #0e1624;
+  border-bottom: 1px solid #263449;
+  font-size: 10px;
+}
+
+.agent-tab-status span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-tab-status strong {
+  margin-right: 7px;
+  color: #8da2ff;
+}
+
+.agent-tab-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  background: #8da2ff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(141, 162, 255, 0.14);
+}
+
+.tab-switch-prompt {
+  margin: 12px 12px 0;
+  padding: 12px;
+  color: #cbd5e1;
+  background: #172033;
+  border: 1px solid #4c5f91;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.tab-switch-prompt strong {
+  color: #eef2ff;
+  font-size: 12px;
+}
+
+.tab-switch-prompt p {
+  margin: 5px 0 0;
+  color: #93a1b8;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.tab-switch-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.tab-switch-actions button {
+  padding: 6px 8px;
+  color: #aab8cd;
+  cursor: pointer;
+  background: #111827;
+  border: 1px solid #34445f;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.tab-switch-actions .tab-switch-primary {
+  color: #111827;
+  background: #8da2ff;
+  border-color: #8da2ff;
+}
+
+.tab-switch-actions button:focus-visible {
+  outline: 2px solid #a7b7ff;
+  outline-offset: 2px;
+}
+
+.tab-switch-actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .conversation {
   display: flex;
   flex: 1;
