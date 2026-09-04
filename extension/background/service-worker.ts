@@ -1,7 +1,10 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, scrollBrowser, typeBrowserRef } from "./browser-snapshot";
+import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, switchBrowserTab, typeBrowserRef } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
+bridge.setChatProgressHandler((progress) => {
+  void chrome.runtime.sendMessage({ type: "dsh-chat-progress", progress }).catch(() => undefined);
+});
 bridge.setRequestHandler(async (request) => {
   if (request.method === "snapshot") return await captureBrowserSnapshot();
   if (request.method === "screenshot") return await captureBrowserScreenshot();
@@ -24,6 +27,18 @@ bridge.setRequestHandler(async (request) => {
     const text = (request.params as { text?: unknown })?.text;
     if (!Number.isInteger(ref) || (ref as number) < 1 || typeof text !== "string") throw new Error("Browser type requires a positive ref and text.");
     return await typeBrowserRef(ref as number, text);
+  }
+  if (request.method === "navigate") {
+    const url = (request.params as { url?: unknown })?.url;
+    if (typeof url !== "string") throw new Error("Browser navigate requires a URL.");
+    const parsed = parseHttpUrl(url);
+    return await navigateBrowser(parsed.href);
+  }
+  if (request.method === "tabs") return await listBrowserTabs();
+  if (request.method === "switch_tab") {
+    const id = (request.params as { id?: unknown })?.id;
+    if (!Number.isInteger(id) || (id as number) < 0) throw new Error("Browser tab ID must be a non-negative integer.");
+    return await switchBrowserTab(id as number);
   }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
@@ -67,8 +82,10 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   }
   if (message.type === "dsh-chat") {
     const text = (message as { text?: unknown }).text;
+    const id = (message as { id?: unknown }).id;
     if (typeof text !== "string" || !text.trim()) { sendResponse({ ok: false, error: "Message is empty." }); return; }
-    void bridge.chat(text.trim())
+    if (typeof id !== "string" || !id) { sendResponse({ ok: false, error: "Chat request ID is invalid." }); return; }
+    void bridge.chat(id, text.trim())
       .then((reply) => sendResponse({ ok: true, text: reply }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "DSH chat failed." }));
     return true;
@@ -93,4 +110,17 @@ function isBridgeConfiguration(value: unknown): value is BridgeConfiguration {
   return typeof value === "object" && value !== null &&
     "url" in value && typeof value.url === "string" &&
     "token" in value && typeof value.token === "string";
+}
+
+function parseHttpUrl(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Browser navigate requires an absolute HTTP or HTTPS URL.");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Browser navigate supports only HTTP and HTTPS URLs.");
+  }
+  return url;
 }

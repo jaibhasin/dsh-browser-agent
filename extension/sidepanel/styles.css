@@ -228,6 +228,73 @@ h1 {
   background: #161f31;
 }
 
+.tool-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  margin-left: 33px;
+  background: #101827;
+  border: 1px solid #263449;
+  border-radius: 9px;
+}
+
+.tool-step {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  color: #93a1b8;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tool-status {
+  width: 7px;
+  height: 7px;
+  background: #64748b;
+  border-radius: 50%;
+}
+
+.tool-step-running .tool-status {
+  background: #8da2ff;
+  box-shadow: 0 0 0 3px rgba(141, 162, 255, 0.15);
+}
+
+.tool-step-success .tool-status {
+  background: #4ade80;
+}
+
+.tool-step-error .tool-status {
+  background: #f87171;
+}
+
+.tool-name {
+  min-width: 0;
+  color: #cbd5e1;
+  font-weight: 650;
+}
+
+.tool-detail {
+  grid-column: 2;
+  overflow: hidden;
+  color: #718096;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-result {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  color: #718096;
+  font-size: 10px;
+}
+
+.tool-step-error .tool-detail,
+.tool-step-error .tool-result {
+  color: #fca5a5;
+}
+
 .composer {
   margin: 0 12px 12px;
   padding: 9px 10px 8px 12px;

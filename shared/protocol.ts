@@ -13,7 +13,16 @@ export type BridgeChat = { type: "chat"; id: string; text: string };
 export type BridgeChatResponse = { type: "chat_response"; id: string; text?: string; error?: { code: string; message: string } };
 export type BridgeNewSession = { type: "new_session"; id: string };
 export type BridgeNewSessionResponse = { type: "new_session_response"; id: string; error?: { code: string; message: string } };
-export type BridgeMessage = BridgeHello | BridgeWelcome | BridgeRequest | BridgeResponse | BridgeEvent | BridgePing | BridgePong | BridgeChat | BridgeChatResponse | BridgeNewSession | BridgeNewSessionResponse;
+export type BridgeChatProgress = {
+  type: "chat_progress";
+  id: string;
+  phase: "tool_started" | "tool_finished" | "tool_failed";
+  callId: string;
+  tool: string;
+  detail?: string;
+  error?: string;
+};
+export type BridgeMessage = BridgeHello | BridgeWelcome | BridgeRequest | BridgeResponse | BridgeEvent | BridgePing | BridgePong | BridgeChat | BridgeChatResponse | BridgeNewSession | BridgeNewSessionResponse | BridgeChatProgress;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -45,6 +54,15 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
       return typeof value.id === "string" ? value as BridgeNewSession : undefined;
     case "new_session_response":
       return typeof value.id === "string" && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeNewSessionResponse : undefined;
+    case "chat_progress":
+      return typeof value.id === "string" &&
+        typeof value.callId === "string" &&
+        typeof value.tool === "string" &&
+        (value.phase === "tool_started" || value.phase === "tool_finished" || value.phase === "tool_failed") &&
+        (value.detail === undefined || typeof value.detail === "string") &&
+        (value.error === undefined || typeof value.error === "string")
+        ? value as BridgeChatProgress
+        : undefined;
     case "event":
       return typeof value.event === "string" && isJsonValue(value.payload) ? value as BridgeEvent : undefined;
     case "ping":

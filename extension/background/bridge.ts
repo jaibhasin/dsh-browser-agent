@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
+import { PROTOCOL_VERSION, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
 
 const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
@@ -6,6 +6,7 @@ const RECONNECT_MAX_MS = 30_000;
 export type BridgeConfiguration = { url: string; token: string };
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "error";
 type RequestHandler = (request: BridgeRequest) => Promise<JsonValue> | JsonValue;
+type ChatProgressHandler = (progress: BridgeChatProgress) => void;
 
 export class ExtensionBridge {
   private socket?: WebSocket;
@@ -13,6 +14,7 @@ export class ExtensionBridge {
   private reconnectDelayMs = 1_000;
   private status: BridgeStatus = "disconnected";
   private requestHandler?: RequestHandler;
+  private chatProgressHandler?: ChatProgressHandler;
   private chatRequests = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
   private sessionRequests = new Map<string, { resolve: () => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
 
@@ -30,9 +32,10 @@ export class ExtensionBridge {
   }
   getStatus(): BridgeStatus { return this.status; }
   setRequestHandler(handler: RequestHandler): void { this.requestHandler = handler; }
-  chat(text: string): Promise<string> {
+  setChatProgressHandler(handler: ChatProgressHandler): void { this.chatProgressHandler = handler; }
+  chat(id: string, text: string): Promise<string> {
     if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("The DSH browser bridge is not connected."));
-    const id = crypto.randomUUID();
+    if (!id || this.chatRequests.has(id)) return Promise.reject(new Error("The chat request ID is invalid or already in use."));
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => { this.chatRequests.delete(id); reject(new Error("DSH chat timed out.")); }, 120_000);
       this.chatRequests.set(id, { resolve, reject, timeout });
@@ -75,6 +78,7 @@ export class ExtensionBridge {
       if (message.type === "welcome") { this.reconnectDelayMs = 1_000; this.setStatus("connected"); }
       else if (message.type === "ping") this.send({ type: "pong" });
       else if (message.type === "request") void this.handleRequest(message);
+      else if (message.type === "chat_progress") this.chatProgressHandler?.(message);
       else if (message.type === "chat_response") this.resolveChat(message);
       else if (message.type === "new_session_response") this.resolveNewSession(message);
     } catch { /* Invalid peer data never reaches browser automation code. */ }
