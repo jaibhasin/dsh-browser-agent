@@ -8,7 +8,7 @@ import { DshBrowserWebSocketBridge } from "../websocket/server.js";
 import { randomUUID } from "node:crypto";
 
 export const name = "dsh-browser-snapshot";
-export const inject = ["tools", "agents", "agentDefaultModel"];
+export const inject = ["tools", "agents", "agentDefaultModel", "workspaceRegistry"];
 
 export interface BrowserSnapshotPluginConfig {
   token: string;
@@ -24,6 +24,10 @@ interface PluginLoader {
   await(): Promise<void>;
 }
 
+interface WorkspaceRegistry {
+  create(path: string): Promise<{ attachSession(sessionId: SessionId): Promise<void> }>;
+}
+
 /** Shape of an `assistant/message` session event as observed on the durable log. */
 interface AssistantMessageEvent {
   type: string;
@@ -37,6 +41,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   if (!agents) throw new Error("DSH agent runtime is unavailable.");
   const defaultModel = ctx.get("agentDefaultModel") as AgentDefaultModel | undefined;
   const loader = ctx.get("loader") as PluginLoader | undefined;
+  const workspaceRegistry = ctx.get("workspaceRegistry") as WorkspaceRegistry | undefined;
 
   let handle: AgentHandle | undefined;
   let turn = Promise.resolve();
@@ -49,7 +54,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     if (!selection?.provider || !selection?.model) {
       throw new Error("DSH browser agent has no default model configured; select a model for this profile.");
     }
-    return agents.create({
+    if (!workspaceRegistry) throw new Error("DSH workspace registry is unavailable.");
+    const created = await agents.create({
       sessionId: brandString<SessionId>(`session-${randomUUID()}`),
       meta: { cwd: process.cwd() },
       agentOptions: { provider: selection.provider, model: selection.model },
@@ -59,6 +65,14 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         installModelSelection(agentCtx, { current: selection, assembled: undefined });
       },
     } satisfies CreateAgentOptions);
+    try {
+      const workspace = await workspaceRegistry.create(process.cwd());
+      await workspace.attachSession(created.agent.session.id);
+      return created;
+    } catch (error) {
+      await created.dispose();
+      throw error;
+    }
   };
 
   const extractAssistantText = (event: AssistantMessageEvent): string => {

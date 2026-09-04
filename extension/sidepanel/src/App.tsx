@@ -6,14 +6,8 @@ type Message = {
   text: string;
 };
 
-const initialMessage: Message = {
-  id: 1,
-  role: "assistant",
-  text: "Ready when you are. Browser actions will appear here.",
-};
-
 function App() {
-  const [messages, setMessages] = useState<Message[]>([initialMessage]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
