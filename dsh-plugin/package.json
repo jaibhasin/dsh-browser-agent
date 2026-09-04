@@ -5,6 +5,9 @@
   "type": "module",
   "main": "./dist/dsh-plugin/index.js",
   "types": "./dist/dsh-plugin/index.d.ts",
+  "scripts": {
+    "test:bridge": "node scripts/bridge-test.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
