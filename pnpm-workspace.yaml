@@ -1,0 +1,5 @@
+packages:
+  - dsh-plugin
+
+allowBuilds:
+  esbuild: true
