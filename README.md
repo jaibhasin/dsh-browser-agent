@@ -2,7 +2,9 @@
 
 Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 
-It currently provides one read-only `browser_snapshot` tool.
+It provides `browser_snapshot` and `browser_click` tools.
+
+`browser_click` uses a visible, enabled `ref` from the latest snapshot.
 
 ## Workspace
 

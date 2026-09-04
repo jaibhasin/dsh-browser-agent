@@ -1,9 +1,14 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserSnapshot } from "./browser-snapshot";
+import { captureBrowserSnapshot, clickBrowserRef } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setRequestHandler(async (request) => {
   if (request.method === "snapshot") return await captureBrowserSnapshot();
+  if (request.method === "click") {
+    const ref = (request.params as { ref?: unknown })?.ref;
+    if (!Number.isInteger(ref) || (ref as number) < 1) throw new Error("Browser ref must be a positive integer.");
+    return await clickBrowserRef(ref as number);
+  }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
 
@@ -25,6 +30,14 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     void captureBrowserSnapshot()
       .then((snapshot) => sendResponse({ ok: true, snapshot }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Snapshot failed." }));
+    return true;
+  }
+  if (message.type === "dsh-browser-click") {
+    const ref = (message as { ref?: unknown }).ref;
+    if (!Number.isInteger(ref) || (ref as number) < 1) { sendResponse({ ok: false, error: "Browser ref must be a positive integer." }); return; }
+    void clickBrowserRef(ref as number)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Click failed." }));
     return true;
   }
   if (message.type === "dsh-chat") {
