@@ -1,5 +1,5 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, scrollBrowser, typeBrowserRef } from "./browser-snapshot";
+import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, switchBrowserTab, typeBrowserRef } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setRequestHandler(async (request) => {
@@ -24,6 +24,18 @@ bridge.setRequestHandler(async (request) => {
     const text = (request.params as { text?: unknown })?.text;
     if (!Number.isInteger(ref) || (ref as number) < 1 || typeof text !== "string") throw new Error("Browser type requires a positive ref and text.");
     return await typeBrowserRef(ref as number, text);
+  }
+  if (request.method === "navigate") {
+    const url = (request.params as { url?: unknown })?.url;
+    if (typeof url !== "string") throw new Error("Browser navigate requires a URL.");
+    const parsed = parseHttpUrl(url);
+    return await navigateBrowser(parsed.href);
+  }
+  if (request.method === "tabs") return await listBrowserTabs();
+  if (request.method === "switch_tab") {
+    const id = (request.params as { id?: unknown })?.id;
+    if (!Number.isInteger(id) || (id as number) < 0) throw new Error("Browser tab ID must be a non-negative integer.");
+    return await switchBrowserTab(id as number);
   }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
@@ -87,4 +99,17 @@ function isBridgeConfiguration(value: unknown): value is BridgeConfiguration {
   return typeof value === "object" && value !== null &&
     "url" in value && typeof value.url === "string" &&
     "token" in value && typeof value.token === "string";
+}
+
+function parseHttpUrl(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Browser navigate requires an absolute HTTP or HTTPS URL.");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Browser navigate supports only HTTP and HTTPS URLs.");
+  }
+  return url;
 }
