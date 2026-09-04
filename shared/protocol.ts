@@ -11,7 +11,16 @@ export type BridgePing = { type: "ping" };
 export type BridgePong = { type: "pong" };
 export type BridgeChat = { type: "chat"; id: string; text: string };
 export type BridgeChatResponse = { type: "chat_response"; id: string; text?: string; error?: { code: string; message: string } };
-export type BridgeMessage = BridgeHello | BridgeWelcome | BridgeRequest | BridgeResponse | BridgeEvent | BridgePing | BridgePong | BridgeChat | BridgeChatResponse;
+export type BridgeChatProgress = {
+  type: "chat_progress";
+  id: string;
+  phase: "tool_started" | "tool_finished" | "tool_failed";
+  callId: string;
+  tool: string;
+  detail?: string;
+  error?: string;
+};
+export type BridgeMessage = BridgeHello | BridgeWelcome | BridgeRequest | BridgeResponse | BridgeEvent | BridgePing | BridgePong | BridgeChat | BridgeChatResponse | BridgeChatProgress;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -39,6 +48,15 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
       return typeof value.id === "string" && typeof value.text === "string" ? value as BridgeChat : undefined;
     case "chat_response":
       return typeof value.id === "string" && (value.text === undefined || typeof value.text === "string") && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeChatResponse : undefined;
+    case "chat_progress":
+      return typeof value.id === "string" &&
+        typeof value.callId === "string" &&
+        typeof value.tool === "string" &&
+        (value.phase === "tool_started" || value.phase === "tool_finished" || value.phase === "tool_failed") &&
+        (value.detail === undefined || typeof value.detail === "string") &&
+        (value.error === undefined || typeof value.error === "string")
+        ? value as BridgeChatProgress
+        : undefined;
     case "event":
       return typeof value.event === "string" && isJsonValue(value.payload) ? value as BridgeEvent : undefined;
     case "ping":

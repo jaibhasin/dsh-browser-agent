@@ -2,16 +2,14 @@
 
 Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 
-It provides `browser_snapshot`, `browser_scroll`, `browser_click`, `browser_screenshot`, `browser_navigate`, `browser_tabs`, and `browser_switch_tab`.
-It also provides `browser_type(ref, text)` for filling visible text controls.
-
-`browser_scroll` takes a direction (`up`, `down`, `left`, or `right`) and a pixel value from 1 to 1,000,000.
-It returns a fresh snapshot after scrolling.
-`browser_click` uses a visible, enabled `ref` from the latest snapshot.
-`browser_screenshot` attaches the active tab's visible viewport as a PNG image.
-`browser_navigate(url)` navigates the active tab to an absolute HTTP or HTTPS URL.
-`browser_tabs()` lists every open tab with its ID, title, URL, window ID, and active state.
-`browser_switch_tab(id)` focuses the tab's window and makes that tab active.
+- `browser_snapshot` - Returns an accessibility snapshot of the active tab.
+- `browser_screenshot` - Captures the active tab's visible viewport as a PNG.
+- `browser_scroll` - Scrolls the active tab in a chosen direction by a pixel amount.
+- `browser_click` - Clicks a visible, enabled element from the latest snapshot.
+- `browser_type` - Fills a visible text control from the latest snapshot.
+- `browser_navigate` - Navigates the active tab to an HTTP or HTTPS URL.
+- `browser_tabs` - Lists every open browser tab.
+- `browser_switch_tab` - Focuses the specified browser tab.
 
 ## Workspace
 
