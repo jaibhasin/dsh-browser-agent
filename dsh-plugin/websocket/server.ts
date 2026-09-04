@@ -9,6 +9,7 @@ export type DshBrowserBridgeOptions = {
   requestTimeoutMs?: number;
   onExtensionEvent?: (event: string, payload: JsonValue) => void;
   onChat?: (text: string, chatId: string) => Promise<string>;
+  onNewSession?: () => Promise<void>;
 };
 type PendingRequest = { resolve: (value: JsonValue) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout>; cleanup: () => void };
 
@@ -38,6 +39,7 @@ export class DshBrowserWebSocketBridge {
   }
   isConnected(): boolean { return this.extension?.readyState === WebSocket.OPEN; }
   setChatHandler(handler: (text: string, chatId: string) => Promise<string>): void { this.options.onChat = handler; }
+  setNewSessionHandler(handler: () => Promise<void>): void { this.options.onNewSession = handler; }
   sendChatProgress(progress: Omit<BridgeChatProgress, "type">): void {
     if (!this.extension) return;
     this.send(this.extension, { type: "chat_progress", ...progress });
@@ -94,6 +96,15 @@ export class DshBrowserWebSocketBridge {
         this.send(socket, { type: "chat_response", id: message.id, text: await this.options.onChat(message.text, message.id) });
       } catch (error) {
         this.send(socket, { type: "chat_response", id: message.id, error: { code: "DSH_CHAT_FAILED", message: error instanceof Error ? error.message : "DSH chat failed." } });
+      }
+    }
+    if (message.type === "new_session") {
+      try {
+        if (!this.options.onNewSession) throw new Error("DSH sessions are not configured.");
+        await this.options.onNewSession();
+        this.send(socket, { type: "new_session_response", id: message.id });
+      } catch (error) {
+        this.send(socket, { type: "new_session_response", id: message.id, error: { code: "DSH_NEW_SESSION_FAILED", message: error instanceof Error ? error.message : "New session failed." } });
       }
     }
   }
