@@ -1,14 +1,27 @@
 type SnapshotResult = { text: string };
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
+const TYPE_MESSAGE = "dsh-browser-type";
 const LISTENER_INSTALLED_KEY = "__dshBrowserSnapshotListenerInstalled";
 
-// executeScript may run this file repeatedly in the same tab. Keep one listener
-// for the lifetime of that page, then reuse it for every snapshot request.
+// Keep one listener per page across repeated injection.
 const contentScriptState = globalThis as typeof globalThis & { [LISTENER_INSTALLED_KEY]?: boolean };
 if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-    if (!message || typeof message !== "object" || !("type" in message) || message.type !== SNAPSHOT_MESSAGE) return;
-    sendResponse(collectSnapshot());
+    if (!message || typeof message !== "object" || !("type" in message)) return;
+    if (message.type === SNAPSHOT_MESSAGE) {
+      sendResponse(collectSnapshot());
+      return;
+    }
+    if (message.type === TYPE_MESSAGE) {
+      const ref = (message as { ref?: unknown }).ref;
+      const text = (message as { text?: unknown }).text;
+      if (typeof ref !== "string" || typeof text !== "string") {
+        sendResponse({ error: "Typing requires a ref and text." });
+        return;
+      }
+      try { sendResponse(typeIntoControl(ref, text)); }
+      catch (error) { sendResponse({ error: error instanceof Error ? error.message : "Typing failed." }); }
+    }
   });
   contentScriptState[LISTENER_INSTALLED_KEY] = true;
 }
@@ -55,7 +68,7 @@ function collectSnapshot(): SnapshotResult {
   const interactive = (element: Element): boolean => {
     const tag = element.tagName.toLowerCase();
     const role = element.getAttribute("role");
-    return tag === "button" || (tag === "a" && element.hasAttribute("href")) || (tag === "input" && (element as HTMLInputElement).type !== "hidden") || tag === "select" || tag === "textarea" || element.hasAttribute("contenteditable") || role === "button" || role === "link" || role === "menuitem" || role === "option" || role === "tab" || element.hasAttribute("onclick");
+    return tag === "button" || (tag === "a" && element.hasAttribute("href")) || (tag === "input" && (element as HTMLInputElement).type !== "hidden") || tag === "select" || tag === "textarea" || element.hasAttribute("contenteditable") || role === "textbox" || role === "button" || role === "link" || role === "menuitem" || role === "option" || role === "tab" || element.hasAttribute("onclick");
   };
   for (const element of Array.from(document.querySelectorAll("body *"))) {
     const state = renderedState(element);
@@ -99,3 +112,52 @@ function collectSnapshot(): SnapshotResult {
   ].join("\n");
   return { text: text.length > maxTextLength ? `${text.slice(0, maxTextLength)}\n[truncated]` : text };
 }
+
+/** Resolve and fill a visible control by snapshot ref. */
+function typeIntoControl(ref: string, text: string): TypeResult {
+  const match = /^\[?(\d+)\]?$/.exec(ref.trim());
+  const requested = match ? Number(match[1]) : NaN;
+  if (!Number.isSafeInteger(requested) || requested < 1) throw new Error("Invalid browser_snapshot ref.");
+  let controlNumber = 0;
+  const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
+  const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
+  for (const element of Array.from(document.querySelectorAll("body *"))) {
+    const style = getComputedStyle(element);
+    if (element.closest('[aria-hidden="true"]') || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
+    const rects = Array.from(element.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+    if (!rects.some((rect) => rect.bottom > 0 && rect.right > 0 && rect.top < viewportHeight && rect.left < viewportWidth)) continue;
+    const tag = element.tagName.toLowerCase();
+    const role = element.getAttribute("role");
+    const interactive = tag === "button" || (tag === "a" && element.hasAttribute("href")) || (tag === "input" && (element as HTMLInputElement).type !== "hidden") || tag === "select" || tag === "textarea" || element.hasAttribute("contenteditable") || role === "textbox" || role === "button" || role === "link" || role === "menuitem" || role === "option" || role === "tab" || element.hasAttribute("onclick");
+    if (!interactive) continue;
+    controlNumber += 1;
+    if (controlNumber !== requested) continue;
+    if (element instanceof HTMLInputElement) {
+      if (!["text", "search", "email", "url", "tel", "password", "number"].includes(element.type)) throw new Error("The referenced control is not a text input.");
+      if (element.disabled || element.readOnly) throw new Error("The referenced input is disabled or readonly.");
+      element.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(element, text);
+      element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      return { text: `Typed text into browser_snapshot ref [${requested}].` };
+    }
+    if (element instanceof HTMLTextAreaElement) {
+      if (element.disabled || element.readOnly) throw new Error("The referenced textarea is disabled or readonly.");
+      element.focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(element, text);
+      element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      return { text: `Typed text into browser_snapshot ref [${requested}].` };
+    }
+    if (element instanceof HTMLElement && element.isContentEditable) {
+      element.focus();
+      element.textContent = text;
+      element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+      return { text: `Typed text into browser_snapshot ref [${requested}].` };
+    }
+    throw new Error("The referenced control is not a text input.");
+  }
+  throw new Error(`No visible browser_snapshot control found for ref [${requested}].`);
+}
+
+type TypeResult = { text: string };

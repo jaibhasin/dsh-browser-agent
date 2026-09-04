@@ -1,9 +1,16 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserSnapshot } from "./browser-snapshot";
+import { captureBrowserSnapshot, typeIntoBrowser } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setRequestHandler(async (request) => {
   if (request.method === "snapshot") return await captureBrowserSnapshot();
+  if (request.method === "type") {
+    const params = request.params;
+    if (!params || typeof params !== "object" || Array.isArray(params) || typeof params.ref !== "string" || typeof params.text !== "string") {
+      throw new Error("Typing requires a ref and text.");
+    }
+    return await typeIntoBrowser(params.ref, params.text);
+  }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
 
@@ -25,6 +32,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     void captureBrowserSnapshot()
       .then((snapshot) => sendResponse({ ok: true, snapshot }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Snapshot failed." }));
+    return true;
+  }
+  if (message.type === "dsh-browser-type") {
+    const ref = (message as { ref?: unknown }).ref;
+    const text = (message as { text?: unknown }).text;
+    if (typeof ref !== "string" || typeof text !== "string") { sendResponse({ ok: false, error: "Typing requires a ref and text." }); return; }
+    void typeIntoBrowser(ref, text)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Typing failed." }));
     return true;
   }
   if (message.type === "dsh-chat") {
