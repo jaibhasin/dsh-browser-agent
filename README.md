@@ -22,3 +22,5 @@ DeepSeek Harness Web
              ▼
 LLM / Agents / Tools
 ```
+
+DSH documentation: https://deepseek-harness.github.io/deepseek-harness/en/
