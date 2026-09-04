@@ -7,8 +7,17 @@ type BrowserScreenshotResult = { data: string; mediaType: "image/png" };
 type ScrollDirection = "up" | "down" | "left" | "right";
 const CLICK_MESSAGE = "dsh-browser-click";
 const TYPE_MESSAGE = "dsh-browser-type";
+const WAIT_MESSAGE = "dsh-browser-wait";
 type ClickResult = { ok: true } | { ok: false; error: string };
 type TypeResult = { typed: true } | { typed: false; error: string };
+type WaitResult = {
+  settled: boolean;
+  waitedMs: number;
+  documentComplete: boolean;
+  domQuietForMs: number;
+  busyElements: number;
+  text: string;
+};
 export type BrowserTab = {
   id: number;
   windowId: number;
@@ -91,12 +100,55 @@ export async function typeBrowserRef(ref: number, text: string): Promise<JsonVal
   return { typed: true };
 }
 
+/** Wait for a short quiet period and return a fresh snapshot with readiness signals. */
+export async function waitForBrowserSettled(timeoutMs: number): Promise<JsonValue> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (tab?.id === undefined) throw new Error("No active browser tab is available.");
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
+  const result = await chrome.tabs.sendMessage(tab.id, { type: WAIT_MESSAGE, timeoutMs }) as unknown;
+  if (!result || typeof result !== "object" || Array.isArray(result) ||
+    typeof (result as { settled?: unknown }).settled !== "boolean" ||
+    typeof (result as { waitedMs?: unknown }).waitedMs !== "number" ||
+    typeof (result as { documentComplete?: unknown }).documentComplete !== "boolean" ||
+    typeof (result as { domQuietForMs?: unknown }).domQuietForMs !== "number" ||
+    typeof (result as { busyElements?: unknown }).busyElements !== "number" ||
+    typeof (result as { text?: unknown }).text !== "string") {
+    throw new Error("The content script returned an invalid page wait result.");
+  }
+  return result as WaitResult;
+}
+
 /** Navigate the active tab in the focused browser window to an HTTP(S) URL. */
 export async function navigateBrowser(url: string): Promise<JsonValue> {
   const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (activeTab?.id === undefined) throw new Error("No active browser tab is available.");
-  const tab = await chrome.tabs.update(activeTab.id, { url });
+  await chrome.tabs.update(activeTab.id, { url });
+  const tab = await waitForTabLoad(activeTab.id, 2_500);
   return { tab: toBrowserTab(tab) };
+}
+
+function waitForTabLoad(tabId: number, timeoutMs: number): Promise<chrome.tabs.Tab> {
+  return new Promise((resolve) => {
+    let complete = false;
+    const finish = (tab: chrome.tabs.Tab) => {
+      if (complete) return;
+      complete = true;
+      clearTimeout(timeout);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(tab);
+    };
+    const onUpdated = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
+      if (updatedTabId === tabId && changeInfo.status === "complete") finish(tab);
+    };
+    const timeout = setTimeout(async () => {
+      const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+      if (tab) finish(tab);
+    }, timeoutMs);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    void chrome.tabs.get(tabId).then((tab) => {
+      if (tab.status === "complete") finish(tab);
+    }).catch(() => undefined);
+  });
 }
 
 /** List every currently open browser tab. */

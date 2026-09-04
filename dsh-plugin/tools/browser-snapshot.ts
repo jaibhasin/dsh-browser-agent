@@ -22,6 +22,10 @@ Reason privately. Never narrate your planning, tool selection, or tool availabil
 Use tools directly when they are needed.
 The interface reports tool activity separately, so your final response must contain only the outcome, caveats, or a concise next question.
 Do not mention tool calls unless one fails. Keep normal final responses to two sentences or fewer.
+After navigation, search submission, or another action that changes page content, inspect the current state first.
+If the page is still loading or the expected content is absent, call browser_wait once with a 1,000 to 3,000 ms timeout.
+browser_wait returns a fresh snapshot, so use that result rather than immediately taking another snapshot.
+Do not repeat an equivalent navigation, click, or text entry unless the prior action failed or the page state has changed.
 Be concise by default. Expand only when detail materially helps.
 Prefer concrete answers over vague explanations.
 Have a point of view. Do not hedge unnecessarily.
@@ -63,6 +67,15 @@ interface BrowserTab {
 
 interface BrowserTabToolResult {
   tab: BrowserTab;
+}
+
+interface BrowserWaitResult {
+  settled: boolean;
+  waitedMs: number;
+  documentComplete: boolean;
+  domQuietForMs: number;
+  busyElements: number;
+  snapshot: string;
 }
 
 /** Shape of an `assistant/message` session event as observed on the durable log. */
@@ -312,6 +325,64 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     },
   }));
   ctx.tools.register(defineTool({
+    name: "browser_wait",
+    description: "Wait only when a current snapshot shows a loading or transitional state, then return a fresh snapshot with readiness signals. Do not use before the first inspection or as a substitute for reading page content. This does not guarantee that a requested result exists.",
+    parameters: {
+      timeoutMs: { type: "integer", required: true, description: "Maximum wait in milliseconds (250 to 10,000). Use 1,000 to 3,000 for a loading page." },
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          settled: { type: "boolean", required: true },
+          waitedMs: { type: "integer", required: true },
+          documentComplete: { type: "boolean", required: true },
+          domQuietForMs: { type: "integer", required: true },
+          busyElements: { type: "integer", required: true },
+          snapshot: { type: "string", required: true },
+        },
+      },
+      render: (_args, value) => {
+        const result = value as BrowserWaitResult;
+        const state = result.settled ? "Page settled" : "Page may still be loading";
+        return [{ type: "text", text: `${state} after ${result.waitedMs} ms (document complete: ${result.documentComplete}, visible busy elements: ${result.busyElements}).\n\n${result.snapshot}` }];
+      },
+    },
+    async execute(args, exec) {
+      const timeoutMs = (args as { timeoutMs?: unknown }).timeoutMs;
+      if (!Number.isSafeInteger(timeoutMs) || (timeoutMs as number) < 250 || (timeoutMs as number) > 10_000) {
+        throw new Error("Browser wait timeout must be an integer from 250 to 10,000 milliseconds.");
+      }
+      const result = await bridge.request("wait", { timeoutMs: timeoutMs as number }, exec.signal);
+      if (!result || typeof result !== "object" || Array.isArray(result) ||
+        typeof (result as { settled?: unknown }).settled !== "boolean" ||
+        typeof (result as { waitedMs?: unknown }).waitedMs !== "number" ||
+        typeof (result as { documentComplete?: unknown }).documentComplete !== "boolean" ||
+        typeof (result as { domQuietForMs?: unknown }).domQuietForMs !== "number" ||
+        typeof (result as { busyElements?: unknown }).busyElements !== "number" ||
+        typeof (result as { text?: unknown }).text !== "string") {
+        throw new Error("The browser extension returned an invalid page wait result.");
+      }
+      const wait = result as {
+        settled: boolean;
+        waitedMs: number;
+        documentComplete: boolean;
+        domQuietForMs: number;
+        busyElements: number;
+        text: string;
+      };
+      return {
+        settled: wait.settled,
+        waitedMs: Math.round(wait.waitedMs),
+        documentComplete: wait.documentComplete,
+        domQuietForMs: Math.round(wait.domQuietForMs),
+        busyElements: Math.round(wait.busyElements),
+        snapshot: wait.text,
+      } satisfies BrowserWaitResult;
+    },
+  }));
+  ctx.tools.register(defineTool({
     name: "browser_screenshot",
     description: "Capture and attach a PNG screenshot of the currently visible browser viewport. The screenshot contains only the active tab's visible viewport at the time of the call.",
     parameters: {},
@@ -498,6 +569,10 @@ function toolCallIdFromResult(event: ToolResultEvent): string | undefined {
 function describeToolInput(tool: string, rawArguments: unknown): string {
   const args = parseToolArguments(rawArguments);
   if (tool === "browser_snapshot") return "Current page";
+  if (tool === "browser_wait") {
+    const timeoutMs = integerArgument(args, "timeoutMs");
+    return timeoutMs === undefined ? "Current page" : `Up to ${timeoutMs}ms`;
+  }
   if (tool === "browser_screenshot") return "Current viewport";
   if (tool === "browser_tabs") return "Open tabs";
   if (tool === "browser_click") return describeReference(args, "Element");

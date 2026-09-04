@@ -3,6 +3,7 @@ const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
 const SCROLL_MESSAGE = "dsh-browser-scroll";
 const CLICK_MESSAGE = "dsh-browser-click";
 const TYPE_MESSAGE = "dsh-browser-type";
+const WAIT_MESSAGE = "dsh-browser-wait";
 const LISTENER_INSTALLED_KEY = "__dshBrowserSnapshotListenerInstalled";
 const REFS_KEY = "__dshBrowserSnapshotRefs";
 
@@ -40,6 +41,18 @@ if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
       const ref = (message as { ref?: unknown }).ref;
       const text = (message as { text?: unknown }).text;
       sendResponse(typeRef(ref, text));
+      return;
+    }
+    if (message.type === WAIT_MESSAGE) {
+      const timeoutMs = (message as { timeoutMs?: unknown }).timeoutMs;
+      if (typeof timeoutMs !== "number" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 10_000) {
+        sendResponse({ error: "Wait timeout must be an integer from 250 to 10,000 milliseconds." });
+        return;
+      }
+      void waitForPageSettled(timeoutMs)
+        .then(sendResponse)
+        .catch((error: unknown) => sendResponse({ error: error instanceof Error ? error.message : "Page wait failed." }));
+      return true;
     }
   });
   contentScriptState[LISTENER_INSTALLED_KEY] = true;
@@ -69,6 +82,14 @@ function clickRef(value: unknown): ClickResult {
 }
 
 type TypeResult = { typed: true } | { typed: false; error: string };
+type WaitResult = {
+  settled: boolean;
+  waitedMs: number;
+  documentComplete: boolean;
+  domQuietForMs: number;
+  busyElements: number;
+  text: string;
+};
 
 function typeRef(value: unknown, text: unknown): TypeResult {
   if (!Number.isInteger(value) || (value as number) < 1 || typeof text !== "string") return { typed: false, error: "Browser type requires a positive ref and text." };
@@ -99,6 +120,58 @@ function typeRef(value: unknown, text: unknown): TypeResult {
   element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
   element.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: true };
+}
+
+/** Wait briefly for the current document to become quiet enough for inspection. */
+function waitForPageSettled(timeoutMs: number): Promise<WaitResult> {
+  const minimumWaitMs = Math.min(250, timeoutMs);
+  const quietPeriodMs = Math.min(400, timeoutMs);
+  const startedAt = performance.now();
+  let lastMutationAt = startedAt;
+  const observer = new MutationObserver(() => { lastMutationAt = performance.now(); });
+  observer.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ["aria-busy", "class", "style"],
+  });
+
+  return new Promise((resolve) => {
+    const finish = (settled: boolean) => {
+      observer.disconnect();
+      const now = performance.now();
+      resolve({
+        settled,
+        waitedMs: Math.round(now - startedAt),
+        documentComplete: document.readyState === "complete",
+        domQuietForMs: Math.round(now - lastMutationAt),
+        busyElements: countVisibleBusyElements(),
+        text: collectSnapshot().text,
+      });
+    };
+    const check = () => {
+      const now = performance.now();
+      const elapsed = now - startedAt;
+      const busyElements = countVisibleBusyElements();
+      if (elapsed >= minimumWaitMs && document.readyState === "complete" && busyElements === 0 && now - lastMutationAt >= quietPeriodMs) {
+        finish(true);
+      } else if (elapsed >= timeoutMs) {
+        finish(false);
+      } else {
+        setTimeout(check, Math.min(100, timeoutMs - elapsed));
+      }
+    };
+    setTimeout(check, minimumWaitMs);
+  });
+}
+
+function countVisibleBusyElements(): number {
+  return Array.from(document.querySelectorAll('[aria-busy="true"], progress, [role="progressbar"]')).filter((element) => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
+  }).length;
 }
 
 /** Runs in the current page and produces a bounded semantic DOM representation. */

@@ -10,6 +10,7 @@ Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 - `browser_navigate` - Navigates the active tab to an HTTP or HTTPS URL.
 - `browser_tabs` - Lists every open browser tab.
 - `browser_switch_tab` - Focuses the specified browser tab.
+- `browser_wait` - Waits briefly for a loading page to become quiet, then returns a fresh snapshot.
 
 ## Workspace
 

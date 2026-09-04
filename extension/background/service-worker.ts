@@ -1,5 +1,5 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, switchBrowserTab, typeBrowserRef } from "./browser-snapshot";
+import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, switchBrowserTab, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
 
 const bridge = new ExtensionBridge();
 bridge.setChatProgressHandler((progress) => {
@@ -7,6 +7,13 @@ bridge.setChatProgressHandler((progress) => {
 });
 bridge.setRequestHandler(async (request) => {
   if (request.method === "snapshot") return await captureBrowserSnapshot();
+  if (request.method === "wait") {
+    const timeoutMs = (request.params as { timeoutMs?: unknown })?.timeoutMs;
+    if (typeof timeoutMs !== "number" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 10_000) {
+      throw new Error("Wait timeout must be an integer from 250 to 10,000 milliseconds.");
+    }
+    return await waitForBrowserSettled(timeoutMs);
+  }
   if (request.method === "screenshot") return await captureBrowserScreenshot();
   if (request.method === "scroll") {
     const params = request.params;

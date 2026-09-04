@@ -185,7 +185,7 @@ function App() {
 
 function toolLabel(tool: string): string {
   const labels: Record<string, string> = {
-    browser_snapshot: "Reading page", browser_screenshot: "Capturing screenshot", browser_scroll: "Scrolling page", browser_click: "Clicking element", browser_type: "Entering text", browser_navigate: "Opening page", browser_tabs: "Listing tabs", browser_switch_tab: "Switching tab",
+    browser_snapshot: "Reading page", browser_wait: "Waiting for page", browser_screenshot: "Capturing screenshot", browser_scroll: "Scrolling page", browser_click: "Clicking element", browser_type: "Entering text", browser_navigate: "Opening page", browser_tabs: "Listing tabs", browser_switch_tab: "Switching tab",
   };
   return labels[tool] ?? "Using tool";
 }
