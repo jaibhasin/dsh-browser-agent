@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import type { BridgeChatProgress } from "../../../shared/protocol";
 
 type Message = { kind: "message"; id: string; role: "assistant" | "user"; text: string };
-type ToolActivity = { callId: string; tool: string; detail?: string; status: "running" | "success" | "error"; error?: string };
+type ToolActivity = { callId: string; tool: string; input?: string; output?: string; status: "running" | "success" | "error"; error?: string };
 type ActivityGroup = { kind: "activity"; id: string; steps: ToolActivity[] };
 type ConversationItem = Message | ActivityGroup;
 
@@ -49,7 +49,8 @@ function App() {
       const step: ToolActivity = {
         callId: progress.callId,
         tool: progress.tool,
-        ...(progress.detail ? { detail: progress.detail } : {}),
+        ...(progress.detail ? { input: progress.detail } : {}),
+        ...(progress.output ? { output: progress.output } : {}),
         status: progress.phase === "tool_started" ? "running" : progress.phase === "tool_finished" ? "success" : "error",
         ...(progress.error ? { error: progress.error } : {}),
       };
@@ -59,7 +60,9 @@ function App() {
       const existingIndex = group.steps.findIndex((candidate) => candidate.callId === progress.callId);
       const steps = existingIndex === -1
         ? [...group.steps, step]
-        : group.steps.map((candidate, index) => index === existingIndex ? { ...candidate, ...step, detail: step.detail ?? candidate.detail } : candidate);
+        : group.steps.map((candidate, index) => index === existingIndex
+          ? { ...candidate, ...step, input: step.input ?? candidate.input, output: step.output ?? candidate.output }
+          : candidate);
       return currentMessages.map((item, index) => index === groupIndex ? { ...group, steps } : item);
     });
   }
@@ -157,12 +160,17 @@ function App() {
           ) : (
             <section className="tool-activity" key={message.id} aria-label="Browser activity">
               {message.steps.map((step) => (
-                <div className={`tool-step tool-step-${step.status}`} key={step.callId}>
-                  <span className="tool-status" aria-label={step.status} />
-                  <span className="tool-name">{toolLabel(step.tool)}</span>
-                  <span className="tool-detail">{step.error ?? step.detail ?? statusLabel(step.status)}</span>
-                  <span className="tool-result">{statusLabel(step.status)}</span>
-                </div>
+                <details className={`tool-step tool-step-${step.status}`} key={step.callId}>
+                  <summary>
+                    <span className="tool-status" aria-label={step.status} />
+                    <span className="tool-name">{toolLabel(step.tool)}</span>
+                    <span className="tool-result">{statusLabel(step.status)}</span>
+                  </summary>
+                  <dl className="tool-io">
+                    <div><dt>Input</dt><dd>{step.input ?? "No input"}</dd></div>
+                    <div><dt>Output</dt><dd>{step.error ?? step.output ?? "Working"}</dd></div>
+                  </dl>
+                </details>
               ))}
             </section>
           ))}

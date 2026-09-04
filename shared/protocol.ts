@@ -20,6 +20,7 @@ export type BridgeChatProgress = {
   callId: string;
   tool: string;
   detail?: string;
+  output?: string;
   error?: string;
 };
 export type BridgeMessage = BridgeHello | BridgeWelcome | BridgeRequest | BridgeResponse | BridgeEvent | BridgePing | BridgePong | BridgeChat | BridgeChatResponse | BridgeNewSession | BridgeNewSessionResponse | BridgeChatProgress;
@@ -60,6 +61,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
         typeof value.tool === "string" &&
         (value.phase === "tool_started" || value.phase === "tool_finished" || value.phase === "tool_failed") &&
         (value.detail === undefined || typeof value.detail === "string") &&
+        (value.output === undefined || typeof value.output === "string") &&
         (value.error === undefined || typeof value.error === "string")
         ? value as BridgeChatProgress
         : undefined;

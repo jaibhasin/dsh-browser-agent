@@ -189,7 +189,9 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       phase: result.data.error ? "tool_failed" : "tool_finished",
       callId,
       tool,
-      ...(result.data.error ? { error: safeToolError(result.data.error.code) } : {}),
+      ...(result.data.error
+        ? { error: safeToolError(result.data.error.code) }
+        : { output: describeToolOutput(tool) }),
     });
   });
 
@@ -629,4 +631,19 @@ function safeHostname(value: string): string {
 
 function safeToolError(code: unknown): string {
   return typeof code === "string" && code ? `Failed (${code})` : "Tool failed";
+}
+
+function describeToolOutput(tool: string): string {
+  const outputs: Record<string, string> = {
+    browser_snapshot: "Current page snapshot captured",
+    browser_wait: "Fresh page snapshot captured",
+    browser_screenshot: "Viewport screenshot captured",
+    browser_scroll: "Page scrolled and snapshot refreshed",
+    browser_click: "Click dispatched to the selected element",
+    browser_type: "Text entered into the selected element",
+    browser_navigate: "Navigation request completed",
+    browser_tabs: "Open tabs listed",
+    browser_switch_tab: "Selected tab focused",
+  };
+  return outputs[tool] ?? "Tool completed";
 }
