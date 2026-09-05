@@ -722,13 +722,13 @@ function ToolThread({ message }: { message: ActivityGroup }) {
         <span className="tool-chevron" aria-hidden="true">›</span>
       </summary>
       <div className="tool-thread-list">
-        {message.steps.map((step, index) => <ToolStep key={step.callId} step={step} index={index} />)}
+        {message.steps.map((step) => <ToolStep key={step.callId} step={step} />)}
       </div>
     </details>
   );
 }
 
-function ToolStep({ step, index }: { step: ToolActivity; index: number }) {
+function ToolStep({ step }: { step: ToolActivity }) {
   const [isOpen, setIsOpen] = useState(step.status === "running" || step.status === "error");
 
   useEffect(() => {
@@ -743,17 +743,10 @@ function ToolStep({ step, index }: { step: ToolActivity; index: number }) {
       onToggle={(event) => setIsOpen(event.currentTarget.open)}
     >
       <summary>
-        <span className="tool-step-marker" aria-label={`Step ${index + 1}, ${step.status}`}>
-          <span className="tool-step-index">{String(index + 1).padStart(2, "0")}</span>
+        <span className="tool-step-marker" aria-label={`${step.tool}, ${step.status}`}>
           <span className="tool-status" aria-hidden="true" />
         </span>
-        <span className="tool-step-main">
-          <span className="tool-step-label">
-            <span className="tool-glyph" aria-hidden="true">{toolGlyph(step.tool)}</span>
-            <span className="tool-name">{toolLabel(step.tool)}</span>
-          </span>
-          <span className="tool-step-detail">{step.input ?? "Browser operation"}</span>
-        </span>
+        <span className="tool-name">{toolLabel(step.tool)}</span>
         <span className="tool-result">{statusLabel(step.status)}</span>
         <span className="tool-chevron" aria-hidden="true">›</span>
       </summary>
@@ -770,13 +763,6 @@ function toolLabel(tool: string): string {
     browser_snapshot: "Reading page", browser_wait: "Waiting for page", browser_screenshot: "Capturing screenshot", browser_scroll: "Scrolling page", browser_click: "Clicking element", browser_type: "Entering text", browser_navigate: "Opening page", browser_tabs: "Listing tabs",
   };
   return labels[tool] ?? "Using tool";
-}
-
-function toolGlyph(tool: string): string {
-  const glyphs: Record<string, string> = {
-    browser_snapshot: "◌", browser_wait: "◷", browser_screenshot: "▧", browser_scroll: "↕", browser_click: "⌁", browser_type: "T", browser_navigate: "↗", browser_tabs: "⊞",
-  };
-  return glyphs[tool] ?? "·";
 }
 
 function toolThreadStatus(steps: ToolActivity[]): ToolActivity["status"] {

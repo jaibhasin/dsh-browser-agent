@@ -624,7 +624,7 @@ h6.markdown-heading { font-size: 14px; }
 
 .tool-step summary {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto 12px;
+  grid-template-columns: 18px minmax(0, 1fr) auto 12px;
   gap: 6px;
   align-items: center;
   min-height: 30px;
@@ -655,78 +655,27 @@ h6.markdown-heading { font-size: 14px; }
   width: 16px;
   height: 16px;
   place-items: center;
-  color: var(--text-muted);
-  background: var(--bg-input);
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  font-size: 7px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-}
-
-.tool-step-index {
-  transition: opacity 120ms ease;
+  background: transparent;
 }
 
 .tool-status {
-  position: absolute;
-  width: 4px;
-  height: 4px;
+  width: 7px;
+  height: 7px;
   background: var(--text-muted);
   border-radius: 50%;
-  opacity: 0;
-}
-
-.tool-step-running .tool-step-marker {
-  color: var(--accent-hover);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .tool-step-running .tool-status {
   background: var(--accent);
-  opacity: 1;
-}
-
-.tool-step-success .tool-step-marker {
-  color: #86efac;
-  border-color: #166534;
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .tool-step-success .tool-status {
   background: var(--success);
-  opacity: 1;
-}
-
-.tool-step-error .tool-step-marker {
-  color: #fecaca;
-  border-color: #991b1b;
 }
 
 .tool-step-error .tool-status {
   background: var(--error);
-  opacity: 1;
-}
-
-.tool-step-main {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-}
-
-.tool-step-label {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 5px;
-}
-
-.tool-glyph {
-  width: 12px;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1;
-  text-align: center;
 }
 
 .tool-name {
@@ -740,15 +689,6 @@ h6.markdown-heading { font-size: 14px; }
 
 .tool-step summary:hover .tool-name {
   color: var(--text-primary);
-}
-
-.tool-step-detail {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .tool-result {
