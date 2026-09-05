@@ -543,28 +543,50 @@ function App() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div className="brand-mark" aria-hidden="true">D</div>
-        <div className="brand-copy">
-          <p className="eyebrow">DeepSeek Harness</p>
-          <h1>Browser Agent</h1>
+        <div className="brand">
+          <div className="brand-mark" aria-hidden="true">D</div>
+          <span className="brand-title">DSH Agent</span>
         </div>
-        <span className="connection-status">
-          <span className="status-dot" aria-hidden="true" />
-          {connectionStatus}
-        </span>
-        <span className="active-task-count" title="Active browser tasks">
-          <span aria-hidden="true" />
-          {agentTabState.activeTaskCount} active
-        </span>
-        <button className="history-button" type="button" onClick={() => setIsHistoryOpen((open) => !open)} aria-expanded={isHistoryOpen}>
-          Chats {savedChats.length ? `(${savedChats.length})` : ""}
-        </button>
-        <button className="new-chat-button" type="button" onClick={() => void startNewSession()} disabled={isLoading || isStartingSession} aria-label="New chat">
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M8 1.25a.75.75 0 0 1 .75.75v5.25H14a.75.75 0 0 1 0 1.5H8.75V14a.75.75 0 0 1-1.5 0V8.75H2a.75.75 0 0 1 0-1.5h5.25V2A.75.75 0 0 1 8 1.25Z" />
-          </svg>
-          {isStartingSession ? "Starting..." : "New chat"}
-        </button>
+        <div className="header-actions">
+          <span
+            className="status-pill"
+            title={`${connectionStatus}${agentTabState.activeTaskCount > 0 ? ` · ${agentTabState.activeTaskCount} active` : ""}`}
+          >
+            <span className={`status-dot status-${connectionStatus}`} aria-hidden="true" />
+            <span>{connectionLabel(connectionStatus)}</span>
+          </span>
+          {agentTabState.activeTaskCount > 0 && (
+            <span
+              className="task-dot"
+              title={`${agentTabState.activeTaskCount} active task${agentTabState.activeTaskCount === 1 ? "" : "s"}`}
+              aria-hidden="true"
+            />
+          )}
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => setIsHistoryOpen((open) => !open)}
+            aria-expanded={isHistoryOpen}
+            aria-label="Chat history"
+            title="Chat history"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 2a1 1 0 0 0-1 1v9.5a.5.5 0 0 0 .5.5H4v1.5a.5.5 0 0 0 .82.384l2.392-1.992h5.288a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H3Zm0 1h10v8.392H6.908l-1.91 1.592V11.392H3V3Z" />
+            </svg>
+          </button>
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => void startNewSession()}
+            disabled={isLoading || isStartingSession}
+            aria-label="New chat"
+            title={isStartingSession ? "Starting..." : "New chat"}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 1.25a.75.75 0 0 1 .75.75v5.25H14a.75.75 0 0 1 0 1.5H8.75V14a.75.75 0 0 1-1.5 0V8.75H2a.75.75 0 0 1 0-1.5h5.25V2A.75.75 0 0 1 8 1.25Z" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       {isHistoryOpen && (
@@ -594,32 +616,17 @@ function App() {
       )}
 
       <section className="conversation" aria-label="Current chat">
-        <div className="conversation-heading"><span>Current chat</span><span className="conversation-date">Today</span></div>
         {sessionNotice && <p className="session-notice" role="status">{sessionNotice}</p>}
         <div className="messages" ref={messagesRef} aria-live="polite">
           {messages.map((message) => message.kind === "message" ? (
             <article className={`message message-${message.role}`} key={message.id}>
-              <div className="message-avatar" aria-hidden="true">{message.role === "assistant" ? "D" : "Y"}</div>
+              <div className="message-meta">{message.role === "assistant" ? "DSH" : "You"}</div>
               <div className="message-content">
-                {message.role === "assistant" && <p className="message-author">DeepSeek Harness</p>}
                 {message.role === "assistant" ? <MarkdownMessage text={message.text} /> : <p>{message.text}</p>}
               </div>
             </article>
           ) : (
-            <section className="tool-thread" key={message.id} aria-label="Browser execution thread">
-              <header className="tool-thread-header">
-                <div className="tool-thread-title">
-                  <span className="tool-thread-kicker">Execution thread</span>
-                  <strong>Browser activity</strong>
-                </div>
-                <span className="tool-thread-meta">
-                  {message.steps.length} {message.steps.length === 1 ? "step" : "steps"} · {statusLabel(toolThreadStatus(message.steps))}
-                </span>
-              </header>
-              <div className="tool-thread-list">
-                {message.steps.map((step, index) => <ToolStep key={step.callId} step={step} index={index} />)}
-              </div>
-            </section>
+            <ToolThread key={message.id} message={message} />
           ))}
         </div>
       </section>
@@ -689,6 +696,38 @@ function App() {
   );
 }
 
+/**
+ * A collapsible tool-activity thread.
+ * Keeps the UI quiet by default and auto-expands while work is running.
+ */
+function ToolThread({ message }: { message: ActivityGroup }) {
+  const running = message.steps.some((step) => step.status === "running");
+  const error = message.steps.some((step) => step.status === "error");
+  const [isOpen, setIsOpen] = useState(running || error);
+
+  useEffect(() => {
+    if (running || error) setIsOpen(true);
+  }, [running, error]);
+
+  const status = toolThreadStatus(message.steps);
+
+  return (
+    <details className="tool-thread" open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
+      <summary>
+        <span className="tool-thread-icon" aria-hidden="true">◌</span>
+        <span className="tool-thread-summary">
+          <strong>{message.steps.length} {message.steps.length === 1 ? "tool" : "tools"}</strong>
+          <span>· {statusLabel(status)}</span>
+        </span>
+        <span className="tool-chevron" aria-hidden="true">›</span>
+      </summary>
+      <div className="tool-thread-list">
+        {message.steps.map((step, index) => <ToolStep key={step.callId} step={step} index={index} />)}
+      </div>
+    </details>
+  );
+}
+
 function ToolStep({ step, index }: { step: ToolActivity; index: number }) {
   const [isOpen, setIsOpen] = useState(step.status === "running" || step.status === "error");
 
@@ -748,6 +787,10 @@ function toolThreadStatus(steps: ToolActivity[]): ToolActivity["status"] {
 
 function statusLabel(status: ToolActivity["status"]): string {
   return status === "running" ? "Working" : status === "success" ? "Done" : "Failed";
+}
+
+function connectionLabel(status: string): string {
+  return status === "connected" ? "Live" : status === "disconnected" ? "Offline" : "…";
 }
 
 function tabLabel(tab?: TabSummary): string {

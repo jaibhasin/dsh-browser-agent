@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "DeepSeek Harness Browser Agent",
+  "name": "DSH Agent",
   "version": "0.1.0",
   "description": "A minimal side panel for the DeepSeek Harness browser agent.",
   "permissions": ["activeTab", "sidePanel", "scripting", "storage", "tabs", "tabGroups"],
   "host_permissions": ["<all_urls>", "ws://127.0.0.1/*", "ws://localhost/*"],
   "action": {
-    "default_title": "Open DeepSeek Harness Browser Agent"
+    "default_title": "Open DSH Agent"
   },
   "background": {
     "service_worker": "background/service-worker.js"

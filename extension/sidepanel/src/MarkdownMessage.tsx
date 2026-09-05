@@ -1,3 +1,7 @@
+/*
+  Lightweight Markdown renderer for assistant messages.
+  Keeps styling classes minimal so the parent CSS can own the look.
+*/
 import { Fragment, type ElementType, type ReactNode } from "react";
 
 type ListItem = { content: string; ordered: boolean };
@@ -25,8 +29,8 @@ export function MarkdownMessage({ text }: { text: string }) {
       }
       if (index < lines.length) index += 1;
       blocks.push(
-        <pre className="markdown-code" key={blocks.length}>
-          <code data-language={fence[1] || undefined}>{code.join("\n")}</code>
+        <pre className="markdown-code" data-language={fence[1] || undefined} key={blocks.length}>
+          <code>{code.join("\n")}</code>
         </pre>,
       );
       continue;
