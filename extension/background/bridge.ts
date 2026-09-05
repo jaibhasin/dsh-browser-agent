@@ -33,6 +33,7 @@ export class ExtensionBridge {
   getStatus(): BridgeStatus { return this.status; }
   setRequestHandler(handler: RequestHandler): void { this.requestHandler = handler; }
   setChatProgressHandler(handler: ChatProgressHandler): void { this.chatProgressHandler = handler; }
+  sendEvent(event: string, payload: JsonValue): void { this.send({ type: "event", event, payload }); }
   chat(id: string, text: string): Promise<string> {
     if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("The DSH browser bridge is not connected."));
     if (!id || this.chatRequests.has(id)) return Promise.reject(new Error("The chat request ID is invalid or already in use."));

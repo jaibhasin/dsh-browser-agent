@@ -6,7 +6,8 @@ type ToolActivity = { callId: string; tool: string; input?: string; output?: str
 type ActivityGroup = { kind: "activity"; id: string; steps: ToolActivity[] };
 type ConversationItem = Message | ActivityGroup;
 type TabSummary = { id?: number; title?: string; url?: string; windowId?: number };
-type AgentTabState = { agentTabId?: number; agentTab?: TabSummary; currentTab?: TabSummary };
+type AgentTaskState = { status: "running" | "paused" | "cancelled"; tabId: number; pendingTabId?: number };
+type AgentTabState = { agentTabId?: number; agentTab?: TabSummary; currentTab?: TabSummary; task?: AgentTaskState };
 
 function App() {
   const [messages, setMessages] = useState<ConversationItem[]>([]);
@@ -24,6 +25,17 @@ function App() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
 
+  function applyAgentTabState(state: AgentTabState) {
+    if (state.currentTab?.id !== currentTabId.current) setDismissedTabId(undefined);
+    currentTabId.current = state.currentTab?.id;
+    setAgentTabState(state);
+  }
+
+  async function refreshAgentTabState() {
+    const response = await chrome.runtime.sendMessage({ type: "dsh-agent-tab-state-request" }) as { ok?: boolean; state?: AgentTabState };
+    if (response?.ok && response.state) applyAgentTabState(response.state);
+  }
+
   useEffect(() => {
     const textarea = textareaRef.current;
     if (textarea) {
@@ -40,25 +52,29 @@ function App() {
     chrome.runtime.sendMessage({ type: "dsh-bridge-status" }, (response) => {
       if (!chrome.runtime.lastError) setConnectionStatus(response?.status === "connected" ? "connected" : response?.status ?? "disconnected");
     });
-    chrome.runtime.sendMessage({ type: "dsh-agent-tab-state-request" }, (response) => {
-      if (!chrome.runtime.lastError && response?.ok && response.state) {
-        currentTabId.current = response.state.currentTab?.id;
-        setAgentTabState(response.state);
-      }
-    });
+    void refreshAgentTabState();
     const onMessage = (message: { type?: string; status?: string; progress?: BridgeChatProgress; state?: AgentTabState }) => {
       if (message.type === "dsh-bridge-status" && message.status) {
         setConnectionStatus(message.status);
       } else if (message.type === "dsh-chat-progress" && message.progress && activeChatIds.current.has(message.progress.id)) {
         addToolProgress(message.progress);
       } else if (message.type === "dsh-agent-tab-state" && message.state) {
-        if (message.state.currentTab?.id !== currentTabId.current) setDismissedTabId(undefined);
-        currentTabId.current = message.state.currentTab?.id;
-        setAgentTabState(message.state);
+        applyAgentTabState(message.state);
       }
     };
     chrome.runtime.onMessage.addListener(onMessage);
-    return () => chrome.runtime.onMessage.removeListener(onMessage);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshAgentTabState();
+    };
+    chrome.tabs.onActivated.addListener(refreshAgentTabState);
+    chrome.windows.onFocusChanged.addListener(refreshAgentTabState);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      chrome.runtime.onMessage.removeListener(onMessage);
+      chrome.tabs.onActivated.removeListener(refreshAgentTabState);
+      chrome.windows.onFocusChanged.removeListener(refreshAgentTabState);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, []);
 
   const suggestedTab = agentTabState.agentTabId !== undefined &&
@@ -184,6 +200,29 @@ function App() {
     }
   }
 
+  async function keepCurrentTask() {
+    if (!suggestedTab || isSwitchingTab) return;
+    if (agentTabState.task?.status !== "paused") {
+      setDismissedTabId(suggestedTab.id);
+      return;
+    }
+    setIsSwitchingTab(true);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-resume-task" }) as { ok?: boolean; error?: string };
+      if (!response?.ok) throw new Error(response?.error ?? "The browser task could not be resumed.");
+      setDismissedTabId(suggestedTab.id);
+    } catch (error) {
+      setMessages((currentMessages) => [...currentMessages, {
+        kind: "message",
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: error instanceof Error ? error.message : "The browser task could not be resumed.",
+      }]);
+    } finally {
+      setIsSwitchingTab(false);
+    }
+  }
+
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -215,21 +254,6 @@ function App() {
         <section className="agent-tab-status" aria-label="Agent tab">
           <span className="agent-tab-dot" aria-hidden="true" />
           <span><strong>Agent tab</strong>{agentTabState.agentTab ? tabLabel(agentTabState.agentTab) : "Closed"}</span>
-        </section>
-      )}
-
-      {suggestedTab && (
-        <section className="tab-switch-prompt" role="dialog" aria-label="Switch agent tab">
-          <div>
-            <strong>Switch agent to {tabLabel(suggestedTab)}?</strong>
-            <p>{agentTabState.agentTab ? `The agent is still working on ${tabLabel(agentTabState.agentTab)}.` : "The assigned tab was closed."}</p>
-          </div>
-          <div className="tab-switch-actions">
-            <button type="button" onClick={() => setDismissedTabId(suggestedTab.id)}>Keep current task</button>
-            <button className="tab-switch-primary" type="button" onClick={() => void moveAgentToCurrentTab()} disabled={isSwitchingTab}>
-              {isSwitchingTab ? "Switching..." : "Switch agent here"}
-            </button>
-          </div>
         </section>
       )}
 
@@ -265,6 +289,25 @@ function App() {
         </div>
       </section>
 
+      {suggestedTab && (
+        <section className="tab-switch-prompt" role="dialog" aria-label="Switch agent tab" aria-live="assertive">
+          <div>
+            <strong>Switch agent to {tabLabel(suggestedTab)}?</strong>
+            <p>{agentTabState.task?.status === "paused" && agentTabState.agentTab
+              ? `Work on ${tabLabel(agentTabState.agentTab)} is paused until you choose.`
+              : agentTabState.agentTab ? `The agent is assigned to ${tabLabel(agentTabState.agentTab)}.` : "The assigned tab was closed."}</p>
+          </div>
+          <div className="tab-switch-actions">
+            <button type="button" onClick={() => void keepCurrentTask()} disabled={isSwitchingTab}>
+              {agentTabState.task?.status === "paused" ? "Keep and resume" : "Keep current task"}
+            </button>
+            <button className="tab-switch-primary" type="button" onClick={() => void moveAgentToCurrentTab()} disabled={isSwitchingTab}>
+              {isSwitchingTab ? "Switching..." : agentTabState.task?.status === "paused" ? "Stop task and switch" : "Switch agent here"}
+            </button>
+          </div>
+        </section>
+      )}
+
       <form className="composer" onSubmit={sendMessage}>
         <label className="sr-only" htmlFor="prompt">Message the browser agent</label>
         <textarea ref={textareaRef} id="prompt" name="prompt" rows={1} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder="Ask the browser agent..." autoComplete="off" />
@@ -281,7 +324,7 @@ function App() {
 
 function toolLabel(tool: string): string {
   const labels: Record<string, string> = {
-    browser_snapshot: "Reading page", browser_wait: "Waiting for page", browser_screenshot: "Capturing screenshot", browser_scroll: "Scrolling page", browser_click: "Clicking element", browser_type: "Entering text", browser_navigate: "Opening page", browser_tabs: "Listing tabs", browser_switch_tab: "Switching tab",
+    browser_snapshot: "Reading page", browser_wait: "Waiting for page", browser_screenshot: "Capturing screenshot", browser_scroll: "Scrolling page", browser_click: "Clicking element", browser_type: "Entering text", browser_navigate: "Opening page", browser_tabs: "Listing tabs",
   };
   return labels[tool] ?? "Using tool";
 }

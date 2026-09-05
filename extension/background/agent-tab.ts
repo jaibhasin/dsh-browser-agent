@@ -1,4 +1,5 @@
 const STORAGE_KEY = "dshAgentTab";
+const TASK_STORAGE_KEY = "dshAgentTask";
 const INDICATOR_TITLE = "Agent";
 
 type StoredAgentTab = {
@@ -7,10 +8,21 @@ type StoredAgentTab = {
   originalGroupId?: number;
 };
 
+type StoredAgentTask = {
+  id: string;
+  tabId: number;
+  status: "running" | "paused" | "cancelled";
+  pendingTabId?: number;
+};
+
+type TaskWaiter = { resolve: () => void; reject: (error: Error) => void };
+const taskWaiters = new Map<string, TaskWaiter[]>();
+
 export type AgentTabState = {
   agentTabId?: number;
   agentTab?: Pick<chrome.tabs.Tab, "id" | "title" | "url" | "windowId">;
   currentTab?: Pick<chrome.tabs.Tab, "id" | "title" | "url" | "windowId">;
+  task?: Pick<StoredAgentTask, "status" | "tabId" | "pendingTabId">;
 };
 
 async function readStoredAgentTab(): Promise<StoredAgentTab | undefined> {
@@ -22,6 +34,29 @@ async function readStoredAgentTab(): Promise<StoredAgentTab | undefined> {
 async function writeStoredAgentTab(value?: StoredAgentTab): Promise<void> {
   if (value) await chrome.storage.session.set({ [STORAGE_KEY]: value });
   else await chrome.storage.session.remove(STORAGE_KEY);
+}
+
+async function readStoredAgentTask(): Promise<StoredAgentTask | undefined> {
+  const result = await chrome.storage.session.get(TASK_STORAGE_KEY);
+  const value = result[TASK_STORAGE_KEY] as Partial<StoredAgentTask> | undefined;
+  return typeof value?.id === "string" && Number.isInteger(value.tabId) &&
+    (value.status === "running" || value.status === "paused" || value.status === "cancelled")
+    ? value as StoredAgentTask
+    : undefined;
+}
+
+async function writeStoredAgentTask(value?: StoredAgentTask): Promise<void> {
+  if (value) await chrome.storage.session.set({ [TASK_STORAGE_KEY]: value });
+  else await chrome.storage.session.remove(TASK_STORAGE_KEY);
+}
+
+function settleTaskWaiters(taskId: string, error?: Error): void {
+  const waiters = taskWaiters.get(taskId) ?? [];
+  taskWaiters.delete(taskId);
+  for (const waiter of waiters) {
+    if (error) waiter.reject(error);
+    else waiter.resolve();
+  }
 }
 
 async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
@@ -100,18 +135,83 @@ export async function releaseAgentTab(): Promise<void> {
   await broadcastAgentTabState();
 }
 
-export async function getAgentTabState(): Promise<AgentTabState> {
-  const [stored, currentTab] = await Promise.all([readStoredAgentTab(), activeTab()]);
+/** Starts a task lease so every browser action from this chat stays on one tab. */
+export async function startAgentTask(id: string, tabId: number): Promise<void> {
+  await writeStoredAgentTask({ id, tabId, status: "running" });
+  await broadcastAgentTabState();
+}
+
+export async function endAgentTask(id: string): Promise<void> {
+  const task = await readStoredAgentTask();
+  if (task?.id !== id) return;
+  settleTaskWaiters(id, new Error("The browser task ended."));
+  await writeStoredAgentTask();
+  await broadcastAgentTabState();
+}
+
+/** Pauses a task when the user leaves its tab, before its next browser action. */
+export async function pauseAgentTaskForTab(currentTabId: number): Promise<void> {
+  const task = await readStoredAgentTask();
+  if (!task || task.status !== "running" || task.tabId === currentTabId) return;
+  await writeStoredAgentTask({ ...task, status: "paused", pendingTabId: currentTabId });
+}
+
+/** Resolves the fixed tab lease for a tool request, waiting while the user decides. */
+export async function getAgentTaskTab(id: string): Promise<chrome.tabs.Tab> {
+  while (true) {
+    const task = await readStoredAgentTask();
+    if (!task || task.id !== id) throw new Error("This browser task is no longer active.");
+    if (task.status === "cancelled") throw new Error("This browser task was stopped when the agent tab changed.");
+    if (task.status === "running") {
+      const tab = await chrome.tabs.get(task.tabId).catch(() => undefined);
+      if (!tab) throw new Error("The tab assigned to this browser task was closed.");
+      return tab;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const waiters = taskWaiters.get(id) ?? [];
+      waiters.push({ resolve, reject });
+      taskWaiters.set(id, waiters);
+    });
+  }
+}
+
+export async function resumeAgentTask(): Promise<void> {
+  const task = await readStoredAgentTask();
+  if (!task || task.status !== "paused") return;
+  await writeStoredAgentTask({ id: task.id, tabId: task.tabId, status: "running" });
+  settleTaskWaiters(task.id);
+  await broadcastAgentTabState();
+}
+
+export async function cancelAgentTask(): Promise<string | undefined> {
+  const task = await readStoredAgentTask();
+  if (!task || task.status === "cancelled") return undefined;
+  await writeStoredAgentTask({ ...task, status: "cancelled" });
+  settleTaskWaiters(task.id, new Error("This browser task was stopped when the agent tab changed."));
+  await broadcastAgentTabState();
+  return task.id;
+}
+
+export async function getAgentTabState(currentTabOverride?: chrome.tabs.Tab): Promise<AgentTabState> {
+  const [stored, task, currentTab] = await Promise.all([
+    readStoredAgentTab(),
+    readStoredAgentTask(),
+    currentTabOverride === undefined ? activeTab() : Promise.resolve(currentTabOverride),
+  ]);
   const agentTab = stored ? await chrome.tabs.get(stored.tabId).catch(() => undefined) : undefined;
   return {
     ...(stored ? { agentTabId: stored.tabId } : {}),
     ...(agentTab ? { agentTab: summarizeTab(agentTab) } : {}),
     ...(currentTab ? { currentTab: summarizeTab(currentTab) } : {}),
+    ...(task ? { task: { status: task.status, tabId: task.tabId, ...(task.pendingTabId !== undefined ? { pendingTabId: task.pendingTabId } : {}) } } : {}),
   };
 }
 
-export async function broadcastAgentTabState(): Promise<void> {
-  const state = await getAgentTabState();
+export async function broadcastAgentTabState(currentTabId?: number): Promise<void> {
+  const currentTab = currentTabId === undefined
+    ? undefined
+    : await chrome.tabs.get(currentTabId).catch(() => undefined);
+  const state = await getAgentTabState(currentTab);
   await chrome.runtime.sendMessage({ type: "dsh-agent-tab-state", state }).catch(() => undefined);
 }
 

@@ -1,21 +1,22 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, switchBrowserTab, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
-import { broadcastAgentTabState, ensureAgentTab, getAgentTabState, releaseAgentTab, switchAgentTab } from "./agent-tab";
+import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
+import { broadcastAgentTabState, cancelAgentTask, ensureAgentTab, getAgentTabState, getAgentTaskTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask, switchAgentTab } from "./agent-tab";
 
 const bridge = new ExtensionBridge();
 bridge.setChatProgressHandler((progress) => {
   void chrome.runtime.sendMessage({ type: "dsh-chat-progress", progress }).catch(() => undefined);
 });
 bridge.setRequestHandler(async (request) => {
-  if (request.method === "snapshot") return await captureBrowserSnapshot();
+  const taskTab = request.taskId ? await getAgentTaskTab(request.taskId) : undefined;
+  if (request.method === "snapshot") return await captureBrowserSnapshot(taskTab);
   if (request.method === "wait") {
     const timeoutMs = (request.params as { timeoutMs?: unknown })?.timeoutMs;
     if (typeof timeoutMs !== "number" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 10_000) {
       throw new Error("Wait timeout must be an integer from 250 to 10,000 milliseconds.");
     }
-    return await waitForBrowserSettled(timeoutMs);
+    return await waitForBrowserSettled(timeoutMs, taskTab);
   }
-  if (request.method === "screenshot") return await captureBrowserScreenshot();
+  if (request.method === "screenshot") return await captureBrowserScreenshot(taskTab);
   if (request.method === "scroll") {
     const params = request.params;
     if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("Scroll parameters are required.");
@@ -23,31 +24,26 @@ bridge.setRequestHandler(async (request) => {
     const value = (params as { value?: unknown }).value;
     if (!["up", "down", "left", "right"].includes(direction as string)) throw new Error("Scroll direction must be up, down, left, or right.");
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 1_000_000) throw new Error("Scroll value must be an integer from 1 to 1,000,000 pixels.");
-    return await scrollBrowser(direction as "up" | "down" | "left" | "right", value);
+    return await scrollBrowser(direction as "up" | "down" | "left" | "right", value, taskTab);
   }
   if (request.method === "click") {
     const ref = (request.params as { ref?: unknown })?.ref;
     if (!Number.isInteger(ref) || (ref as number) < 1) throw new Error("Browser ref must be a positive integer.");
-    return await clickBrowserRef(ref as number);
+    return await clickBrowserRef(ref as number, taskTab);
   }
   if (request.method === "type") {
     const ref = (request.params as { ref?: unknown })?.ref;
     const text = (request.params as { text?: unknown })?.text;
     if (!Number.isInteger(ref) || (ref as number) < 1 || typeof text !== "string") throw new Error("Browser type requires a positive ref and text.");
-    return await typeBrowserRef(ref as number, text);
+    return await typeBrowserRef(ref as number, text, taskTab);
   }
   if (request.method === "navigate") {
     const url = (request.params as { url?: unknown })?.url;
     if (typeof url !== "string") throw new Error("Browser navigate requires a URL.");
     const parsed = parseHttpUrl(url);
-    return await navigateBrowser(parsed.href);
+    return await navigateBrowser(parsed.href, taskTab);
   }
   if (request.method === "tabs") return await listBrowserTabs();
-  if (request.method === "switch_tab") {
-    const id = (request.params as { id?: unknown })?.id;
-    if (!Number.isInteger(id) || (id as number) < 0) throw new Error("Browser tab ID must be a non-negative integer.");
-    return await switchBrowserTab(id as number);
-  }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
 
@@ -61,9 +57,9 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(() => void bridge.start());
-chrome.tabs.onActivated.addListener(() => void broadcastAgentTabState());
+chrome.tabs.onActivated.addListener(({ tabId }) => void handleTabActivated(tabId));
 chrome.tabs.onRemoved.addListener(() => void broadcastAgentTabState());
-chrome.windows.onFocusChanged.addListener(() => void broadcastAgentTabState());
+chrome.windows.onFocusChanged.addListener((windowId) => void handleWindowFocusChanged(windowId));
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (!message || typeof message !== "object" || !("type" in message)) return;
@@ -77,9 +73,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   if (message.type === "dsh-agent-switch-tab") {
     const id = (message as { id?: unknown }).id;
     if (!Number.isInteger(id) || (id as number) < 0) { sendResponse({ ok: false, error: "Browser tab ID must be a non-negative integer." }); return; }
-    void switchAgentTab(id as number)
+    void switchAgentToCurrentTab(id as number)
       .then(() => sendResponse({ ok: true }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The agent tab could not be changed." }));
+    return true;
+  }
+  if (message.type === "dsh-agent-resume-task") {
+    void resumeAgentTask()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The browser task could not be resumed." }));
     return true;
   }
   if (message.type === "dsh-browser-snapshot") {
@@ -112,7 +114,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     if (typeof id !== "string" || !id) { sendResponse({ ok: false, error: "Chat request ID is invalid." }); return; }
     if (bridge.getStatus() !== "connected") { sendResponse({ ok: false, error: "The DSH browser bridge is not connected." }); return; }
     void ensureAgentTab()
-      .then(() => bridge.chat(id, text.trim()))
+      .then(async (tab) => {
+        if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
+        await startAgentTask(id, tab.id);
+        try {
+          return await bridge.chat(id, text.trim());
+        } finally {
+          await endAgentTask(id);
+        }
+      })
       .then((reply) => sendResponse({ ok: true, text: reply }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "DSH chat failed." }));
     return true;
@@ -133,6 +143,30 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return true;
   }
 });
+
+async function handleTabActivated(tabId: number): Promise<void> {
+  await pauseAgentTaskForTab(tabId);
+  await broadcastAgentTabState(tabId);
+}
+
+async function handleWindowFocusChanged(windowId: number): Promise<void> {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    await broadcastAgentTabState();
+    return;
+  }
+  const [tab] = await chrome.tabs.query({ active: true, windowId });
+  if (tab?.id === undefined) {
+    await broadcastAgentTabState();
+    return;
+  }
+  await handleTabActivated(tab.id);
+}
+
+async function switchAgentToCurrentTab(id: number): Promise<void> {
+  const cancelledTaskId = await cancelAgentTask();
+  if (cancelledTaskId) bridge.sendEvent("cancel_task", { id: cancelledTaskId });
+  await switchAgentTab(id);
+}
 
 function isBridgeConfiguration(value: unknown): value is BridgeConfiguration {
   return typeof value === "object" && value !== null &&

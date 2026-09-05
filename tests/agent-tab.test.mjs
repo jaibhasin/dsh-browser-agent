@@ -39,11 +39,40 @@ globalThis.chrome = {
   runtime: { async sendMessage() {} },
 };
 
-const { ensureAgentTab, getAgentTabState, releaseAgentTab, switchAgentTab } = await import("../extension/background/agent-tab.ts");
+const { cancelAgentTask, ensureAgentTab, endAgentTask, getAgentTabState, getAgentTaskTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, switchAgentTab } = await import("../extension/background/agent-tab.ts");
 
 assert.equal((await ensureAgentTab()).id, 42, "first task should claim Amazon");
 assert.equal(session.dshAgentTab.tabId, 42);
 assert.equal(tabs.get(42).groupId, 100, "claimed tab should receive the colored group");
+
+// Chrome sends the activated tab ID before every observer has necessarily
+// reflected it in a broad active-tab query. The event's tab must win.
+assert.deepEqual(await getAgentTabState(tabs.get(77)), {
+  agentTabId: 42,
+  agentTab: { id: 42, windowId: 1, title: "Amazon", url: "https://amazon.example" },
+  currentTab: { id: 77, windowId: 1, title: "Gmail", url: "https://gmail.example" },
+}, "the switch prompt must receive the tab from Chrome's activation event");
+
+await startAgentTask("shopping-task", 42);
+await pauseAgentTaskForTab(77);
+assert.equal((await getAgentTabState()).task?.status, "paused", "leaving the agent tab should pause its task");
+
+let resumed = false;
+const waitingTask = getAgentTaskTab("shopping-task").then((tab) => {
+  resumed = true;
+  return tab;
+});
+await Promise.resolve();
+assert.equal(resumed, false, "browser actions must wait for the user's choice");
+await resumeAgentTask();
+assert.equal((await waitingTask).id, 42, "keeping the task must resume it on its original tab");
+
+await pauseAgentTaskForTab(77);
+const cancelledTask = getAgentTaskTab("shopping-task");
+await Promise.resolve();
+await cancelAgentTask();
+await assert.rejects(cancelledTask, /stopped/, "switching tabs must stop the paused task");
+await endAgentTask("shopping-task");
 
 tabs.get(42).active = false;
 tabs.get(77).active = true;

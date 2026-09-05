@@ -9,7 +9,6 @@ Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 - `browser_type` - Fills a visible text control from the latest snapshot.
 - `browser_navigate` - Navigates the agent-owned tab to an HTTP or HTTPS URL.
 - `browser_tabs` - Lists every open browser tab.
-- `browser_switch_tab` - Focuses the specified browser tab.
 - `browser_wait` - Waits briefly for a loading page to become quiet, then returns a fresh snapshot.
 
 ## Workspace
@@ -20,8 +19,8 @@ There are no per-tab, per-window, per-page, or separate side-panel chat workspac
 
 The first message in a session assigns the current browser tab to the agent.
 
-Changing the visible browser tab does not move the agent.
-The side panel offers an explicit switch action when it detects a different visible tab.
+Changing the visible browser tab pauses an in-progress browser task.
+The side panel lets you resume that task on its original tab or stop it and switch the agent to the visible tab.
 The assigned tab is shown in a blue Chrome tab group named `Agent`; moving the agent removes the marker from the previous tab.
 
 Chrome can run DOM-based actions in an assigned background tab, including snapshots, clicks, typing, scrolling, waits, and navigation.

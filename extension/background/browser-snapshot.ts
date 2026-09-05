@@ -38,9 +38,13 @@ function toBrowserTab(tab: chrome.tabs.Tab): BrowserTab {
   };
 }
 
+async function actionTab(taskTab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab> {
+  return taskTab ?? await ensureAgentTab();
+}
+
 /** Read the agent-owned tab's snapshot. */
-export async function captureBrowserSnapshot(): Promise<JsonValue> {
-  const tab = await ensureAgentTab();
+export async function captureBrowserSnapshot(taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
+  const tab = await actionTab(taskTab);
   if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
   const result = await chrome.tabs.sendMessage(tab.id, { type: SNAPSHOT_MESSAGE }) as unknown;
@@ -51,8 +55,8 @@ export async function captureBrowserSnapshot(): Promise<JsonValue> {
 }
 
 /** Capture the agent-owned tab when it is visible in its window. */
-export async function captureBrowserScreenshot(): Promise<JsonValue> {
-  const tab = await ensureAgentTab();
+export async function captureBrowserScreenshot(taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
+  const tab = await actionTab(taskTab);
   if (tab?.windowId === undefined) throw new Error("No active browser tab is available.");
   if (!tab.active) throw new Error("The agent tab must be visible before it can be captured. Open the highlighted Agent tab, then retry the screenshot.");
   const data = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
@@ -63,8 +67,8 @@ export async function captureBrowserScreenshot(): Promise<JsonValue> {
 }
 
 /** Scroll the agent-owned tab and return its new snapshot. */
-export async function scrollBrowser(direction: ScrollDirection, value: number): Promise<JsonValue> {
-  const tab = await ensureAgentTab();
+export async function scrollBrowser(direction: ScrollDirection, value: number, taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
+  const tab = await actionTab(taskTab);
   if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
   const result = await chrome.tabs.sendMessage(tab.id, { type: SCROLL_MESSAGE, direction, value }) as unknown;
@@ -75,8 +79,8 @@ export async function scrollBrowser(direction: ScrollDirection, value: number): 
 }
 
 /** Click a ref from the latest snapshot. */
-export async function clickBrowserRef(ref: number): Promise<JsonValue> {
-  const tab = await ensureAgentTab();
+export async function clickBrowserRef(ref: number, taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
+  const tab = await actionTab(taskTab);
   if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
   const result = await chrome.tabs.sendMessage(tab.id, { type: CLICK_MESSAGE, ref }) as unknown;
@@ -89,8 +93,8 @@ export async function clickBrowserRef(ref: number): Promise<JsonValue> {
 }
 
 /** Fill a text control from the latest snapshot. */
-export async function typeBrowserRef(ref: number, text: string): Promise<JsonValue> {
-  const tab = await ensureAgentTab();
+export async function typeBrowserRef(ref: number, text: string, taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
+  const tab = await actionTab(taskTab);
   if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
   const result = await chrome.tabs.sendMessage(tab.id, { type: TYPE_MESSAGE, ref, text }) as unknown;
@@ -103,8 +107,8 @@ export async function typeBrowserRef(ref: number, text: string): Promise<JsonVal
 }
 
 /** Wait for a short quiet period and return a fresh snapshot with readiness signals. */
-export async function waitForBrowserSettled(timeoutMs: number): Promise<JsonValue> {
-  const tab = await ensureAgentTab();
+export async function waitForBrowserSettled(timeoutMs: number, taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
+  const tab = await actionTab(taskTab);
   if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
   const result = await chrome.tabs.sendMessage(tab.id, { type: WAIT_MESSAGE, timeoutMs }) as unknown;
@@ -121,8 +125,8 @@ export async function waitForBrowserSettled(timeoutMs: number): Promise<JsonValu
 }
 
 /** Navigate the agent-owned tab to an HTTP(S) URL. */
-export async function navigateBrowser(url: string): Promise<JsonValue> {
-  const agentTab = await ensureAgentTab();
+export async function navigateBrowser(url: string, taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
+  const agentTab = await actionTab(taskTab);
   if (agentTab.id === undefined) throw new Error("The agent tab is unavailable.");
   await chrome.tabs.update(agentTab.id, { url });
   const tab = await waitForTabLoad(agentTab.id, 2_500);
@@ -157,13 +161,4 @@ function waitForTabLoad(tabId: number, timeoutMs: number): Promise<chrome.tabs.T
 export async function listBrowserTabs(): Promise<JsonValue> {
   const tabs = await chrome.tabs.query({});
   return { tabs: tabs.filter((tab) => tab.id !== undefined && tab.windowId !== undefined).map(toBrowserTab) };
-}
-
-/** Focus the tab's window and make that tab active. */
-export async function switchBrowserTab(id: number): Promise<JsonValue> {
-  const existing = await chrome.tabs.get(id).catch(() => undefined);
-  if (!existing || existing.windowId === undefined) throw new Error(`No browser tab exists with ID ${id}.`);
-  await chrome.windows.update(existing.windowId, { focused: true });
-  const tab = await chrome.tabs.update(id, { active: true });
-  return { tab: toBrowserTab(tab) };
 }

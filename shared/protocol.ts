@@ -4,7 +4,7 @@ export const PROTOCOL_VERSION = 1;
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type BridgeHello = { type: "hello"; protocolVersion: typeof PROTOCOL_VERSION; token: string; client: "chrome-extension" };
 export type BridgeWelcome = { type: "welcome"; protocolVersion: typeof PROTOCOL_VERSION };
-export type BridgeRequest = { type: "request"; id: string; method: string; params: JsonValue };
+export type BridgeRequest = { type: "request"; id: string; method: string; params: JsonValue; taskId?: string };
 export type BridgeResponse = { type: "response"; id: string; result?: JsonValue; error?: { code: string; message: string } };
 export type BridgeEvent = { type: "event"; event: string; payload: JsonValue };
 export type BridgePing = { type: "ping" };
@@ -44,7 +44,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
     case "welcome":
       return value.protocolVersion === PROTOCOL_VERSION ? value as BridgeWelcome : undefined;
     case "request":
-      return typeof value.id === "string" && typeof value.method === "string" && isJsonValue(value.params) ? value as BridgeRequest : undefined;
+      return typeof value.id === "string" && typeof value.method === "string" && isJsonValue(value.params) && (value.taskId === undefined || typeof value.taskId === "string") ? value as BridgeRequest : undefined;
     case "response":
       return typeof value.id === "string" && (value.result === undefined || isJsonValue(value.result)) && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeResponse : undefined;
     case "chat":
