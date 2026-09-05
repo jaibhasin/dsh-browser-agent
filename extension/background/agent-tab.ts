@@ -147,6 +147,29 @@ export async function releaseAgentTab(sessionId: string): Promise<void> {
   await broadcastAgentTabState(sessionId);
 }
 
+/** Activates a saved chat's tab, or recreates it from its last recorded website. */
+export async function focusOrRestoreAgentTab(sessionId: string, fallbackUrl?: string): Promise<chrome.tabs.Tab> {
+  const tabs = await readStoredAgentTabs();
+  const stored = tabs[sessionId];
+  const existing = stored ? await chrome.tabs.get(stored.tabId).catch(() => undefined) : undefined;
+  if (existing?.id !== undefined && existing.windowId !== undefined) {
+    await chrome.windows.update(existing.windowId, { focused: true });
+    return await chrome.tabs.update(existing.id, { active: true });
+  }
+  const url = validHttpUrl(fallbackUrl) ? fallbackUrl : undefined;
+  const tab = await chrome.tabs.create(url ? { url, active: true } : { active: true });
+  if (tab.id === undefined) throw new Error("The browser could not create a tab for this saved chat.");
+  if (stored) {
+    tabs[sessionId] = await addIndicator(tab);
+    await writeStoredAgentTabs(tabs);
+  } else {
+    tabs[sessionId] = await addIndicator(tab);
+    await writeStoredAgentTabs(tabs);
+  }
+  await broadcastAgentTabState(sessionId, tab.id);
+  return tab;
+}
+
 /** Starts a task lease so every browser action from this chat stays on one tab. */
 export async function startAgentTask(id: string, sessionId: string, tabId: number): Promise<void> {
   await writeStoredAgentTask({ id, sessionId, tabId, status: "running", runMode: "foreground" });
@@ -253,4 +276,14 @@ export async function broadcastAgentTabState(sessionId?: string, currentTabId?: 
 
 function summarizeTab(tab: chrome.tabs.Tab): Pick<chrome.tabs.Tab, "id" | "title" | "url" | "windowId"> {
   return { id: tab.id, title: tab.title, url: tab.url, windowId: tab.windowId };
+}
+
+function validHttpUrl(value?: string): value is string {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }

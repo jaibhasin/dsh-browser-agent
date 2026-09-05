@@ -1,6 +1,6 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
 import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
-import { broadcastAgentTabState, cancelAgentTask, continueAgentTaskInBackground, ensureAgentTab, getAgentTabState, getAgentTaskTab, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask, switchAgentTab } from "./agent-tab";
+import { broadcastAgentTabState, cancelAgentTask, continueAgentTaskInBackground, ensureAgentTab, focusOrRestoreAgentTab, getAgentTabState, getAgentTaskTab, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask, switchAgentTab } from "./agent-tab";
 
 const bridge = new ExtensionBridge();
 bridge.setChatProgressHandler((progress) => {
@@ -110,6 +110,16 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     void ensureAgentTab(sessionId)
       .then((tab) => sendResponse({ ok: true, tab: { id: tab.id, title: tab.title, url: tab.url } }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The tab could not be assigned." }));
+    return true;
+  }
+  if (message.type === "dsh-agent-focus-chat") {
+    const sessionId = (message as { sessionId?: unknown }).sessionId;
+    const url = (message as { url?: unknown }).url;
+    if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
+    if (url !== undefined && typeof url !== "string") { sendResponse({ ok: false, error: "Saved website is invalid." }); return; }
+    void focusOrRestoreAgentTab(sessionId, url)
+      .then((tab) => sendResponse({ ok: true, tab: { id: tab.id, title: tab.title, url: tab.url } }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The saved chat tab could not be opened." }));
     return true;
   }
   if (message.type === "dsh-browser-snapshot") {

@@ -15,6 +15,7 @@ function App() {
   const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [pendingSavedChat, setPendingSavedChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
@@ -267,8 +268,7 @@ function App() {
     }
   }
 
-  function openSavedChat(chat: SavedChat) {
-    if (isLoading) return;
+  function activateSavedChat(chat: SavedChat) {
     setActiveSessionId(chat.id);
     setSessionCreatedAt(chat.createdAt);
     setMessages(chat.items);
@@ -277,6 +277,81 @@ function App() {
     setSessionNotice(chat.status === "interrupted" ? "This chat was interrupted. The agent will inspect the page before continuing." : "Saved chat opened.");
     setIsHistoryOpen(false);
     void refreshAgentTabState(chat.id);
+    void chrome.runtime.sendMessage({ type: "dsh-agent-focus-chat", sessionId: chat.id, url: chat.links[0] })
+      .then((response: { ok?: boolean; error?: string }) => {
+        if (!response?.ok) setSessionNotice(response?.error ?? "The saved chat tab could not be opened.");
+        else void refreshAgentTabState(chat.id);
+      });
+  }
+
+  function openSavedChat(chat: SavedChat) {
+    if (chat.id === activeSessionId) return;
+    if (isLoading || agentTabState.activeTaskCount > 0) {
+      setPendingSavedChat(chat);
+      return;
+    }
+    activateSavedChat(chat);
+  }
+
+  async function continueAndOpenSavedChat() {
+    const chat = pendingSavedChat;
+    if (!chat) return;
+    setIsSwitchingTab(true);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-continue-background" }) as { ok?: boolean; error?: string };
+      if (!response?.ok) throw new Error(response?.error ?? "The current task could not continue in the background.");
+      setPendingSavedChat(undefined);
+      setIsLoading(false);
+      activateSavedChat(chat);
+    } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "The current task could not continue in the background.");
+    } finally {
+      setIsSwitchingTab(false);
+    }
+  }
+
+  async function pauseAndOpenSavedChat() {
+    const chat = pendingSavedChat;
+    if (!chat) return;
+    setIsSwitchingTab(true);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-pause-chat", sessionId: activeSessionId }) as { ok?: boolean; error?: string };
+      if (!response?.ok) throw new Error(response?.error ?? "The current chat could not be paused.");
+      const existing = historyRef.current.find((candidate) => candidate.id === activeSessionId);
+      if (existing) {
+        const paused = { ...existing, status: "paused" as const, updatedAt: Date.now() };
+        await saveChat(paused);
+        historyRef.current = [paused, ...historyRef.current.filter((candidate) => candidate.id !== activeSessionId)];
+        setSavedChats(historyRef.current);
+      }
+      setPendingSavedChat(undefined);
+      setIsLoading(false);
+      activateSavedChat(chat);
+    } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "The current chat could not be paused.");
+    } finally {
+      setIsSwitchingTab(false);
+    }
+  }
+
+  async function quitAndOpenSavedChat() {
+    const chat = pendingSavedChat;
+    if (!chat) return;
+    setIsSwitchingTab(true);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-discard-chat", sessionId: activeSessionId }) as { ok?: boolean; error?: string };
+      if (!response?.ok) throw new Error(response?.error ?? "The current chat could not be discarded.");
+      await removeChat(activeSessionId);
+      historyRef.current = historyRef.current.filter((candidate) => candidate.id !== activeSessionId);
+      setSavedChats(historyRef.current);
+      setPendingSavedChat(undefined);
+      setIsLoading(false);
+      activateSavedChat(chat);
+    } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "The current chat could not be discarded.");
+    } finally {
+      setIsSwitchingTab(false);
+    }
   }
 
   async function moveAgentToCurrentTab() {
@@ -454,12 +529,27 @@ function App() {
         </section>
       )}
 
+      {pendingSavedChat && (
+        <section className="tab-switch-prompt" role="dialog" aria-label="Open saved chat" aria-live="assertive">
+          <div>
+            <strong>Open {pendingSavedChat.title}?</strong>
+            <p>Your current task is still active. Choose what should happen before switching chats.</p>
+          </div>
+          <div className="tab-switch-actions">
+            <button type="button" onClick={() => setPendingSavedChat(undefined)} disabled={isSwitchingTab}>Keep current chat</button>
+            <button type="button" onClick={() => void continueAndOpenSavedChat()} disabled={isSwitchingTab}>Continue in background</button>
+            <button type="button" onClick={() => void pauseAndOpenSavedChat()} disabled={isSwitchingTab}>Pause and open</button>
+            <button className="tab-switch-primary" type="button" onClick={() => void quitAndOpenSavedChat()} disabled={isSwitchingTab}>Quit and open</button>
+          </div>
+        </section>
+      )}
+
       <form className="composer" onSubmit={sendMessage}>
         <label className="sr-only" htmlFor="prompt">Message the browser agent</label>
         <textarea ref={textareaRef} id="prompt" name="prompt" rows={1} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder="Ask the browser agent..." autoComplete="off" />
         <div className="composer-footer">
           <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
-          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading || connectionStatus !== "connected"}>
+          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading || agentTabState.activeTaskCount > 0 || connectionStatus !== "connected"}>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" /></svg>
           </button>
         </div>
