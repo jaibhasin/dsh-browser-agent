@@ -1,6 +1,6 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
 import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
-import { broadcastAgentTabState, cancelAgentTask, continueAgentTaskInBackground, ensureAgentTab, focusOrRestoreAgentTab, getAgentTabState, getAgentTaskTab, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask, switchAgentTab } from "./agent-tab";
+import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentTabState, getAgentTaskTab, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask } from "./agent-tab";
 
 const bridge = new ExtensionBridge();
 bridge.setChatProgressHandler((progress) => {
@@ -80,18 +80,22 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     if (!Number.isInteger(id) || (id as number) < 0) { sendResponse({ ok: false, error: "Browser tab ID must be a non-negative integer." }); return; }
     if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
     void switchAgentToCurrentTab(sessionId, id as number)
-      .then(() => sendResponse({ ok: true }))
+      .then((displacedSessionIds) => sendResponse({ ok: true, displacedSessionIds }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The agent tab could not be changed." }));
     return true;
   }
   if (message.type === "dsh-agent-resume-task") {
-    void resumeAgentTask()
+    const sessionId = (message as { sessionId?: unknown }).sessionId;
+    if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
+    void resumeAgentTask(sessionId)
       .then(() => sendResponse({ ok: true }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The browser task could not be resumed." }));
     return true;
   }
   if (message.type === "dsh-agent-continue-background") {
-    void continueAgentTaskInBackground()
+    const sessionId = (message as { sessionId?: unknown }).sessionId;
+    if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
+    void continueAgentTaskInBackground(sessionId)
       .then(() => sendResponse({ ok: true }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The browser task could not continue in the background." }));
     return true;
@@ -107,8 +111,8 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   if (message.type === "dsh-agent-claim-tab") {
     const sessionId = (message as { sessionId?: unknown }).sessionId;
     if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
-    void ensureAgentTab(sessionId)
-      .then((tab) => sendResponse({ ok: true, tab: { id: tab.id, title: tab.title, url: tab.url } }))
+    void claimCurrentAgentTab(sessionId)
+      .then(({ tab, displacedSessionIds }) => sendResponse({ ok: true, tab: { id: tab.id, title: tab.title, url: tab.url }, displacedSessionIds }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The tab could not be assigned." }));
     return true;
   }
@@ -155,17 +159,18 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
     if (typeof resume !== "boolean") { sendResponse({ ok: false, error: "Chat resume state is invalid." }); return; }
     if (bridge.getStatus() !== "connected") { sendResponse({ ok: false, error: "The DSH browser bridge is not connected." }); return; }
-    void ensureAgentTab(sessionId)
-      .then(async (tab) => {
+    void claimCurrentAgentTab(sessionId)
+      .then(async ({ tab, displacedSessionIds }) => {
         if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
         await startAgentTask(id, sessionId, tab.id);
         try {
-          return await bridge.chat(id, text.trim(), sessionId, resume);
+          const replyText = await bridge.chat(id, text.trim(), sessionId, resume);
+          return { text: replyText, displacedSessionIds };
         } finally {
           await endAgentTask(id);
         }
       })
-      .then((reply) => sendResponse({ ok: true, text: reply }))
+      .then(({ text, displacedSessionIds }) => sendResponse({ ok: true, text, displacedSessionIds }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "DSH chat failed." }));
     return true;
   }
@@ -204,9 +209,31 @@ async function handleWindowFocusChanged(windowId: number): Promise<void> {
   await handleTabActivated(tab.id);
 }
 
-async function switchAgentToCurrentTab(sessionId: string, id: number): Promise<void> {
-  await switchAgentTab(sessionId, id);
+async function claimCurrentAgentTab(sessionId: string) {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab) throw new Error("No active browser tab is available.");
+  const claim = await claimAgentTab(sessionId, tab);
+  await stopDisplacedTasks(claim.displacedSessionIds);
+  for (const displacedSessionId of claim.displacedSessionIds) {
+    await chrome.runtime.sendMessage({ type: "dsh-agent-chat-displaced", sessionId: displacedSessionId, replacementSessionId: sessionId }).catch(() => undefined);
+  }
+  return claim;
+}
+
+async function switchAgentToCurrentTab(sessionId: string, id: number): Promise<string[]> {
+  const tab = await chrome.tabs.get(id).catch(() => undefined);
+  if (!tab) throw new Error(`No browser tab exists with ID ${id}.`);
+  const { displacedSessionIds } = await claimAgentTab(sessionId, tab);
+  await stopDisplacedTasks(displacedSessionIds);
   await moveAgentTaskToTab(sessionId, id);
+  return displacedSessionIds;
+}
+
+async function stopDisplacedTasks(sessionIds: string[]): Promise<void> {
+  await Promise.all(sessionIds.map(async (sessionId) => {
+    const taskId = await cancelAgentTask(sessionId);
+    if (taskId) bridge.sendEvent("cancel_task", { id: taskId });
+  }));
 }
 
 async function pauseOrDiscardChat(sessionId: string, discard: boolean): Promise<void> {

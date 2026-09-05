@@ -19,7 +19,6 @@ export class DshBrowserWebSocketBridge {
   private readonly pending = new Map<string, PendingRequest>();
   private server?: WebSocketServer;
   private extension?: WebSocket;
-  private activeTaskId?: string;
 
   constructor(options: DshBrowserBridgeOptions) {
     if (options.token.length < 32) throw new Error("DSH browser bridge token must be at least 32 characters.");
@@ -45,8 +44,15 @@ export class DshBrowserWebSocketBridge {
     if (!this.extension) return;
     this.send(this.extension, { type: "chat_progress", ...progress });
   }
-  setActiveTask(id?: string): void { this.activeTaskId = id; }
-  async request(method: string, params: JsonValue = null, signal?: AbortSignal): Promise<JsonValue> {
+  /**
+   * Send a browser request for one chat turn.
+   *
+   * The task ID deliberately belongs to this individual request instead of
+   * bridge-wide mutable state. Multiple DSH sessions can therefore issue
+   * browser operations at the same time without one request being routed to
+   * another chat's assigned tab.
+   */
+  async request(method: string, params: JsonValue = null, signal?: AbortSignal, taskId?: string): Promise<JsonValue> {
     if (signal?.aborted) throw new Error("Browser request was cancelled.");
     const socket = this.extension;
     if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("The Chrome extension is not connected.");
@@ -61,7 +67,7 @@ export class DshBrowserWebSocketBridge {
       const timeout = setTimeout(() => settle(new Error(`Browser request timed out: ${method}`)), this.options.requestTimeoutMs);
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(id, { resolve, reject, timeout, cleanup });
-      socket.send(JSON.stringify({ type: "request", id, method, params, ...(this.activeTaskId ? { taskId: this.activeTaskId } : {}) } satisfies BridgeMessage), (error) => {
+      socket.send(JSON.stringify({ type: "request", id, method, params, ...(taskId ? { taskId } : {}) } satisfies BridgeMessage), (error) => {
         if (!error) return;
         settle(error);
       });

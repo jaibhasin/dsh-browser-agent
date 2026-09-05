@@ -5,104 +5,84 @@ const tabs = new Map([
   [77, { id: 77, windowId: 1, title: "Gmail", url: "https://gmail.example", active: false, groupId: -1 }],
 ]);
 const session = {};
+const local = {};
 let nextGroupId = 100;
 const ungrouped = [];
 
-globalThis.chrome = {
-  storage: {
-    session: {
-      async get(key) { return { [key]: session[key] }; },
-      async set(values) { Object.assign(session, values); },
-      async remove(key) { delete session[key]; },
+function storage(store) {
+  return {
+    async get(keys) {
+      if (Array.isArray(keys)) return Object.fromEntries(keys.map((key) => [key, store[key]]));
+      return { [keys]: store[keys] };
     },
-  },
+    async set(values) { Object.assign(store, values); },
+    async remove(key) { delete store[key]; },
+  };
+}
+
+globalThis.chrome = {
+  storage: { session: storage(session), local: storage(local) },
   tabs: {
     TAB_ID_NONE: -1,
     async query(query) { return [...tabs.values()].filter((tab) => !query.active || tab.active); },
-    async get(id) {
-      const tab = tabs.get(id);
-      if (!tab) throw new Error("missing");
-      return tab;
-    },
-    async group({ tabIds, groupId }) {
-      const tab = tabs.get(tabIds);
-      if (!tab) throw new Error("missing");
-      tab.groupId = groupId ?? nextGroupId++;
-      return tab.groupId;
-    },
-    async ungroup(id) {
-      tabs.get(id).groupId = -1;
-      ungrouped.push(id);
-    },
+    async get(id) { const tab = tabs.get(id); if (!tab) throw new Error("missing"); return tab; },
+    async group({ tabIds, groupId }) { const tab = tabs.get(tabIds); if (!tab) throw new Error("missing"); tab.groupId = groupId ?? nextGroupId++; return tab.groupId; },
+    async ungroup(id) { tabs.get(id).groupId = -1; ungrouped.push(id); },
+    async update(id, values) { Object.assign(tabs.get(id), values); return tabs.get(id); },
+    async create(values) { const tab = { id: 88, windowId: 1, title: "Restored", url: values.url, active: true, groupId: -1 }; tabs.set(88, tab); return tab; },
   },
+  windows: { async update() {} },
   tabGroups: { async update() {} },
   runtime: { async sendMessage() {} },
 };
 
-const { cancelAgentTask, continueAgentTaskInBackground, ensureAgentTab, endAgentTask, getAgentTabState, getAgentTaskTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, switchAgentTab } = await import("../extension/background/agent-tab.ts");
+const api = await import("../extension/background/agent-tab.ts");
 const amazonChat = "session-amazon";
 const gmailChat = "session-gmail";
 
-assert.equal((await ensureAgentTab(amazonChat)).id, 42, "first task should claim Amazon");
-assert.equal(session.dshAgentTabs[amazonChat].tabId, 42);
-assert.equal(tabs.get(42).groupId, 100, "claimed tab should receive the colored group");
+assert.equal((await api.ensureAgentTab(amazonChat)).id, 42);
+assert.equal(local.dshAgentTabs[amazonChat].tabId, 42, "tab ownership must be persisted beyond a service worker lifetime");
+assert.equal(tabs.get(42).groupId, 100);
 
-// Chrome sends the activated tab ID before every observer has necessarily
-// reflected it in a broad active-tab query. The event's tab must win.
-assert.deepEqual(await getAgentTabState(amazonChat, tabs.get(77)), {
-  agentTabId: 42,
-  agentTab: { id: 42, windowId: 1, title: "Amazon", url: "https://amazon.example" },
-  currentTab: { id: 77, windowId: 1, title: "Gmail", url: "https://gmail.example" },
-  activeTaskCount: 0,
-}, "the switch prompt must receive the tab from Chrome's activation event");
-
-await startAgentTask("shopping-task", amazonChat, 42);
-await pauseAgentTaskForTab(77);
-assert.equal((await getAgentTabState(amazonChat)).task?.status, "paused", "leaving the agent tab should pause its task");
-
-let resumed = false;
-const waitingTask = getAgentTaskTab("shopping-task").then((tab) => {
-  resumed = true;
-  return tab;
-});
-await Promise.resolve();
-assert.equal(resumed, false, "browser actions must wait for the user's choice");
-await resumeAgentTask();
-assert.equal((await waitingTask).id, 42, "keeping the task must resume it on its original tab");
-
-await pauseAgentTaskForTab(77);
-await continueAgentTaskInBackground();
-assert.equal((await getAgentTaskTab("shopping-task")).id, 42, "continuing in background must release a paused task on its assigned tab");
-await pauseAgentTaskForTab(77);
-assert.equal((await getAgentTabState(amazonChat)).task?.runMode, "background", "background tasks must not pause again when the visible tab changes");
-
-await startAgentTask("shopping-task", amazonChat, 42);
-await pauseAgentTaskForTab(77);
-const cancelledTask = getAgentTaskTab("shopping-task");
-await Promise.resolve();
-await cancelAgentTask();
-await assert.rejects(cancelledTask, /stopped/, "switching tabs must stop the paused task");
-await endAgentTask("shopping-task");
-
-tabs.get(42).active = false;
-tabs.get(77).active = true;
-assert.equal((await ensureAgentTab(amazonChat)).id, 42, "switching visible tabs must not retarget the agent");
-assert.deepEqual(await getAgentTabState(amazonChat), {
+assert.deepEqual(await api.getAgentTabState(amazonChat, tabs.get(77)), {
   agentTabId: 42,
   agentTab: { id: 42, windowId: 1, title: "Amazon", url: "https://amazon.example" },
   currentTab: { id: 77, windowId: 1, title: "Gmail", url: "https://gmail.example" },
   activeTaskCount: 0,
 });
 
-assert.equal((await ensureAgentTab(gmailChat)).id, 77, "a new chat should claim the current Gmail tab");
-assert.equal(session.dshAgentTabs[amazonChat].tabId, 42, "the original chat must keep its own tab");
-assert.equal(session.dshAgentTabs[gmailChat].tabId, 77, "the new chat must receive the visible tab");
+await api.startAgentTask("shopping-task", amazonChat, 42);
+await api.startAgentTask("mail-task", gmailChat, 77);
+assert.equal((await api.getAgentTabState(amazonChat)).activeTaskCount, 2, "two chats must keep independent active tasks");
+assert.equal((await api.getAgentTaskTab("shopping-task")).id, 42);
+assert.equal((await api.getAgentTaskTab("mail-task")).id, 77);
 
-await releaseAgentTab(amazonChat);
-assert.equal(session.dshAgentTabs[amazonChat], undefined, "releasing one chat should retain other chat assignments");
-await switchAgentTab(gmailChat, 42);
-assert.equal(session.dshAgentTabs[gmailChat].tabId, 42, "explicit switch should retarget only the selected chat");
-await releaseAgentTab(gmailChat);
-assert.deepEqual(ungrouped, [42, 77, 42], "each removed assignment should clear its marker");
+await api.pauseAgentTaskForTab(77);
+assert.equal((await api.getAgentTabState(amazonChat)).task?.status, "paused");
+assert.equal((await api.getAgentTabState(gmailChat)).task?.status, "running");
+await api.continueAgentTaskInBackground(amazonChat);
+assert.equal((await api.getAgentTaskTab("shopping-task")).id, 42);
+await api.pauseAgentTaskForTab(77);
+assert.equal((await api.getAgentTabState(amazonChat)).task?.runMode, "background", "background work must not pause on another tab activation");
 
+// A tab can have one owner only.  A new claim removes the previous chat's
+// assignment, while higher layers decide whether to delete its saved history.
+const claimed = await api.claimAgentTab(gmailChat, tabs.get(42));
+assert.deepEqual(claimed.displacedSessionIds, [amazonChat]);
+assert.equal(await api.getAgentSessionForTab(42), gmailChat);
+assert.equal(local.dshAgentTabs[amazonChat], undefined);
+assert.equal(local.dshAgentTabs[gmailChat].tabId, 42);
+
+await api.moveAgentTaskToTab(gmailChat, 42);
+assert.equal((await api.getAgentTaskTab("mail-task")).id, 42);
+await api.cancelAgentTask(amazonChat);
+assert.equal((await api.getAgentTabState(amazonChat)).task?.status, "cancelled");
+assert.equal((await api.getAgentTabState(gmailChat)).activeTaskCount, 1);
+await api.endAgentTask("mail-task");
+await api.endAgentTask("shopping-task");
+assert.equal((await api.getAgentTabState(gmailChat)).activeTaskCount, 0);
+
+await api.releaseAgentTab(gmailChat);
+assert.equal(local.dshAgentTabs[gmailChat], undefined);
+assert.ok(ungrouped.includes(42));
 process.stdout.write("agent tab ownership scenarios passed\n");

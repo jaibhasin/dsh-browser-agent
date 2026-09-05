@@ -1,10 +1,12 @@
 import type { Context } from "@deepseek-ai/cordis";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { installModelSelection, type AgentHandle, type CreateAgentOptions, type ModelSelection } from "@deepseek-ai/dsh-agent";
 import { brandString } from "@deepseek-ai/dsh-brand";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import type { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
+import type { JsonValue } from "../../shared/protocol.js";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
 
 export const name = "dsh-browser-snapshot";
@@ -116,16 +118,22 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   const attachments = ctx.get("attachments") as AttachmentStore | undefined;
 
   const handles = new Map<string, AgentHandle>();
-  let turn = Promise.resolve();
-  let activeChat: ActiveChat | undefined;
+  /** A session can have one active turn, while independent sessions run concurrently. */
+  const sessionTurns = new Map<string, Promise<void>>();
+  const activeChatsById = new Map<string, ActiveChat>();
+  const activeChatsBySession = new Map<SessionId, ActiveChat>();
+  /** Carries the originating chat through DSH's asynchronous tool execution. */
+  const chatContext = new AsyncLocalStorage<ActiveChat>();
   const bridge = new DshBrowserWebSocketBridge({
     token: config.token,
     port: config.port,
     onExtensionEvent: (event, payload) => {
       if (event !== "cancel_task" || !payload || typeof payload !== "object" || Array.isArray(payload)) return;
-      const chat = activeChat;
-      if (!chat || (payload as { id?: unknown }).id !== chat.id) return;
-      chat.handle.agent.cancel({ kind: "user" });
+      const chat = (payload as { id?: unknown }).id;
+      if (typeof chat !== "string") return;
+      const activeChat = activeChatsById.get(chat);
+      if (!activeChat) return;
+      activeChat.handle.agent.cancel({ kind: "user" });
     },
   });
 
@@ -183,7 +191,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   };
 
   ctx.on("session/event", (session, event) => {
-    const chat = activeChat;
+    const chat = activeChatsBySession.get(session.id as SessionId);
     if (!chat || session !== chat.handle.agent.session || event.seq < chat.firstEventSeq) return;
     if (event.type === "tool/call") {
       const call = event as ToolCallEvent;
@@ -215,7 +223,9 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   });
 
   const onChat = (text: string, chatId: string, sessionId: string, resume: boolean) => {
-    const run = turn.then(async () => {
+    const session = brandString<SessionId>(sessionId);
+    const previousTurn = sessionTurns.get(sessionId) ?? Promise.resolve();
+    const run = previousTurn.then(async () => {
       const handle = await getAgent(brandString<SessionId>(sessionId), resume);
       const message = createUserMessage({
         content: [{ type: "text", text }],
@@ -225,48 +235,57 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       // user message and the assistant reply will be appended.
       await handle.agent.whenIdle();
       const before = handle.agent.session.seq;
-      activeChat = { id: chatId, firstEventSeq: before, calls: new Map(), handle };
-      bridge.setActiveTask(chatId);
+      const chat: ActiveChat = { id: chatId, firstEventSeq: before, calls: new Map(), handle };
+      activeChatsById.set(chat.id, chat);
+      activeChatsBySession.set(session, chat);
       try {
-        handle.agent.followup(message);
-        await handle.agent.whenIdle();
-        const events = handle.agent.session.snapshotEvents(before) as readonly AssistantMessageEvent[];
-        const turnEnd = [...events].reverse().find((event) => event.type === "turn/end") as
-          | { data?: { reason?: { kind?: string; error?: { message?: string } } } }
-          | undefined;
-        if (turnEnd?.data?.reason?.kind === "error") {
-          throw new Error(turnEnd.data.reason.error?.message ?? "The DSH agent turn failed.");
-        }
-        if (turnEnd?.data?.reason?.kind === "aborted") {
-          return "The previous task was stopped when you switched the agent to another tab.";
-        }
-        // The final assistant/message carrying visible text is the reply.
-        // Reasoning blocks are intentionally excluded by extractAssistantText.
-        const reply = [...events].reverse()
-          .map(extractAssistantText)
-          .find((value) => value !== "") ?? "";
-        return reply || "The DSH agent completed without a text response.";
+        return await chatContext.run(chat, async () => {
+          handle.agent.followup(message);
+          await handle.agent.whenIdle();
+          const events = handle.agent.session.snapshotEvents(before) as readonly AssistantMessageEvent[];
+          const turnEnd = [...events].reverse().find((event) => event.type === "turn/end") as
+            | { data?: { reason?: { kind?: string; error?: { message?: string } } } }
+            | undefined;
+          if (turnEnd?.data?.reason?.kind === "error") {
+            throw new Error(turnEnd.data.reason.error?.message ?? "The DSH agent turn failed.");
+          }
+          if (turnEnd?.data?.reason?.kind === "aborted") {
+            return "The previous task was stopped when you switched the agent to another tab.";
+          }
+          // The final assistant/message carrying visible text is the reply.
+          // Reasoning blocks are intentionally excluded by extractAssistantText.
+          const reply = [...events].reverse()
+            .map(extractAssistantText)
+            .find((value) => value !== "") ?? "";
+          return reply || "The DSH agent completed without a text response.";
+        });
       } finally {
-        bridge.setActiveTask();
-        activeChat = undefined;
+        if (activeChatsById.get(chat.id) === chat) activeChatsById.delete(chat.id);
+        if (activeChatsBySession.get(session) === chat) activeChatsBySession.delete(session);
       }
     });
-    turn = run.then(() => undefined, () => undefined);
+    const settled = run.then(() => undefined, () => undefined);
+    sessionTurns.set(sessionId, settled);
+    void settled.finally(() => {
+      if (sessionTurns.get(sessionId) === settled) sessionTurns.delete(sessionId);
+    });
     return run;
   };
-  const onNewSession = () => {
-    const run = turn.then(async () => {
-      await Promise.all([...handles.values()].map(async (handle) => {
-        await handle.agent.whenIdle();
-        await handle.dispose();
-      }));
-      handles.clear();
-    });
-    turn = run.then(() => undefined, () => undefined);
-    return run;
+  const onNewSession = async () => {
+    // Legacy wire command. It must never interleave disposal with running
+    // turns, but it no longer serializes unrelated chats during normal use.
+    for (const chat of activeChatsById.values()) chat.handle.agent.cancel({ kind: "user" });
+    await Promise.all([...sessionTurns.values()]);
+    await Promise.all([...handles.values()].map((handle) => handle.dispose()));
+    handles.clear();
   };
   bridge.setChatHandler(onChat);
   bridge.setNewSessionHandler(onNewSession);
+  const requestBrowser = (method: string, params: JsonValue, signal?: AbortSignal) => {
+    const chat = chatContext.getStore();
+    if (!chat) throw new Error("Browser tools can only run inside an active browser-agent chat.");
+    return bridge.request(method, params, signal, chat.id);
+  };
   await bridge.start();
   ctx.effect(() => () => Promise.all([...handles.values()].map((handle) => handle.dispose())).then(() => bridge.stop()), "dsh-browser-snapshot: websocket bridge");
   ctx.tools.register(defineTool({
@@ -286,7 +305,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     async execute(args, exec) {
       const url = (args as { url?: unknown }).url;
       if (typeof url !== "string") throw new Error("Browser navigate requires a URL.");
-      const result = await bridge.request("navigate", { url }, exec.signal);
+      const result = await requestBrowser("navigate", { url }, exec.signal);
       return parseBrowserTabResult(result, "navigate");
     },
   }));
@@ -303,7 +322,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       render: (_args, value) => [{ type: "text", text: renderBrowserTabs((value as { tabs: BrowserTab[] }).tabs) }],
     },
     async execute(_args, exec) {
-      const result = await bridge.request("tabs", {}, exec.signal);
+      const result = await requestBrowser("tabs", {}, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) || !Array.isArray((result as { tabs?: unknown }).tabs)) {
         throw new Error("The browser extension returned an invalid tab list.");
       }
@@ -324,7 +343,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       render: (_args, value) => [{ type: "text", text: (value as { snapshot: string }).snapshot }],
     },
     async execute(_args, exec) {
-      const result = await bridge.request("snapshot", {}, exec.signal);
+      const result = await requestBrowser("snapshot", {}, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { text?: unknown }).text !== "string") {
         throw new Error("The browser extension returned an invalid snapshot.");
       }
@@ -361,7 +380,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       if (!Number.isSafeInteger(timeoutMs) || (timeoutMs as number) < 250 || (timeoutMs as number) > 10_000) {
         throw new Error("Browser wait timeout must be an integer from 250 to 10,000 milliseconds.");
       }
-      const result = await bridge.request("wait", { timeoutMs: timeoutMs as number }, exec.signal);
+      const result = await requestBrowser("wait", { timeoutMs: timeoutMs as number }, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) ||
         typeof (result as { settled?: unknown }).settled !== "boolean" ||
         typeof (result as { waitedMs?: unknown }).waitedMs !== "number" ||
@@ -425,7 +444,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     },
     async execute(_args, exec) {
       if (!attachments) throw new Error("DSH attachment storage is unavailable.");
-      const result = await bridge.request("screenshot", {}, exec.signal);
+      const result = await requestBrowser("screenshot", {}, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) ||
         typeof (result as { data?: unknown }).data !== "string" ||
         (result as { mediaType?: unknown }).mediaType !== "image/png") {
@@ -456,7 +475,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     async execute(args, exec) {
       const direction = (args as { direction: "up" | "down" | "left" | "right" }).direction;
       const value = (args as { value: number }).value;
-      const result = await bridge.request("scroll", { direction, value }, exec.signal);
+      const result = await requestBrowser("scroll", { direction, value }, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { text?: unknown }).text !== "string") {
         throw new Error("The browser extension returned an invalid scroll result.");
       }
@@ -478,7 +497,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     async execute(args, exec) {
       const ref = (args as { ref?: unknown }).ref;
       if (!Number.isInteger(ref) || (ref as number) < 1) throw new Error("Browser ref must be a positive integer.");
-      const result = await bridge.request("click", { ref: ref as number }, exec.signal);
+      const result = await requestBrowser("click", { ref: ref as number }, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) || (result as { clicked?: unknown }).clicked !== true) {
         throw new Error("The browser extension returned an invalid click result.");
       }
@@ -504,7 +523,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       const ref = (args as { ref?: unknown }).ref;
       const text = (args as { text?: unknown }).text;
       if (!Number.isInteger(ref) || (ref as number) < 1 || typeof text !== "string") throw new Error("Browser type requires a positive ref and text.");
-      const result = await bridge.request("type", { ref: ref as number, text }, exec.signal);
+      const result = await requestBrowser("type", { ref: ref as number, text }, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) || (result as { typed?: unknown }).typed !== true) {
         throw new Error("The browser extension returned an invalid type result.");
       }

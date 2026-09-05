@@ -18,6 +18,12 @@ export type SavedChat = {
 
 type StoredHistory = { version: 1; chats: SavedChat[] };
 
+// Storage is shared by every mounted side panel in a Chrome profile.
+// Serialize local mutations so an older async read cannot overwrite a newer save
+// or resurrect a chat that has just been deleted.
+let mutationQueue: Promise<void> = Promise.resolve();
+const deletedChatIds = new Set<string>();
+
 function isSavedChat(value: unknown): value is SavedChat {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const chat = value as Partial<SavedChat>;
@@ -34,17 +40,32 @@ export async function loadChatHistory(): Promise<SavedChat[]> {
   return history.chats.filter(isSavedChat).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export async function saveChat(chat: SavedChat): Promise<void> {
-  const chats = await loadChatHistory();
-  const next = [chat, ...chats.filter((candidate) => candidate.id !== chat.id)]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, MAX_SESSIONS);
-  await chrome.storage.local.set({ [STORAGE_KEY]: { version: 1, chats: next } satisfies StoredHistory });
+export function saveChat(chat: SavedChat): Promise<void> {
+  return enqueueMutation(async () => {
+    if (deletedChatIds.has(chat.id)) return;
+    const chats = await loadChatHistory();
+    const existing = chats.find((candidate) => candidate.id === chat.id);
+    // A delayed render should never replace a newer persisted snapshot.
+    if (existing && existing.updatedAt > chat.updatedAt) return;
+    const next = [chat, ...chats.filter((candidate) => candidate.id !== chat.id)]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_SESSIONS);
+    await chrome.storage.local.set({ [STORAGE_KEY]: { version: 1, chats: next } satisfies StoredHistory });
+  });
 }
 
-export async function removeChat(id: string): Promise<void> {
-  const chats = (await loadChatHistory()).filter((chat) => chat.id !== id);
-  await chrome.storage.local.set({ [STORAGE_KEY]: { version: 1, chats } satisfies StoredHistory });
+export function removeChat(id: string): Promise<void> {
+  deletedChatIds.add(id);
+  return enqueueMutation(async () => {
+    const chats = (await loadChatHistory()).filter((chat) => chat.id !== id);
+    await chrome.storage.local.set({ [STORAGE_KEY]: { version: 1, chats } satisfies StoredHistory });
+  });
+}
+
+function enqueueMutation(mutation: () => Promise<void>): Promise<void> {
+  const next = mutationQueue.then(mutation, mutation);
+  mutationQueue = next.catch(() => undefined);
+  return next;
 }
 
 export function chatTitle(items: ConversationItem[]): string {
