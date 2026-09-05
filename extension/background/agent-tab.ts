@@ -198,14 +198,24 @@ export async function endAgentTask(id: string): Promise<void> {
   await broadcastAgentTabState(task.sessionId);
 }
 
-/** Pauses foreground tasks that no longer own the visible tab. */
-export async function pauseAgentTaskForTab(currentTabId: number): Promise<void> {
+/** Pauses foreground tasks that were running on the tab the user just left. */
+export async function pauseAgentTaskForTab(currentTabId: number, previousTabId?: number): Promise<void> {
   const tasks = await readStoredAgentTasks();
-  const paused = Object.values(tasks).filter((task) => task.status === "running" && task.runMode === "foreground" && task.tabId !== currentTabId);
+  const paused = Object.values(tasks).filter((task) => task.status === "running" && task.runMode === "foreground" &&
+    (previousTabId === undefined ? task.tabId !== currentTabId : task.tabId === previousTabId));
   if (!paused.length) return;
   for (const task of paused) tasks[task.sessionId] = { ...task, status: "paused", pendingTabId: currentTabId };
   await writeStoredAgentTasks(tasks);
   await Promise.all(paused.map((task) => broadcastAgentTabState(task.sessionId, currentTabId)));
+}
+
+async function pauseAgentTask(sessionId: string, pendingTabId: number): Promise<void> {
+  const tasks = await readStoredAgentTasks();
+  const task = tasks[sessionId];
+  if (!task || task.status !== "running" || task.runMode !== "foreground") return;
+  tasks[sessionId] = { ...task, status: "paused", pendingTabId };
+  await writeStoredAgentTasks(tasks);
+  await broadcastAgentTabState(sessionId, pendingTabId);
 }
 
 /** Resolves the fixed tab lease for a tool request, waiting while the user decides. */
@@ -216,6 +226,17 @@ export async function getAgentTaskTab(id: string): Promise<chrome.tabs.Tab> {
     if (!task) throw new Error("This browser task is no longer active.");
     if (task.status === "cancelled") throw new Error("This browser task was stopped when the agent tab changed.");
     if (task.status === "running") {
+      // Tab activation and bridge requests are delivered independently.  If a
+      // request wins that race, verify the visible tab here before allowing
+      // the agent to touch its assigned tab.  This keeps the agent paused
+      // while the tab-switch prompt is waiting for the user's choice.
+      if (task.runMode === "foreground") {
+        const visibleTab = await activeTab();
+        if (visibleTab?.id !== task.tabId) {
+          await pauseAgentTask(task.sessionId, visibleTab?.id ?? chrome.tabs.TAB_ID_NONE);
+          continue;
+        }
+      }
       const tab = await chrome.tabs.get(task.tabId).catch(() => undefined);
       if (!tab) throw new Error("The tab assigned to this browser task was closed.");
       return tab;

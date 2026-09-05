@@ -59,7 +59,13 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(() => void bridge.start());
-chrome.tabs.onActivated.addListener(({ tabId }) => void handleTabActivated(tabId));
+let lastActiveTabId: number | undefined;
+void initializeLastActiveTab();
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  const previousTabId = lastActiveTabId;
+  lastActiveTabId = tabId;
+  void handleTabActivated(tabId, previousTabId);
+});
 chrome.tabs.onRemoved.addListener(() => void broadcastAgentTabState());
 chrome.windows.onFocusChanged.addListener((windowId) => void handleWindowFocusChanged(windowId));
 
@@ -191,8 +197,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   }
 });
 
-async function handleTabActivated(tabId: number): Promise<void> {
-  await pauseAgentTaskForTab(tabId);
+async function initializeLastActiveTab(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (lastActiveTabId === undefined) lastActiveTabId = tab?.id;
+}
+
+async function handleTabActivated(tabId: number, previousTabId?: number): Promise<void> {
+  if (previousTabId !== undefined && previousTabId !== tabId) {
+    await pauseAgentTaskForTab(tabId, previousTabId);
+  }
   await broadcastAgentTabState(undefined, tabId);
 }
 
@@ -206,7 +219,9 @@ async function handleWindowFocusChanged(windowId: number): Promise<void> {
     await broadcastAgentTabState();
     return;
   }
-  await handleTabActivated(tab.id);
+  const previousTabId = lastActiveTabId;
+  lastActiveTabId = tab.id;
+  await handleTabActivated(tab.id, previousTabId);
 }
 
 async function claimCurrentAgentTab(sessionId: string) {
