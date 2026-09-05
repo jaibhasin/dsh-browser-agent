@@ -606,20 +606,19 @@ function App() {
               </div>
             </article>
           ) : (
-            <section className="tool-activity" key={message.id} aria-label="Browser activity">
-              {message.steps.map((step) => (
-                <details className={`tool-step tool-step-${step.status}`} key={step.callId}>
-                  <summary>
-                    <span className="tool-status" aria-label={step.status} />
-                    <span className="tool-name">{toolLabel(step.tool)}</span>
-                    <span className="tool-result">{statusLabel(step.status)}</span>
-                  </summary>
-                  <dl className="tool-io">
-                    <div><dt>Input</dt><dd>{step.input ?? "No input"}</dd></div>
-                    <div><dt>Output</dt><dd>{step.error ?? step.output ?? "Working"}</dd></div>
-                  </dl>
-                </details>
-              ))}
+            <section className="tool-thread" key={message.id} aria-label="Browser execution thread">
+              <header className="tool-thread-header">
+                <div className="tool-thread-title">
+                  <span className="tool-thread-kicker">Execution thread</span>
+                  <strong>Browser activity</strong>
+                </div>
+                <span className="tool-thread-meta">
+                  {message.steps.length} {message.steps.length === 1 ? "step" : "steps"} · {statusLabel(toolThreadStatus(message.steps))}
+                </span>
+              </header>
+              <div className="tool-thread-list">
+                {message.steps.map((step, index) => <ToolStep key={step.callId} step={step} index={index} />)}
+              </div>
             </section>
           ))}
         </div>
@@ -690,11 +689,61 @@ function App() {
   );
 }
 
+function ToolStep({ step, index }: { step: ToolActivity; index: number }) {
+  const [isOpen, setIsOpen] = useState(step.status === "running" || step.status === "error");
+
+  useEffect(() => {
+    if (step.status === "running" || step.status === "error") setIsOpen(true);
+    if (step.status === "success") setIsOpen(false);
+  }, [step.status]);
+
+  return (
+    <details
+      className={`tool-step tool-step-${step.status}`}
+      open={isOpen}
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+    >
+      <summary>
+        <span className="tool-step-marker" aria-label={`Step ${index + 1}, ${step.status}`}>
+          <span className="tool-step-index">{String(index + 1).padStart(2, "0")}</span>
+          <span className="tool-status" aria-hidden="true" />
+        </span>
+        <span className="tool-step-main">
+          <span className="tool-step-label">
+            <span className="tool-glyph" aria-hidden="true">{toolGlyph(step.tool)}</span>
+            <span className="tool-name">{toolLabel(step.tool)}</span>
+          </span>
+          <span className="tool-step-detail">{step.input ?? "Browser operation"}</span>
+        </span>
+        <span className="tool-result">{statusLabel(step.status)}</span>
+        <span className="tool-chevron" aria-hidden="true">›</span>
+      </summary>
+      <dl className="tool-io">
+        <div><dt>Input</dt><dd>{step.input ?? "No input"}</dd></div>
+        <div><dt>Output</dt><dd>{step.error ?? step.output ?? "Working"}</dd></div>
+      </dl>
+    </details>
+  );
+}
+
 function toolLabel(tool: string): string {
   const labels: Record<string, string> = {
     browser_snapshot: "Reading page", browser_wait: "Waiting for page", browser_screenshot: "Capturing screenshot", browser_scroll: "Scrolling page", browser_click: "Clicking element", browser_type: "Entering text", browser_navigate: "Opening page", browser_tabs: "Listing tabs",
   };
   return labels[tool] ?? "Using tool";
+}
+
+function toolGlyph(tool: string): string {
+  const glyphs: Record<string, string> = {
+    browser_snapshot: "◌", browser_wait: "◷", browser_screenshot: "▧", browser_scroll: "↕", browser_click: "⌁", browser_type: "T", browser_navigate: "↗", browser_tabs: "⊞",
+  };
+  return glyphs[tool] ?? "·";
+}
+
+function toolThreadStatus(steps: ToolActivity[]): ToolActivity["status"] {
+  if (steps.some((step) => step.status === "running")) return "running";
+  if (steps.some((step) => step.status === "error")) return "error";
+  return "success";
 }
 
 function statusLabel(status: ToolActivity["status"]): string {
