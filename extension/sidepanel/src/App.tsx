@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { MarkdownMessage } from "./MarkdownMessage";
 import type { BridgeChatProgress } from "../../../shared/protocol";
 
 type Message = { kind: "message"; id: string; role: "assistant" | "user"; text: string };
@@ -266,7 +267,7 @@ function App() {
               <div className="message-avatar" aria-hidden="true">{message.role === "assistant" ? "D" : "Y"}</div>
               <div className="message-content">
                 {message.role === "assistant" && <p className="message-author">DeepSeek Harness</p>}
-                <p>{message.text}</p>
+                {message.role === "assistant" ? <MarkdownMessage text={message.text} /> : <p>{message.text}</p>}
               </div>
             </article>
           ) : (
