@@ -1,6 +1,6 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
 import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
-import { broadcastAgentTabState, cancelAgentTask, ensureAgentTab, getAgentTabState, getAgentTaskTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask, switchAgentTab } from "./agent-tab";
+import { broadcastAgentTabState, cancelAgentTask, continueAgentTaskInBackground, ensureAgentTab, getAgentTabState, getAgentTaskTab, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask, switchAgentTab } from "./agent-tab";
 
 const bridge = new ExtensionBridge();
 bridge.setChatProgressHandler((progress) => {
@@ -41,7 +41,9 @@ bridge.setRequestHandler(async (request) => {
     const url = (request.params as { url?: unknown })?.url;
     if (typeof url !== "string") throw new Error("Browser navigate requires a URL.");
     const parsed = parseHttpUrl(url);
-    return await navigateBrowser(parsed.href, taskTab);
+    const result = await navigateBrowser(parsed.href, taskTab);
+    await broadcastAgentTabState();
+    return result;
   }
   if (request.method === "tabs") return await listBrowserTabs();
   throw new Error(`Unsupported browser method: ${request.method}`);
@@ -65,15 +67,19 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   if (!message || typeof message !== "object" || !("type" in message)) return;
   if (message.type === "dsh-bridge-status") { sendResponse({ status: bridge.getStatus() }); return; }
   if (message.type === "dsh-agent-tab-state-request") {
-    void getAgentTabState()
+    const sessionId = (message as { sessionId?: unknown }).sessionId;
+    if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
+    void getAgentTabState(sessionId)
       .then((state) => sendResponse({ ok: true, state }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Agent tab state is unavailable." }));
     return true;
   }
   if (message.type === "dsh-agent-switch-tab") {
     const id = (message as { id?: unknown }).id;
+    const sessionId = (message as { sessionId?: unknown }).sessionId;
     if (!Number.isInteger(id) || (id as number) < 0) { sendResponse({ ok: false, error: "Browser tab ID must be a non-negative integer." }); return; }
-    void switchAgentToCurrentTab(id as number)
+    if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
+    void switchAgentToCurrentTab(sessionId, id as number)
       .then(() => sendResponse({ ok: true }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The agent tab could not be changed." }));
     return true;
@@ -82,6 +88,28 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     void resumeAgentTask()
       .then(() => sendResponse({ ok: true }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The browser task could not be resumed." }));
+    return true;
+  }
+  if (message.type === "dsh-agent-continue-background") {
+    void continueAgentTaskInBackground()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The browser task could not continue in the background." }));
+    return true;
+  }
+  if (message.type === "dsh-agent-pause-chat" || message.type === "dsh-agent-discard-chat") {
+    const sessionId = (message as { sessionId?: unknown }).sessionId;
+    if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
+    void pauseOrDiscardChat(sessionId, message.type === "dsh-agent-discard-chat")
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The chat could not be stopped." }));
+    return true;
+  }
+  if (message.type === "dsh-agent-claim-tab") {
+    const sessionId = (message as { sessionId?: unknown }).sessionId;
+    if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
+    void ensureAgentTab(sessionId)
+      .then((tab) => sendResponse({ ok: true, tab: { id: tab.id, title: tab.title, url: tab.url } }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "The tab could not be assigned." }));
     return true;
   }
   if (message.type === "dsh-browser-snapshot") {
@@ -110,15 +138,19 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   if (message.type === "dsh-chat") {
     const text = (message as { text?: unknown }).text;
     const id = (message as { id?: unknown }).id;
+    const sessionId = (message as { sessionId?: unknown }).sessionId;
+    const resume = (message as { resume?: unknown }).resume;
     if (typeof text !== "string" || !text.trim()) { sendResponse({ ok: false, error: "Message is empty." }); return; }
     if (typeof id !== "string" || !id) { sendResponse({ ok: false, error: "Chat request ID is invalid." }); return; }
+    if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
+    if (typeof resume !== "boolean") { sendResponse({ ok: false, error: "Chat resume state is invalid." }); return; }
     if (bridge.getStatus() !== "connected") { sendResponse({ ok: false, error: "The DSH browser bridge is not connected." }); return; }
-    void ensureAgentTab()
+    void ensureAgentTab(sessionId)
       .then(async (tab) => {
         if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
-        await startAgentTask(id, tab.id);
+        await startAgentTask(id, sessionId, tab.id);
         try {
-          return await bridge.chat(id, text.trim());
+          return await bridge.chat(id, text.trim(), sessionId, resume);
         } finally {
           await endAgentTask(id);
         }
@@ -129,7 +161,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   }
   if (message.type === "dsh-new-session") {
     void bridge.newSession()
-      .then(() => releaseAgentTab())
+      .then(() => releaseAgentTab((message as { sessionId?: string }).sessionId ?? ""))
       .then(() => sendResponse({ ok: true }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "New session failed." }));
     return true;
@@ -146,7 +178,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 
 async function handleTabActivated(tabId: number): Promise<void> {
   await pauseAgentTaskForTab(tabId);
-  await broadcastAgentTabState(tabId);
+  await broadcastAgentTabState(undefined, tabId);
 }
 
 async function handleWindowFocusChanged(windowId: number): Promise<void> {
@@ -162,10 +194,15 @@ async function handleWindowFocusChanged(windowId: number): Promise<void> {
   await handleTabActivated(tab.id);
 }
 
-async function switchAgentToCurrentTab(id: number): Promise<void> {
-  const cancelledTaskId = await cancelAgentTask();
+async function switchAgentToCurrentTab(sessionId: string, id: number): Promise<void> {
+  await switchAgentTab(sessionId, id);
+  await moveAgentTaskToTab(sessionId, id);
+}
+
+async function pauseOrDiscardChat(sessionId: string, discard: boolean): Promise<void> {
+  const cancelledTaskId = await cancelAgentTask(sessionId);
   if (cancelledTaskId) bridge.sendEvent("cancel_task", { id: cancelledTaskId });
-  await switchAgentTab(id);
+  if (discard) await releaseAgentTab(sessionId);
 }
 
 function isBridgeConfiguration(value: unknown): value is BridgeConfiguration {

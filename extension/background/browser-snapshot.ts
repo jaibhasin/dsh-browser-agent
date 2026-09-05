@@ -1,5 +1,4 @@
 import type { JsonValue } from "../../shared/protocol";
-import { ensureAgentTab } from "./agent-tab";
 
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
 const SCROLL_MESSAGE = "dsh-browser-scroll";
@@ -39,7 +38,10 @@ function toBrowserTab(tab: chrome.tabs.Tab): BrowserTab {
 }
 
 async function actionTab(taskTab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab> {
-  return taskTab ?? await ensureAgentTab();
+  if (taskTab) return taskTab;
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab) throw new Error("No active browser tab is available.");
+  return tab;
 }
 
 /** Read the agent-owned tab's snapshot. */

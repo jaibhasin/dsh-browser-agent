@@ -11,13 +11,16 @@ Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 - `browser_tabs` - Lists every open browser tab.
 - `browser_wait` - Waits briefly for a loading page to become quiet, then returns a fresh snapshot.
 
-## Workspace
+## Chats and tabs
 
-All chats use one persistent agent session in the single `dsh-browser-agent` DSH workspace.
+The side panel saves up to 100 chats in Chrome local storage.
+Each saved chat contains its visible messages, browser tool activity, and visited HTTP(S) links.
+Opening a saved chat reuses its DSH session ID so the local DSH runtime can resume its durable context.
+Chat history is separate from diagnostic logs and is never committed to this repository.
 
 The first message in a session assigns the current browser tab to the agent.
 
-Switching tabs pauses an active task, and the side panel lets you resume it on the assigned tab or stop it and move the agent to the visible tab.
+Switching tabs pauses an active task, and the side panel lets you resume it on the assigned tab, continue it in the background, or stop it and move the agent to the visible tab.
 The assigned tab appears in a blue Chrome tab group named `Agent`.
 DOM actions work in the assigned background tab, but screenshots require that tab to be visible.
 

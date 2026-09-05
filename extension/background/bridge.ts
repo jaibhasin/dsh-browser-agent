@@ -34,13 +34,13 @@ export class ExtensionBridge {
   setRequestHandler(handler: RequestHandler): void { this.requestHandler = handler; }
   setChatProgressHandler(handler: ChatProgressHandler): void { this.chatProgressHandler = handler; }
   sendEvent(event: string, payload: JsonValue): void { this.send({ type: "event", event, payload }); }
-  chat(id: string, text: string): Promise<string> {
+  chat(id: string, text: string, sessionId: string, resume: boolean): Promise<string> {
     if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("The DSH browser bridge is not connected."));
     if (!id || this.chatRequests.has(id)) return Promise.reject(new Error("The chat request ID is invalid or already in use."));
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => { this.chatRequests.delete(id); reject(new Error("DSH chat timed out.")); }, 120_000);
       this.chatRequests.set(id, { resolve, reject, timeout });
-      this.send({ type: "chat", id, text });
+      this.send({ type: "chat", id, text, sessionId, resume });
     });
   }
   newSession(): Promise<void> {

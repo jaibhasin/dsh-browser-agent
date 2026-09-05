@@ -6,7 +6,6 @@ import type { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
-import { randomUUID } from "node:crypto";
 
 export const name = "dsh-browser-snapshot";
 export const inject = ["tools", "agents", "agentDefaultModel", "workspaceRegistry", "attachments"];
@@ -104,6 +103,7 @@ interface ActiveChat {
   id: string;
   firstEventSeq: number;
   calls: Map<string, string>;
+  handle: AgentHandle;
 }
 
 /** Register browser tools and the side-panel chat bridge. */
@@ -115,7 +115,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   const workspaceRegistry = ctx.get("workspaceRegistry") as WorkspaceRegistry | undefined;
   const attachments = ctx.get("attachments") as AttachmentStore | undefined;
 
-  let handle: AgentHandle | undefined;
+  const handles = new Map<string, AgentHandle>();
   let turn = Promise.resolve();
   let activeChat: ActiveChat | undefined;
   const bridge = new DshBrowserWebSocketBridge({
@@ -123,12 +123,13 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     port: config.port,
     onExtensionEvent: (event, payload) => {
       if (event !== "cancel_task" || !payload || typeof payload !== "object" || Array.isArray(payload)) return;
-      if ((payload as { id?: unknown }).id !== activeChat?.id) return;
-      handle?.agent.cancel({ kind: "user" });
+      const chat = activeChat;
+      if (!chat || (payload as { id?: unknown }).id !== chat.id) return;
+      chat.handle.agent.cancel({ kind: "user" });
     },
   });
 
-  const createAgent = async (): Promise<AgentHandle> => {
+  const createAgent = async (sessionId: SessionId, resume: boolean): Promise<AgentHandle> => {
     // The profile's persisted model settings are applied by loader siblings.
     // Reading the default before loader settlement captures the built-in route.
     await loader?.await();
@@ -137,11 +138,9 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       throw new Error("DSH browser agent has no default model configured; select a model for this profile.");
     }
     if (!workspaceRegistry) throw new Error("DSH workspace registry is unavailable.");
-    const created = await agents.create({
-      sessionId: brandString<SessionId>(`session-${randomUUID()}`),
-      meta: { cwd: process.cwd() },
+    const options = {
       agentOptions: { provider: selection.provider, model: selection.model },
-      setup: (agentCtx) => {
+      setup: (agentCtx: Context) => {
         agentCtx.systemPrompt.section({
           name: "dsh-browser-agent.instructions",
           order: 100,
@@ -151,7 +150,10 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         // request to the selected model (mirrors @deepseek-ai/dsh-headless).
         installModelSelection(agentCtx, { current: selection, assembled: undefined });
       },
-    } satisfies CreateAgentOptions);
+    };
+    const created = resume
+      ? await agents.resume({ resumeSessionId: sessionId, ...options })
+      : await agents.create({ sessionId, meta: { cwd: process.cwd() }, ...options } satisfies CreateAgentOptions);
     try {
       const workspace = await workspaceRegistry.create(process.cwd());
       await workspace.attachSession(created.agent.session.id);
@@ -160,6 +162,14 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       await created.dispose();
       throw error;
     }
+  };
+
+  const getAgent = async (sessionId: SessionId, resume: boolean): Promise<AgentHandle> => {
+    const existing = handles.get(sessionId);
+    if (existing) return existing;
+    const created = await createAgent(sessionId, resume);
+    handles.set(sessionId, created);
+    return created;
   };
 
   const extractAssistantText = (event: AssistantMessageEvent): string => {
@@ -174,7 +184,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
 
   ctx.on("session/event", (session, event) => {
     const chat = activeChat;
-    if (!chat || session !== handle?.agent.session || event.seq < chat.firstEventSeq) return;
+    if (!chat || session !== chat.handle.agent.session || event.seq < chat.firstEventSeq) return;
     if (event.type === "tool/call") {
       const call = event as ToolCallEvent;
       if (typeof call.data.callId !== "string" || typeof call.data.name !== "string") return;
@@ -204,9 +214,9 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     });
   });
 
-  const onChat = (text: string, chatId: string) => {
+  const onChat = (text: string, chatId: string, sessionId: string, resume: boolean) => {
     const run = turn.then(async () => {
-      if (!handle) handle = await createAgent();
+      const handle = await getAgent(brandString<SessionId>(sessionId), resume);
       const message = createUserMessage({
         content: [{ type: "text", text }],
         source: { kind: "user" },
@@ -215,7 +225,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       // user message and the assistant reply will be appended.
       await handle.agent.whenIdle();
       const before = handle.agent.session.seq;
-      activeChat = { id: chatId, firstEventSeq: before, calls: new Map() };
+      activeChat = { id: chatId, firstEventSeq: before, calls: new Map(), handle };
       bridge.setActiveTask(chatId);
       try {
         handle.agent.followup(message);
@@ -246,9 +256,11 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   };
   const onNewSession = () => {
     const run = turn.then(async () => {
-      await handle?.agent.whenIdle();
-      handle?.dispose();
-      handle = undefined;
+      await Promise.all([...handles.values()].map(async (handle) => {
+        await handle.agent.whenIdle();
+        await handle.dispose();
+      }));
+      handles.clear();
     });
     turn = run.then(() => undefined, () => undefined);
     return run;
@@ -256,7 +268,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   bridge.setChatHandler(onChat);
   bridge.setNewSessionHandler(onNewSession);
   await bridge.start();
-  ctx.effect(() => () => { handle?.dispose(); return bridge.stop(); }, "dsh-browser-snapshot: websocket bridge");
+  ctx.effect(() => () => Promise.all([...handles.values()].map((handle) => handle.dispose())).then(() => bridge.stop()), "dsh-browser-snapshot: websocket bridge");
   ctx.tools.register(defineTool({
     name: "browser_navigate",
     description: "Navigate the tab assigned to this agent directly to an absolute HTTP or HTTPS URL. The assignment remains stable when the user views another tab. This changes browser state. The returned tab details reflect the navigation target; use browser_snapshot after navigation to inspect loaded page content.",
