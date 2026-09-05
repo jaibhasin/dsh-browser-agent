@@ -14,6 +14,7 @@ export default defineConfig({
       name: "copy-extension-assets",
       closeBundle() {
         cpSync(resolve(extensionRoot, "manifest.json"), resolve(extensionDist, "manifest.json"));
+        cpSync(resolve(extensionRoot, "icons"), resolve(extensionDist, "icons"), { recursive: true });
       },
     },
   ],

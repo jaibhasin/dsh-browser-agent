@@ -6,7 +6,17 @@
   "permissions": ["activeTab", "sidePanel", "scripting", "storage", "tabs", "tabGroups"],
   "host_permissions": ["<all_urls>", "ws://127.0.0.1/*", "ws://localhost/*"],
   "action": {
-    "default_title": "Open DSH Agent"
+    "default_title": "Open DSH Agent",
+    "default_icon": {
+      "16": "icons/deepseek-mark.png",
+      "32": "icons/deepseek-mark.png"
+    }
+  },
+  "icons": {
+    "16": "icons/deepseek-mark.png",
+    "32": "icons/deepseek-mark.png",
+    "48": "icons/deepseek-mark.png",
+    "128": "icons/deepseek-mark.png"
   },
   "background": {
     "service_worker": "background/service-worker.js"

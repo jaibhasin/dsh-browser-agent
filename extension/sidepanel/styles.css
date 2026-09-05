@@ -96,13 +96,15 @@ textarea {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  color: var(--bg-page);
-  background: var(--accent);
-  border-radius: 5px;
-  font-size: 10px;
-  font-weight: 800;
+  width: 28px;
+  height: 28px;
+}
+
+.brand-mark img {
+  width: 28px;
+  height: 22px;
+  object-fit: contain;
+  filter: invert(1);
 }
 
 .brand-title {
