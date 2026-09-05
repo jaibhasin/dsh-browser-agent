@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
+import { getTabSwitchView, type AgentTabState, type TabSummary } from "./tab-switch-state";
 import type { BridgeChatProgress } from "../../../shared/protocol";
 
-type TabSummary = { id?: number; title?: string; url?: string; windowId?: number };
-type AgentTaskState = { status: "running" | "paused" | "cancelled"; tabId: number; runMode: "foreground" | "background"; pendingTabId?: number };
-type AgentTabState = { agentTabId?: number; agentTab?: TabSummary; currentTab?: TabSummary; currentTabSessionId?: string; task?: AgentTaskState; activeTaskCount: number };
-type DestinationAction = "pause" | "quit";
+type CurrentTaskAction = "background" | "pause" | "quit";
 
 function App() {
   const [messages, setMessages] = useState<ConversationItem[]>([]);
@@ -17,7 +15,7 @@ function App() {
   const [historyReady, setHistoryReady] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [pendingSavedChat, setPendingSavedChat] = useState<SavedChat>();
-  const [pendingDestinationAction, setPendingDestinationAction] = useState<DestinationAction>();
+  const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
@@ -94,7 +92,10 @@ function App() {
   }
 
   function applyAgentTabState(state: AgentTabState) {
-    if (state.currentTab?.id !== currentTabId.current) setDismissedTabId(undefined);
+    if (state.currentTab?.id !== currentTabId.current) {
+      setDismissedTabId(undefined);
+      setPendingDestinationChat(undefined);
+    }
     currentTabId.current = state.currentTab?.id;
     setAgentTabState(state);
   }
@@ -159,8 +160,6 @@ function App() {
     const onMessage = (message: { type?: string; status?: string; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string }) => {
       if (message.type === "dsh-bridge-status" && message.status) {
         setConnectionStatus(message.status);
-      } else if (message.type === "dsh-agent-chat-displaced" && message.sessionId) {
-        void forgetSession(message.sessionId);
       } else if (message.type === "dsh-chat-progress" && message.progress && activeChatIds.current.has(message.progress.id)) {
         const sessionId = activeChatSessions.current.get(message.progress.id);
         if (sessionId) addToolProgress(sessionId, message.progress);
@@ -184,13 +183,16 @@ function App() {
     };
   }, []);
 
-  const suggestedTab = agentTabState.agentTabId !== undefined &&
-    agentTabState.currentTab?.id !== undefined &&
-    agentTabState.agentTabId !== agentTabState.currentTab.id &&
-    agentTabState.task?.runMode !== "background" &&
-    dismissedTabId !== agentTabState.currentTab.id
-    ? agentTabState.currentTab
-    : undefined;
+  const tabSwitchView = getTabSwitchView({
+    state: agentTabState,
+    activeSessionId,
+    savedSessionIds: new Set(savedChats.map((chat) => chat.id)),
+    historyReady,
+    dismissedTabId,
+  });
+  const destinationChat = pendingDestinationChat ?? (tabSwitchView.kind === "saved-chat"
+    ? savedChats.find((chat) => chat.id === tabSwitchView.sessionId)
+    : undefined);
 
   function addToolProgress(sessionId: string, progress: BridgeChatProgress) {
     updateConversation(sessionId, (currentMessages) => {
@@ -272,6 +274,7 @@ function App() {
     setSessionCreatedAt(createdAt);
     setMessages([]);
     setSessionLinks([]);
+    setPendingDestinationChat(undefined);
     setAgentTabState({ activeTaskCount: 0 });
     currentTabId.current = undefined;
     setPrompt("");
@@ -291,6 +294,7 @@ function App() {
     setSessionCreatedAt(createdAt);
     setMessages([]);
     setSessionLinks([]);
+    setPendingDestinationChat(undefined);
     setPrompt("");
     setIsLoading(false);
     setAgentTabState({ activeTaskCount: 0 });
@@ -309,82 +313,47 @@ function App() {
     }
   }
 
-  function destinationSavedChat(): SavedChat | undefined {
+  function currentTabSavedChat(): SavedChat | undefined {
     const sessionId = agentTabState.currentTabSessionId;
     return sessionId && sessionId !== activeSessionId
       ? historyRef.current.find((chat) => chat.id === sessionId)
       : undefined;
   }
 
-  function offerDestinationChatChoice(action: DestinationAction): boolean {
-    if (!destinationSavedChat()) return false;
-    setPendingDestinationAction(action);
-    return true;
-  }
-
-  async function pauseChatAndStartNew(skipDestinationChoice = false) {
-    if (!skipDestinationChoice && offerDestinationChatChoice("pause")) return;
+  async function resolveCurrentTask(action: CurrentTaskAction) {
     const sessionId = activeSessionId;
     setIsSwitchingTab(true);
     try {
-      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-pause-chat", sessionId }) as { ok?: boolean; error?: string };
-      if (!response?.ok) throw new Error(response?.error ?? "The chat could not be paused.");
-      setSessionStatus(sessionId, "paused");
-      await startFreshChatOnCurrentTab();
-    } catch (error) {
-      setSessionNotice(error instanceof Error ? error.message : "The chat could not be paused.");
-    } finally {
-      setIsSwitchingTab(false);
-    }
-  }
-
-  async function discardChatAndStartNew(skipDestinationChoice = false) {
-    if (!skipDestinationChoice && offerDestinationChatChoice("quit")) return;
-    const sessionId = activeSessionId;
-    setIsSwitchingTab(true);
-    try {
-      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-discard-chat", sessionId }) as { ok?: boolean; error?: string };
-      if (!response?.ok) throw new Error(response?.error ?? "The chat could not be discarded.");
-      await forgetSession(sessionId);
-      await startFreshChatOnCurrentTab();
-    } catch (error) {
-      setSessionNotice(error instanceof Error ? error.message : "The chat could not be discarded.");
-    } finally {
-      setIsSwitchingTab(false);
-    }
-  }
-
-  async function resolveDestinationChoice(openPrevious: boolean) {
-    const action = pendingDestinationAction;
-    const destination = destinationSavedChat();
-    if (!action || !destination) {
-      setPendingDestinationAction(undefined);
-      return;
-    }
-    if (!openPrevious) {
-      setPendingDestinationAction(undefined);
-      if (action === "pause") await pauseChatAndStartNew(true);
-      else await discardChatAndStartNew(true);
-      return;
-    }
-
-    setIsSwitchingTab(true);
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: action === "pause" ? "dsh-agent-pause-chat" : "dsh-agent-discard-chat",
-        sessionId: activeSessionId,
-      }) as { ok?: boolean; error?: string };
+      const type = action === "background"
+        ? "dsh-agent-continue-background"
+        : action === "pause" ? "dsh-agent-pause-chat" : "dsh-agent-discard-chat";
+      const response = await chrome.runtime.sendMessage({ type, sessionId }) as { ok?: boolean; error?: string };
       if (!response?.ok) throw new Error(response?.error ?? "The current chat could not be changed.");
-      if (action === "pause") setSessionStatus(activeSessionId, "paused");
-      else await forgetSession(activeSessionId);
-      setPendingDestinationAction(undefined);
+
+      if (action === "pause") setSessionStatus(sessionId, "paused");
+      if (action === "quit") await forgetSession(sessionId);
       setIsLoading(false);
-      activateSavedChat(destination);
+
+      const savedChat = currentTabSavedChat();
+      if (savedChat) setPendingDestinationChat(savedChat);
+      else await startFreshChatOnCurrentTab();
     } catch (error) {
       setSessionNotice(error instanceof Error ? error.message : "The current chat could not be changed.");
     } finally {
       setIsSwitchingTab(false);
     }
+  }
+
+  async function startNewOnDestination() {
+    setPendingDestinationChat(undefined);
+    await startFreshChatOnCurrentTab();
+  }
+
+  function continueDestinationChat() {
+    if (!destinationChat) return;
+    setPendingDestinationChat(undefined);
+    setIsLoading(false);
+    activateSavedChat(destinationChat);
   }
 
   function activateSavedChat(chat: SavedChat) {
@@ -397,6 +366,7 @@ function App() {
     setSessionCreatedAt(chat.createdAt);
     setMessages(chat.items);
     setSessionLinks(chat.links);
+    setPendingDestinationChat(undefined);
     setPrompt("");
     setSessionNotice(chat.status === "interrupted" ? "This chat was interrupted. The agent will inspect the page before continuing." : "Saved chat opened.");
     setIsHistoryOpen(false);
@@ -410,7 +380,10 @@ function App() {
 
   function openSavedChat(chat: SavedChat) {
     if (chat.id === activeSessionId) return;
-    if (isLoading || agentTabState.task?.status === "running") {
+    const hasForegroundTask = agentTabState.task !== undefined &&
+      agentTabState.task.status !== "cancelled" &&
+      agentTabState.task.runMode === "foreground";
+    if (isLoading || hasForegroundTask) {
       setPendingSavedChat(chat);
       return;
     }
@@ -471,14 +444,16 @@ function App() {
   }
 
   async function moveAgentToCurrentTab() {
-    if (suggestedTab?.id === undefined || isSwitchingTab) return;
+    const targetTab = tabSwitchView.kind === "active-task" || tabSwitchView.kind === "new-tab" ? tabSwitchView.tab : undefined;
+    if (targetTab?.id === undefined || isSwitchingTab) return;
     setIsSwitchingTab(true);
     try {
-      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-switch-tab", id: suggestedTab.id, sessionId: activeSessionId }) as { ok?: boolean; error?: string; displacedSessionIds?: string[] };
+      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-switch-tab", id: targetTab.id, sessionId: activeSessionId }) as { ok?: boolean; error?: string; displacedSessionIds?: string[] };
       if (!response?.ok) throw new Error(response?.error ?? "The agent tab could not be changed.");
       // Moving a chat never deletes the chat that previously owned this tab.
       // It remains in history and can recreate its site when reopened.
       setDismissedTabId(undefined);
+      setPendingDestinationChat(undefined);
     } catch (error) {
       setMessages((currentMessages) => [...currentMessages, {
         kind: "message",
@@ -491,46 +466,10 @@ function App() {
     }
   }
 
-  async function keepCurrentTask() {
-    if (!suggestedTab || isSwitchingTab) return;
-    if (agentTabState.task?.status !== "paused") {
-      setDismissedTabId(suggestedTab.id);
-      return;
-    }
-    setIsSwitchingTab(true);
-    try {
-      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-resume-task", sessionId: activeSessionId }) as { ok?: boolean; error?: string };
-      if (!response?.ok) throw new Error(response?.error ?? "The browser task could not be resumed.");
-      setDismissedTabId(suggestedTab.id);
-    } catch (error) {
-      setMessages((currentMessages) => [...currentMessages, {
-        kind: "message",
-        id: crypto.randomUUID(),
-        role: "assistant",
-        text: error instanceof Error ? error.message : "The browser task could not be resumed.",
-      }]);
-    } finally {
-      setIsSwitchingTab(false);
-    }
-  }
-
-  async function continueInBackground() {
-    if (!suggestedTab || isSwitchingTab) return;
-    setIsSwitchingTab(true);
-    try {
-      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-continue-background", sessionId: activeSessionId }) as { ok?: boolean; error?: string };
-      if (!response?.ok) throw new Error(response?.error ?? "The browser task could not continue in the background.");
-      setDismissedTabId(suggestedTab.id);
-    } catch (error) {
-      setMessages((currentMessages) => [...currentMessages, {
-        kind: "message",
-        id: crypto.randomUUID(),
-        role: "assistant",
-        text: error instanceof Error ? error.message : "The browser task could not continue in the background.",
-      }]);
-    } finally {
-      setIsSwitchingTab(false);
-    }
+  function keepCurrentChat() {
+    const tabId = agentTabState.currentTab?.id;
+    if (tabId !== undefined) setDismissedTabId(tabId);
+    setPendingDestinationChat(undefined);
   }
 
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -631,38 +570,54 @@ function App() {
         </div>
       </section>
 
-      {suggestedTab && (
+      {tabSwitchView.kind === "active-task" && !pendingDestinationChat && (
         <section className="tab-switch-prompt" role="dialog" aria-label="Switch agent tab" aria-live="assertive">
           <div>
-            <strong>Switch agent to {tabLabel(suggestedTab)}?</strong>
+            <strong>Switch to {tabLabel(tabSwitchView.tab)}?</strong>
             <p>{agentTabState.task?.status === "paused" && agentTabState.agentTab
               ? `Work on ${tabLabel(agentTabState.agentTab)} is paused until you choose.`
               : agentTabState.agentTab ? `The agent is assigned to ${tabLabel(agentTabState.agentTab)}.` : "The assigned tab was closed."}</p>
           </div>
           <div className="tab-switch-actions">
-            {agentTabState.task && agentTabState.task.status !== "cancelled" && (
-              <>
-                <button type="button" onClick={() => void continueInBackground()} disabled={isSwitchingTab}>Continue in background</button>
-                <button type="button" onClick={() => void pauseChatAndStartNew()} disabled={isSwitchingTab}>Pause and start new</button>
-                <button type="button" onClick={() => void discardChatAndStartNew()} disabled={isSwitchingTab}>Quit and start new</button>
-              </>
-            )}
+            <button type="button" onClick={() => void resolveCurrentTask("background")} disabled={isSwitchingTab}>Continue in background</button>
+            <button type="button" onClick={() => void resolveCurrentTask("pause")} disabled={isSwitchingTab}>Pause current chat</button>
+            <button type="button" onClick={() => void resolveCurrentTask("quit")} disabled={isSwitchingTab}>Quit current chat</button>
             <button className="tab-switch-primary" type="button" onClick={() => void moveAgentToCurrentTab()} disabled={isSwitchingTab}>
-              {isSwitchingTab ? "Switching..." : agentTabState.task?.status === "paused" ? "Move chat here" : "Switch agent here"}
+              {isSwitchingTab ? "Switching..." : "Move chat here"}
             </button>
           </div>
         </section>
       )}
 
-      {pendingDestinationAction && destinationSavedChat() && (
+      {tabSwitchView.kind === "new-tab" && !pendingDestinationChat && (
+        <section className="tab-switch-prompt" role="dialog" aria-label="Start chat on this tab" aria-live="assertive">
+          <div>
+            <strong>Start a chat on {tabLabel(tabSwitchView.tab)}?</strong>
+            <p>{agentTabState.agentTab
+              ? `Your current chat stays saved on ${tabLabel(agentTabState.agentTab)}.`
+              : "Start a separate chat for this tab."}</p>
+          </div>
+          <div className="tab-switch-actions">
+            <button type="button" onClick={keepCurrentChat} disabled={isSwitchingTab}>Keep current chat</button>
+            {agentTabState.agentTabId !== undefined && (
+              <button type="button" onClick={() => void moveAgentToCurrentTab()} disabled={isSwitchingTab}>Move current chat here</button>
+            )}
+            <button className="tab-switch-primary" type="button" onClick={() => void startNewOnDestination()} disabled={isSwitchingTab}>
+              {isSwitchingTab ? "Starting..." : "Start new chat"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {destinationChat && (
         <section className="tab-switch-prompt" role="dialog" aria-label="Choose chat for this tab" aria-live="assertive">
           <div>
             <strong>This tab already has a saved chat.</strong>
-            <p>Start a new chat here, or continue {destinationSavedChat()!.title}.</p>
+            <p>Start a new chat here, or continue {destinationChat.title}.</p>
           </div>
           <div className="tab-switch-actions">
-            <button type="button" onClick={() => void resolveDestinationChoice(false)} disabled={isSwitchingTab}>Start new chat</button>
-            <button className="tab-switch-primary" type="button" onClick={() => void resolveDestinationChoice(true)} disabled={isSwitchingTab}>Continue previous chat</button>
+            <button type="button" onClick={() => void startNewOnDestination()} disabled={isSwitchingTab}>Start new chat</button>
+            <button className="tab-switch-primary" type="button" onClick={continueDestinationChat} disabled={isSwitchingTab}>Continue previous chat</button>
           </div>
         </section>
       )}

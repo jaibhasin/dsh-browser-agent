@@ -229,9 +229,6 @@ async function claimCurrentAgentTab(sessionId: string) {
   if (!tab) throw new Error("No active browser tab is available.");
   const claim = await claimAgentTab(sessionId, tab);
   await stopDisplacedTasks(claim.displacedSessionIds);
-  for (const displacedSessionId of claim.displacedSessionIds) {
-    await chrome.runtime.sendMessage({ type: "dsh-agent-chat-displaced", sessionId: displacedSessionId, replacementSessionId: sessionId }).catch(() => undefined);
-  }
   return claim;
 }
 

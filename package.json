@@ -9,9 +9,10 @@
     "build:dsh-plugin": "tsc --project dsh-plugin/tsconfig.json",
     "test:bridge": "pnpm --dir dsh-plugin run test:bridge",
     "test:agent-tab": "node --experimental-strip-types tests/agent-tab.test.mjs",
+    "test:tab-switch": "node --experimental-strip-types tests/tab-switch-state.test.mjs",
     "setup:dsh-profile": "node scripts/setup-dsh-browser-profile.mjs",
     "preview": "vite preview --config vite.config.js",
-    "test": "pnpm test:agent-tab"
+    "test": "pnpm test:agent-tab && pnpm test:tab-switch"
   },
   "dependencies": {
     "react": "^19.1.1",

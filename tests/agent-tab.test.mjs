@@ -53,6 +53,7 @@ assert.deepEqual(await api.getAgentTabState(amazonChat, tabs.get(77)), {
 
 await api.startAgentTask("shopping-task", amazonChat, 42);
 await api.startAgentTask("mail-task", gmailChat, 77);
+await api.continueAgentTaskInBackground(gmailChat);
 assert.equal((await api.getAgentTabState(amazonChat)).activeTaskCount, 2, "two chats must keep independent active tasks");
 assert.equal((await api.getAgentTaskTab("shopping-task")).id, 42);
 assert.equal((await api.getAgentTaskTab("mail-task")).id, 77);
