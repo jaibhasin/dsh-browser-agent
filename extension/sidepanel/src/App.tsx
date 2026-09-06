@@ -652,44 +652,30 @@ function App() {
 }
 
 /**
- * A collapsible tool-activity thread.
- * Keeps the UI quiet by default and auto-expands while work is running.
+ * Tool-activity thread.
+ *
+ * Architecture: while the agent works, every tool call is rendered as a quiet,
+ * centered pill on a vertical timeline. A pill shows ONLY the tool name (plus a
+ * tiny status dot), so the chat stays readable. The input the agent sent and the
+ * output it received are revealed only when the user clicks a pill to expand it.
+ * Nothing auto-expands anymore — the thread itself is always visible.
  */
 function ToolThread({ message }: { message: ActivityGroup }) {
-  const running = message.steps.some((step) => step.status === "running");
-  const error = message.steps.some((step) => step.status === "error");
-  const [isOpen, setIsOpen] = useState(running || error);
-
-  useEffect(() => {
-    if (running || error) setIsOpen(true);
-  }, [running, error]);
-
-  const status = toolThreadStatus(message.steps);
-
   return (
-    <details className="tool-thread" open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
-      <summary>
-        <span className="tool-thread-icon" aria-hidden="true">◌</span>
-        <span className="tool-thread-summary">
-          <strong>{message.steps.length} {message.steps.length === 1 ? "tool" : "tools"}</strong>
-          <span>· {statusLabel(status)}</span>
-        </span>
-        <span className="tool-chevron" aria-hidden="true">›</span>
-      </summary>
-      <div className="tool-thread-list">
-        {message.steps.map((step) => <ToolStep key={step.callId} step={step} />)}
-      </div>
-    </details>
+    <div className="tool-thread" aria-label="Tool activity">
+      {message.steps.map((step) => <ToolStep key={step.callId} step={step} />)}
+    </div>
   );
 }
 
+/**
+ * A single tool call on the thread.
+ * Collapsed state: a centered pill with a status dot + tool name.
+ * Expanded state: the same pill with an input/output card underneath it.
+ * `useState` mirrors the native <details> open flag so React keeps control.
+ */
 function ToolStep({ step }: { step: ToolActivity }) {
-  const [isOpen, setIsOpen] = useState(step.status === "running" || step.status === "error");
-
-  useEffect(() => {
-    if (step.status === "running" || step.status === "error") setIsOpen(true);
-    if (step.status === "success") setIsOpen(false);
-  }, [step.status]);
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
     <details
@@ -697,37 +683,28 @@ function ToolStep({ step }: { step: ToolActivity }) {
       open={isOpen}
       onToggle={(event) => setIsOpen(event.currentTarget.open)}
     >
-      <summary>
-        <span className="tool-step-marker" aria-label={`${step.tool}, ${step.status}`}>
-          <span className="tool-status" aria-hidden="true" />
-        </span>
+      <summary title={`${step.tool} · ${step.status}`}>
+        <span className="tool-status" aria-hidden="true" />
         <span className="tool-name">{toolLabel(step.tool)}</span>
-        <span className="tool-result">{statusLabel(step.status)}</span>
         <span className="tool-chevron" aria-hidden="true">›</span>
       </summary>
       <dl className="tool-io">
         <div><dt>Input</dt><dd>{step.input ?? "No input"}</dd></div>
-        <div><dt>Output</dt><dd>{step.error ?? step.output ?? "Working"}</dd></div>
+        <div><dt>Output</dt><dd>{step.error ?? step.output ?? "Still working…"}</dd></div>
       </dl>
     </details>
   );
 }
 
+/**
+ * Turns a raw tool id like "browser_snapshot" into a friendly title-case name
+ * like "Snapshot" (dropping the "browser_" prefix). Unknown tools simply get
+ * their underscores prettified, so new tools always render nicely with no code.
+ */
 function toolLabel(tool: string): string {
-  const labels: Record<string, string> = {
-    browser_snapshot: "Reading page", browser_wait: "Waiting for page", browser_screenshot: "Capturing screenshot", browser_scroll: "Scrolling page", browser_click: "Clicking element", browser_type: "Entering text", browser_navigate: "Opening page", browser_tabs: "Listing tabs",
-  };
-  return labels[tool] ?? "Using tool";
-}
-
-function toolThreadStatus(steps: ToolActivity[]): ToolActivity["status"] {
-  if (steps.some((step) => step.status === "running")) return "running";
-  if (steps.some((step) => step.status === "error")) return "error";
-  return "success";
-}
-
-function statusLabel(status: ToolActivity["status"]): string {
-  return status === "running" ? "Working" : status === "success" ? "Done" : "Failed";
+  const words = tool.replace(/^browser_/, "").split("_").filter(Boolean);
+  if (words.length === 0) return "Tool";
+  return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
 
 function connectionLabel(status: string): string {

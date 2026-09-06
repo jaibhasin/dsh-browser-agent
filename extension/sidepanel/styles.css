@@ -530,110 +530,54 @@ h6.markdown-heading { font-size: 14px; }
 
 /* =========================================================
    Tool-activity thread
-   Collapsed by default; expands into a slim timeline.
+   A slim, CENTERED timeline. Each tool call is a quiet pill
+   showing only its name + a status dot. Clicking a pill
+   expands an input/output card right underneath it.
    ========================================================= */
 
 .tool-thread {
-  width: 100%;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
-.tool-thread summary {
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 4px 0;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
+  width: 100%;
+  padding: 2px 0;
 }
 
-.tool-thread summary::-webkit-details-marker {
-  display: none;
-}
-
-.tool-thread summary:hover {
-  color: var(--text-primary);
-}
-
-.tool-thread-icon {
-  display: grid;
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  place-items: center;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 4px;
-  font-size: 9px;
-}
-
-.tool-thread-summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.tool-thread-summary strong {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.tool-thread-summary span {
-  color: var(--text-muted);
-}
-
-.tool-thread .tool-chevron {
-  margin-left: auto;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1;
-  transition: transform 120ms ease;
-}
-
-.tool-thread[open] .tool-chevron {
-  transform: rotate(90deg);
-}
-
-.tool-thread-list {
-  position: relative;
-  padding-left: 28px;
-  margin-top: 4px;
-}
-
-.tool-thread-list::before {
+/* The vertical "thread" the pills hang on (dashed so it stays subtle) */
+.tool-thread::before {
   position: absolute;
-  top: 10px;
-  bottom: 10px;
-  left: 8px;
-  border-left: 1px solid var(--border);
+  top: 8px;
+  bottom: 8px;
+  left: 50%;
+  border-left: 1px dashed var(--border);
   content: "";
+  transform: translateX(-50%);
 }
 
-/* ---- Individual tool step ---- */
+/* ---- One tool call: collapsed pill, expanded pill + IO card ---- */
 .tool-step {
-  position: relative;
+  position: relative; /* sits above the dashed thread line */
+  z-index: 1;
+  max-width: 100%;
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.35;
 }
 
-.tool-step + .tool-step {
-  margin-top: 3px;
-}
-
 .tool-step summary {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto 12px;
-  gap: 6px;
+  display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 2px 0;
+  gap: 7px;
+  padding: 4px 10px 4px 9px;
   cursor: pointer;
   list-style: none;
-  border-radius: 6px;
+  user-select: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 
 .tool-step summary::-webkit-details-marker {
@@ -641,7 +585,8 @@ h6.markdown-heading { font-size: 14px; }
 }
 
 .tool-step summary:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 .tool-step summary:focus-visible {
@@ -649,27 +594,23 @@ h6.markdown-heading { font-size: 14px; }
   outline-offset: 2px;
 }
 
-.tool-step-marker {
-  position: absolute;
-  top: 7px;
-  left: -28px;
-  display: grid;
-  width: 16px;
-  height: 16px;
-  place-items: center;
-  background: transparent;
+.tool-step[open] > summary {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
+/* Status dot: grey = idle, pulsing accent = running, green/red = finished */
 .tool-status {
-  width: 7px;
-  height: 7px;
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
   background: var(--text-muted);
   border-radius: 50%;
 }
 
 .tool-step-running .tool-status {
   background: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  animation: tool-pulse 1.2s ease-in-out infinite;
 }
 
 .tool-step-success .tool-status {
@@ -680,8 +621,14 @@ h6.markdown-heading { font-size: 14px; }
   background: var(--error);
 }
 
+@keyframes tool-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.45); }
+  70% { box-shadow: 0 0 0 5px rgba(99, 102, 241, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+
+/* Tool name is the only text on the collapsed pill */
 .tool-name {
-  min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
   font-weight: 600;
@@ -693,20 +640,15 @@ h6.markdown-heading { font-size: 14px; }
   color: var(--text-primary);
 }
 
-.tool-result {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.tool-step-running .tool-result {
+.tool-step-running .tool-name {
   color: var(--accent-hover);
 }
 
-.tool-step-error .tool-result {
+.tool-step-error .tool-name {
   color: var(--error);
 }
 
-.tool-step .tool-chevron {
+.tool-chevron {
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1;
@@ -717,33 +659,44 @@ h6.markdown-heading { font-size: 14px; }
   transform: rotate(90deg);
 }
 
+/* ---- Expanded input/output card ---- */
 .tool-io {
   display: grid;
   gap: 6px;
-  padding: 5px 9px 8px 22px;
-  margin: 0;
+  width: min(100%, 360px);
+  padding: 8px 10px;
+  margin: 6px auto 0;
   color: var(--text-secondary);
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 10px;
+  font-size: 10.5px;
 }
 
 .tool-io div {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr);
   gap: 7px;
 }
 
 .tool-io dt {
+  padding-top: 1px;
   color: var(--text-muted);
   font-size: 9px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .tool-io dd {
   min-width: 0;
+  max-height: 180px;
   margin: 0;
+  overflow-y: auto;
   overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .tool-step-error .tool-io dd {
