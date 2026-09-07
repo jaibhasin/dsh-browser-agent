@@ -28,7 +28,7 @@ export type BridgeResponse = { type: "response"; id: string; result?: JsonValue;
 export type BridgeEvent = { type: "event"; event: string; payload: JsonValue };
 export type BridgePing = { type: "ping" };
 export type BridgePong = { type: "pong" };
-export type BridgeChat = { type: "chat"; id: string; text: string; sessionId: string; resume: boolean; deniedTools?: string[] };
+export type BridgeChat = { type: "chat"; id: string; text: string; sessionId: string; resume: boolean; deniedTools?: string[]; humanInTheLoop?: boolean };
 export type BridgeChatResponse = { type: "chat_response"; id: string; text?: string; error?: { code: string; message: string } };
 export type BridgeNewSession = { type: "new_session"; id: string };
 export type BridgeNewSessionResponse = { type: "new_session_response"; id: string; error?: { code: string; message: string } };
@@ -67,7 +67,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
     case "response":
       return typeof value.id === "string" && (value.result === undefined || isJsonValue(value.result)) && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeResponse : undefined;
     case "chat":
-      return typeof value.id === "string" && typeof value.text === "string" && typeof value.sessionId === "string" && typeof value.resume === "boolean" && (value.deniedTools === undefined || (Array.isArray(value.deniedTools) && value.deniedTools.every((tool) => typeof tool === "string"))) ? value as BridgeChat : undefined;
+      return typeof value.id === "string" && typeof value.text === "string" && typeof value.sessionId === "string" && typeof value.resume === "boolean" && (value.deniedTools === undefined || (Array.isArray(value.deniedTools) && value.deniedTools.every((tool) => typeof tool === "string"))) && (value.humanInTheLoop === undefined || typeof value.humanInTheLoop === "boolean") ? value as BridgeChat : undefined;
     case "chat_response":
       return typeof value.id === "string" && (value.text === undefined || typeof value.text === "string") && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeChatResponse : undefined;
     case "new_session":

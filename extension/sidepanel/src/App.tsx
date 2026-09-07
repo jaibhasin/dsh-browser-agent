@@ -20,6 +20,7 @@ function App() {
   const [pendingSavedChat, setPendingSavedChat] = useState<SavedChat>();
   const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
+  const [activePaletteIndex, setActivePaletteIndex] = useState(0);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [activeToolIndex, setActiveToolIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);

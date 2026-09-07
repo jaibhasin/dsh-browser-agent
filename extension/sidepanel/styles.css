@@ -1488,6 +1488,31 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
+.approval-modal-icon {
+  display: grid;
+  place-items: center;
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+  border-color: rgba(129, 140, 248, 0.45);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.approval-modal strong {
+  overflow-wrap: anywhere;
+}
+
+.delete-modal-primary {
+  color: #fff !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.delete-modal-primary:hover:not(:disabled) {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
+
 /* =========================================================
    Utilities
    ========================================================= */

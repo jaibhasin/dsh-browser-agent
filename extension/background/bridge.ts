@@ -8,6 +8,7 @@ export type BridgeConfiguration = { url: string; token: string };
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "error";
 type RequestHandler = (request: BridgeRequest) => Promise<JsonValue> | JsonValue;
 type ChatProgressHandler = (progress: BridgeChatProgress) => void;
+type EventHandler = (event: string, payload: JsonValue) => void;
 
 export class ExtensionBridge {
   private socket?: WebSocket;
@@ -16,6 +17,7 @@ export class ExtensionBridge {
   private status: BridgeStatus = "disconnected";
   private requestHandler?: RequestHandler;
   private chatProgressHandler?: ChatProgressHandler;
+  private eventHandler?: EventHandler;
   private chatRequests = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
   private sessionRequests = new Map<string, { resolve: () => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
 
@@ -43,14 +45,15 @@ export class ExtensionBridge {
   }
   setRequestHandler(handler: RequestHandler): void { this.requestHandler = handler; }
   setChatProgressHandler(handler: ChatProgressHandler): void { this.chatProgressHandler = handler; }
+  setEventHandler(handler: EventHandler): void { this.eventHandler = handler; }
   sendEvent(event: string, payload: JsonValue): void { this.send({ type: "event", event, payload }); }
-  async chat(id: string, text: string, sessionId: string, resume: boolean, deniedTools?: string[]): Promise<string> {
+  async chat(id: string, text: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false): Promise<string> {
     await this.waitUntilConnected();
     if (!id || this.chatRequests.has(id)) return Promise.reject(new Error("The chat request ID is invalid or already in use."));
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => { this.chatRequests.delete(id); reject(new Error("DSH chat timed out.")); }, 120_000);
       this.chatRequests.set(id, { resolve, reject, timeout });
-      this.send({ type: "chat", id, text, sessionId, resume, deniedTools: deniedTools ?? [] });
+      this.send({ type: "chat", id, text, sessionId, resume, deniedTools: deniedTools ?? [], humanInTheLoop });
     });
   }
   async newSession(): Promise<void> {
@@ -90,6 +93,7 @@ export class ExtensionBridge {
       else if (message.type === "ping") this.send({ type: "pong" });
       else if (message.type === "request") void this.handleRequest(message);
       else if (message.type === "chat_progress") this.chatProgressHandler?.(message);
+      else if (message.type === "event") this.eventHandler?.(message.event, message.payload);
       else if (message.type === "chat_response") this.resolveChat(message);
       else if (message.type === "new_session_response") this.resolveNewSession(message);
     } catch { /* Invalid peer data never reaches browser automation code. */ }

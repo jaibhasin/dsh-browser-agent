@@ -6,6 +6,10 @@ const bridge = new ExtensionBridge();
 bridge.setChatProgressHandler((progress) => {
   void chrome.runtime.sendMessage({ type: "dsh-chat-progress", progress }).catch(() => undefined);
 });
+bridge.setEventHandler((event, payload) => {
+  if (event !== "human_approval_requested") return;
+  void chrome.runtime.sendMessage({ type: "dsh-human-approval-request", approval: payload }).catch(() => undefined);
+});
 bridge.setRequestHandler(async (request) => {
   const taskTab = request.taskId ? await getAgentTaskTab(request.taskId) : undefined;
   if (request.method === "snapshot") return await captureBrowserSnapshot(taskTab);
@@ -161,17 +165,19 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     const sessionId = (message as { sessionId?: unknown }).sessionId;
     const resume = (message as { resume?: unknown }).resume;
     const deniedTools = (message as { deniedTools?: unknown }).deniedTools;
+    const humanInTheLoop = (message as { humanInTheLoop?: unknown }).humanInTheLoop;
     if (typeof text !== "string" || !text.trim()) { sendResponse({ ok: false, error: "Message is empty." }); return; }
     if (typeof id !== "string" || !id) { sendResponse({ ok: false, error: "Chat request ID is invalid." }); return; }
     if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
     if (typeof resume !== "boolean") { sendResponse({ ok: false, error: "Chat resume state is invalid." }); return; }
     if (deniedTools !== undefined && !(Array.isArray(deniedTools) && deniedTools.every((tool) => typeof tool === "string"))) { sendResponse({ ok: false, error: "Tool restrictions are invalid." }); return; }
+    if (humanInTheLoop !== undefined && typeof humanInTheLoop !== "boolean") { sendResponse({ ok: false, error: "Human-in-the-loop setting is invalid." }); return; }
     void claimCurrentAgentTab(sessionId)
       .then(async ({ tab, displacedSessionIds }) => {
         if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
         await startAgentTask(id, sessionId, tab.id);
         try {
-          const replyText = await bridge.chat(id, text.trim(), sessionId, resume, deniedTools as string[] | undefined);
+          const replyText = await bridge.chat(id, text.trim(), sessionId, resume, deniedTools as string[] | undefined, humanInTheLoop as boolean | undefined);
           return { text: replyText, displacedSessionIds };
         } finally {
           await endAgentTask(id);
@@ -180,6 +186,17 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       .then(({ text, displacedSessionIds }) => sendResponse({ ok: true, text, displacedSessionIds }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "DSH chat failed." }));
     return true;
+  }
+  if (message.type === "dsh-human-approval-response") {
+    const approvalId = (message as { approvalId?: unknown }).approvalId;
+    const approved = (message as { approved?: unknown }).approved;
+    if (typeof approvalId !== "string" || !approvalId || typeof approved !== "boolean") {
+      sendResponse({ ok: false, error: "Human approval response is invalid." });
+      return;
+    }
+    bridge.sendEvent("human_approval_response", { approvalId, approved });
+    sendResponse({ ok: true });
+    return;
   }
   if (message.type === "dsh-new-session") {
     void bridge.newSession()

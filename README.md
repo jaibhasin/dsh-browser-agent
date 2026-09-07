@@ -2,14 +2,20 @@
 
 Chrome side-panel extension backed by a local DeepSeek Harness plugin.
 
-- `browser_snapshot` - Returns an accessibility snapshot of the agent-owned tab.
-- `browser_screenshot` - Captures the agent-owned tab's visible viewport as a PNG.
-- `browser_scroll` - Scrolls the agent-owned tab in a chosen direction by a pixel amount.
-- `browser_click` - Clicks a visible, enabled element from the latest snapshot.
-- `browser_type` - Fills a visible text control from the latest snapshot.
-- `browser_navigate` - Navigates the agent-owned tab to an HTTP or HTTPS URL.
-- `browser_tabs` - Lists every open browser tab.
-- `browser_wait` - Waits briefly for a loading page to become quiet, then returns a fresh snapshot.
+Human-in-the-loop is not turned on by default.
+
+Type `/human-in-the-loop` in a chat to require human approval before the agent uses `browser_click` or `browser_navigate`.
+
+## Agent tools
+
+- `browser_navigate` - Opens a URL in the agent tab.
+- `browser_tabs` - Lists the open browser tabs.
+- `browser_snapshot` - Reads the page as DOM and accessibility text.
+- `browser_wait` - Waits for the page to settle, then takes a fresh snapshot.
+- `browser_screenshot` - Captures a PNG of the visible viewport.
+- `browser_scroll` - Scrolls the active tab by pixels.
+- `browser_click` - Clicks a visible element by reference.
+- `browser_type` - Fills a visible input by reference.
 
 ## Chats and tabs
 

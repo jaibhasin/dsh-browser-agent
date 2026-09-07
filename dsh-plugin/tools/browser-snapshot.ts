@@ -1,5 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import { installModelSelection, type AgentHandle, type CreateAgentOptions, type ModelSelection } from "@deepseek-ai/dsh-agent";
 import { brandString } from "@deepseek-ai/dsh-brand";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
@@ -115,6 +116,16 @@ interface ActiveChat {
   firstEventSeq: number;
   calls: Map<string, string>;
   handle: AgentHandle;
+  humanInTheLoop: boolean;
+}
+
+interface PendingApproval {
+  chatId: string;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+  signal?: AbortSignal;
+  abort?: () => void;
 }
 
 /** Register browser tools and the side-panel chat bridge. */
@@ -131,6 +142,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   const sessionTurns = new Map<string, Promise<void>>();
   const activeChatsById = new Map<string, ActiveChat>();
   const activeChatsBySession = new Map<SessionId, ActiveChat>();
+  const pendingApprovals = new Map<string, PendingApproval>();
   /** Carries the originating chat through DSH's asynchronous tool execution. */
   const chatContext = new AsyncLocalStorage<ActiveChat>();
   /**
@@ -146,12 +158,26 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     token: config.token,
     port: config.port,
     onExtensionEvent: (event, payload) => {
-      if (event !== "cancel_task" || !payload || typeof payload !== "object" || Array.isArray(payload)) return;
-      const chat = (payload as { id?: unknown }).id;
-      if (typeof chat !== "string") return;
-      const activeChat = activeChatsById.get(chat);
-      if (!activeChat) return;
-      activeChat.handle.agent.cancel({ kind: "user" });
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
+      if (event === "cancel_task") {
+        const chat = (payload as { id?: unknown }).id;
+        if (typeof chat !== "string") return;
+        const activeChat = activeChatsById.get(chat);
+        if (!activeChat) return;
+        activeChat.handle.agent.cancel({ kind: "user" });
+        return;
+      }
+      if (event !== "human_approval_response") return;
+      const approvalId = (payload as { approvalId?: unknown }).approvalId;
+      const approved = (payload as { approved?: unknown }).approved;
+      if (typeof approvalId !== "string" || typeof approved !== "boolean") return;
+      const pending = pendingApprovals.get(approvalId);
+      if (!pending) return;
+      pendingApprovals.delete(approvalId);
+      clearTimeout(pending.timeout);
+      if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
+      if (approved) pending.resolve();
+      else pending.reject(new Error("Human approval was denied."));
     },
   });
 
@@ -270,7 +296,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     });
   });
 
-  const onChat = (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[]) => {
+  const onChat = (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false) => {
     const session = brandString<SessionId>(sessionId);
     const previousTurn = sessionTurns.get(sessionId) ?? Promise.resolve();
     const run = previousTurn.then(async () => {
@@ -287,7 +313,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       // user message and the assistant reply will be appended.
       await handle.agent.whenIdle();
       const before = handle.agent.session.seq;
-      const chat: ActiveChat = { id: chatId, firstEventSeq: before, calls: new Map(), handle };
+      const chat: ActiveChat = { id: chatId, firstEventSeq: before, calls: new Map(), handle, humanInTheLoop };
       activeChatsById.set(chat.id, chat);
       activeChatsBySession.set(session, chat);
       try {
@@ -312,6 +338,13 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
           return reply || "The DSH agent completed without a text response.";
         });
       } finally {
+        for (const [approvalId, pending] of pendingApprovals) {
+          if (pending.chatId !== chat.id) continue;
+          pendingApprovals.delete(approvalId);
+          clearTimeout(pending.timeout);
+          if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
+          pending.reject(new Error("The browser task ended before approval was received."));
+        }
         if (activeChatsById.get(chat.id) === chat) activeChatsById.delete(chat.id);
         if (activeChatsBySession.get(session) === chat) activeChatsBySession.delete(session);
       }
@@ -343,6 +376,27 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     if (!chat) throw new Error("Browser tools can only run inside an active browser-agent chat.");
     return bridge.request(method, params, signal, chat.id);
   };
+  const requestHumanApproval = async (tool: "browser_click" | "browser_navigate", detail: string, signal?: AbortSignal): Promise<void> => {
+    const chat = chatContext.getStore();
+    if (!chat?.humanInTheLoop) return;
+    if (signal?.aborted) throw new Error("Human approval was cancelled.");
+    const approvalId = randomUUID();
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingApprovals.delete(approvalId);
+        if (signal && abort) signal.removeEventListener("abort", abort);
+        reject(new Error("Human approval timed out."));
+      }, 120_000);
+      const abort = () => {
+        pendingApprovals.delete(approvalId);
+        clearTimeout(timeout);
+        reject(new Error("Human approval was cancelled."));
+      };
+      pendingApprovals.set(approvalId, { chatId: chat.id, resolve, reject, timeout, signal, abort });
+      signal?.addEventListener("abort", abort, { once: true });
+      bridge.sendEvent("human_approval_requested", { approvalId, chatId: chat.id, tool, detail });
+    });
+  };
   await bridge.start();
   ctx.effect(() => () => {
     for (const dispose of toolRestrictDisposers.values()) dispose();
@@ -366,6 +420,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     async execute(args, exec) {
       const url = (args as { url?: unknown }).url;
       if (typeof url !== "string") throw new Error("Browser navigate requires a URL.");
+      await requestHumanApproval("browser_navigate", url, exec.signal);
       const result = await requestBrowser("navigate", { url }, exec.signal);
       return parseBrowserTabResult(result, "navigate");
     },
@@ -558,6 +613,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     async execute(args, exec) {
       const ref = (args as { ref?: unknown }).ref;
       if (!Number.isInteger(ref) || (ref as number) < 1) throw new Error("Browser ref must be a positive integer.");
+      await requestHumanApproval("browser_click", `Element [${ref}]`, exec.signal);
       const result = await requestBrowser("click", { ref: ref as number }, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) || (result as { clicked?: unknown }).clicked !== true) {
         throw new Error("The browser extension returned an invalid click result.");
