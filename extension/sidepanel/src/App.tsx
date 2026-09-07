@@ -3,6 +3,7 @@ import { MarkdownMessage } from "./MarkdownMessage";
 import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
 import { getTabSwitchView, type AgentTabState, type TabSummary } from "./tab-switch-state";
 import type { BridgeChatProgress } from "../../../shared/protocol";
+import { BROWSER_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type BrowserToolName, type StoredTools } from "./tools";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
 
@@ -22,6 +23,7 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [sessionNotice, setSessionNotice] = useState("");
   const [agentTabState, setAgentTabState] = useState<AgentTabState>({ activeTaskCount: 0 });
+  const [toolSettings, setToolSettings] = useState<StoredTools>({ version: 1, deniedDefault: [], deniedByChat: {} });
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
   const [dismissedTabId, setDismissedTabId] = useState<number>();
   const activeChatIds = useRef(new Set<string>());
@@ -138,6 +140,10 @@ function App() {
   }, []);
 
   useEffect(() => {
+    void loadToolSettings().then((settings) => setToolSettings(settings));
+  }, []);
+
+  useEffect(() => {
     setSessionLinks((links) => collectHttpLinks(links, agentTabState.agentTab?.url));
   }, [agentTabState.agentTab?.url]);
 
@@ -243,6 +249,11 @@ function App() {
     const text = prompt.trim();
     if (!text || isLoading) return;
 
+    if (text.startsWith("/")) {
+      setSessionNotice("Slash commands aren't sent to the agent. Toggle the tools above to change permissions.");
+      return;
+    }
+
     if (connectionStatus !== "connected") {
       setSessionNotice("Start DSH to send this message. Your new chat is ready when it reconnects.");
       return;
@@ -260,7 +271,7 @@ function App() {
       userMessageAdded = true;
       setPrompt("");
       setSessionNotice("");
-      const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
+      const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
       updateConversation(sessionId, (currentMessages) => [...currentMessages, {
         kind: "message",
@@ -495,9 +506,39 @@ function App() {
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      if (toolsMenuVisible) return;
       event.currentTarget.form?.requestSubmit();
     }
   }
+
+  function updateToolSettings(next: StoredTools) {
+    setToolSettings(next);
+    void saveToolSettings(next);
+  }
+
+  function toggleToolForChat(tool: BrowserToolName) {
+    const denied = new Set(effectiveDenied(toolSettings, activeSessionId));
+    if (denied.has(tool)) denied.delete(tool);
+    else denied.add(tool);
+    updateToolSettings({
+      version: 1,
+      deniedDefault: toolSettings.deniedDefault,
+      deniedByChat: { ...toolSettings.deniedByChat, [activeSessionId]: [...denied].sort() },
+    });
+  }
+
+  function resetChatTools() {
+    const deniedByChat = { ...toolSettings.deniedByChat };
+    delete deniedByChat[activeSessionId];
+    updateToolSettings({ version: 1, deniedDefault: toolSettings.deniedDefault, deniedByChat });
+  }
+
+  function setEffectiveAsDefault() {
+    updateToolSettings({ version: 1, deniedDefault: effectiveDenied(toolSettings, activeSessionId), deniedByChat: toolSettings.deniedByChat });
+  }
+
+  const effectiveDeniedTools = effectiveDenied(toolSettings, activeSessionId);
+  const toolsMenuVisible = prompt.trim().startsWith("/");
 
   return (
     <main className="app-shell">
@@ -657,12 +698,42 @@ function App() {
         </section>
       )}
 
+      {toolsMenuVisible && (
+        <section className="tools-menu" aria-label="Tool permissions">
+          <div className="tools-menu-header">
+            <strong>Tool permissions</strong>
+            <span>Disable a tool and this chat's agent can't use it.</span>
+          </div>
+          <ul className="tools-list">
+            {BROWSER_TOOL_DEFS.map((tool) => {
+              const enabled = !effectiveDeniedTools.includes(tool.name);
+              return (
+                <li key={tool.name}>
+                  <label className="tool-toggle">
+                    <input type="checkbox" checked={enabled} onChange={() => toggleToolForChat(tool.name)} />
+                    <span className="tool-toggle-track" aria-hidden="true"><span className="tool-toggle-thumb" /></span>
+                    <span className="tool-toggle-text">
+                      <span className="tool-toggle-name">{tool.label}</span>
+                      <span className="tool-toggle-desc">{tool.description}</span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="tools-menu-actions">
+            <button type="button" onClick={resetChatTools} disabled={!toolSettings.deniedByChat[activeSessionId]}>Reset to defaults</button>
+            <button type="button" onClick={setEffectiveAsDefault}>Use as my default</button>
+          </div>
+        </section>
+      )}
+
       <form className="composer" onSubmit={sendMessage}>
         <label className="sr-only" htmlFor="prompt">Message the browser agent</label>
         <textarea ref={textareaRef} id="prompt" name="prompt" rows={1} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder="Ask the browser agent..." autoComplete="off" />
         <div className="composer-footer">
-          <span className="composer-hint">Enter to send · Shift + Enter for a new line</span>
-          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading || connectionStatus !== "connected"}>
+          <span className="composer-hint">{toolsMenuVisible ? "Choose which tools this chat may use" : "Enter to send · Shift + Enter for a new line"}</span>
+          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading || connectionStatus !== "connected" || toolsMenuVisible}>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" /></svg>
           </button>
         </div>

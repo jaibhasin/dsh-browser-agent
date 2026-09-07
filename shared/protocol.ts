@@ -1,6 +1,25 @@
 /** The wire format shared by the Chrome extension and local DSH plugin. */
 export const PROTOCOL_VERSION = 1;
 
+/**
+ * The browser tools the plugin registers, with friendly names the side panel
+ * renders in its enable/disable menu. The `name` values MUST match the tools
+ * registered in dsh-plugin/tools/browser-snapshot.ts, because the plugin
+ * filters out any unknown name before applying a per-agent restriction.
+ */
+export const BROWSER_TOOL_DEFS = [
+  { name: "browser_navigate", label: "Navigate", description: "Open a URL in the agent tab." },
+  { name: "browser_tabs", label: "Tabs", description: "List the open browser tabs." },
+  { name: "browser_snapshot", label: "Snapshot", description: "Read the page as DOM and accessibility text." },
+  { name: "browser_wait", label: "Wait", description: "Wait for the page to settle, then resnapshot." },
+  { name: "browser_screenshot", label: "Screenshot", description: "Capture a PNG of the viewport." },
+  { name: "browser_scroll", label: "Scroll", description: "Scroll the active tab by pixels." },
+  { name: "browser_click", label: "Click", description: "Click a visible element by ref." },
+  { name: "browser_type", label: "Type", description: "Fill a visible input by ref." },
+] as const;
+
+export type BrowserToolName = (typeof BROWSER_TOOL_DEFS)[number]["name"];
+
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type BridgeHello = { type: "hello"; protocolVersion: typeof PROTOCOL_VERSION; token: string; client: "chrome-extension" };
 export type BridgeWelcome = { type: "welcome"; protocolVersion: typeof PROTOCOL_VERSION };
@@ -9,7 +28,7 @@ export type BridgeResponse = { type: "response"; id: string; result?: JsonValue;
 export type BridgeEvent = { type: "event"; event: string; payload: JsonValue };
 export type BridgePing = { type: "ping" };
 export type BridgePong = { type: "pong" };
-export type BridgeChat = { type: "chat"; id: string; text: string; sessionId: string; resume: boolean };
+export type BridgeChat = { type: "chat"; id: string; text: string; sessionId: string; resume: boolean; deniedTools?: string[] };
 export type BridgeChatResponse = { type: "chat_response"; id: string; text?: string; error?: { code: string; message: string } };
 export type BridgeNewSession = { type: "new_session"; id: string };
 export type BridgeNewSessionResponse = { type: "new_session_response"; id: string; error?: { code: string; message: string } };
@@ -48,7 +67,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
     case "response":
       return typeof value.id === "string" && (value.result === undefined || isJsonValue(value.result)) && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeResponse : undefined;
     case "chat":
-      return typeof value.id === "string" && typeof value.text === "string" && typeof value.sessionId === "string" && typeof value.resume === "boolean" ? value as BridgeChat : undefined;
+      return typeof value.id === "string" && typeof value.text === "string" && typeof value.sessionId === "string" && typeof value.resume === "boolean" && (value.deniedTools === undefined || (Array.isArray(value.deniedTools) && value.deniedTools.every((tool) => typeof tool === "string"))) ? value as BridgeChat : undefined;
     case "chat_response":
       return typeof value.id === "string" && (value.text === undefined || typeof value.text === "string") && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeChatResponse : undefined;
     case "new_session":

@@ -160,16 +160,18 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     const id = (message as { id?: unknown }).id;
     const sessionId = (message as { sessionId?: unknown }).sessionId;
     const resume = (message as { resume?: unknown }).resume;
+    const deniedTools = (message as { deniedTools?: unknown }).deniedTools;
     if (typeof text !== "string" || !text.trim()) { sendResponse({ ok: false, error: "Message is empty." }); return; }
     if (typeof id !== "string" || !id) { sendResponse({ ok: false, error: "Chat request ID is invalid." }); return; }
     if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
     if (typeof resume !== "boolean") { sendResponse({ ok: false, error: "Chat resume state is invalid." }); return; }
+    if (deniedTools !== undefined && !(Array.isArray(deniedTools) && deniedTools.every((tool) => typeof tool === "string"))) { sendResponse({ ok: false, error: "Tool restrictions are invalid." }); return; }
     void claimCurrentAgentTab(sessionId)
       .then(async ({ tab, displacedSessionIds }) => {
         if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
         await startAgentTask(id, sessionId, tab.id);
         try {
-          const replyText = await bridge.chat(id, text.trim(), sessionId, resume);
+          const replyText = await bridge.chat(id, text.trim(), sessionId, resume, deniedTools as string[] | undefined);
           return { text: replyText, displacedSessionIds };
         } finally {
           await endAgentTask(id);

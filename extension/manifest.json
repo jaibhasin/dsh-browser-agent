@@ -19,7 +19,8 @@
     "128": "icons/deepseek-mark.png"
   },
   "background": {
-    "service_worker": "background/service-worker.js"
+    "service_worker": "background/service-worker.js",
+    "type": "module"
   },
   "side_panel": {
     "default_path": "sidepanel/index.html"
