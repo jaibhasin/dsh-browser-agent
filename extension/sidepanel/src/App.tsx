@@ -16,6 +16,7 @@ function App() {
   const [historyReady, setHistoryReady] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [deletingChatId, setDeletingChatId] = useState<string>();
+  const [pendingDeleteChat, setPendingDeleteChat] = useState<SavedChat>();
   const [pendingSavedChat, setPendingSavedChat] = useState<SavedChat>();
   const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
@@ -494,8 +495,6 @@ function App() {
 
   async function deleteSavedChat(chat: SavedChat) {
     if (deletingChatId || (chat.id === activeSessionId && isLoading)) return;
-    if (!window.confirm(`Delete “${chat.title}” from chat history?`)) return;
-
     setDeletingChatId(chat.id);
     try {
       await forgetSession(chat.id);
@@ -505,6 +504,7 @@ function App() {
       setSessionNotice(error instanceof Error ? error.message : "The chat could not be deleted.");
     } finally {
       setDeletingChatId(undefined);
+      setPendingDeleteChat(undefined);
     }
   }
 
@@ -733,13 +733,16 @@ function App() {
               {savedChats.map((chat) => (
                 <li key={chat.id} className={chat.id === activeSessionId ? "selected" : undefined}>
                   <button type="button" onClick={() => openSavedChat(chat)} disabled={isSwitchingTab}>
-                    <span>{chat.title}</span>
-                    <small>{chat.status === "active" ? "Active" : new Date(chat.updatedAt).toLocaleDateString()}</small>
+                    <span className="chat-history-title">{chat.title}</span>
+                    <span className="chat-history-meta">
+                      <small className={`chat-status chat-status-${chat.status}`}>{chat.status === "active" ? "Active" : chat.status}</small>
+                      <small>{new Date(chat.updatedAt).toLocaleDateString()}</small>
+                    </span>
                   </button>
                   <button
                     className="chat-delete-button"
                     type="button"
-                    onClick={() => void deleteSavedChat(chat)}
+                    onClick={() => setPendingDeleteChat(chat)}
                     disabled={deletingChatId !== undefined || (chat.id === activeSessionId && isLoading)}
                     aria-label={`Delete ${chat.title}`}
                     title={chat.id === activeSessionId && isLoading ? "Finish the current chat before deleting it" : "Delete chat"}
@@ -844,6 +847,29 @@ function App() {
             <button className="tab-switch-primary" type="button" onClick={() => void quitAndOpenSavedChat()} disabled={isSwitchingTab}>Quit and open</button>
           </div>
         </section>
+      )}
+
+      {pendingDeleteChat && (
+        <div className="delete-modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.currentTarget === event.target && !deletingChatId) setPendingDeleteChat(undefined);
+        }}>
+          <section className="delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-modal-title" aria-describedby="delete-modal-description">
+            <div className="delete-modal-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20"><path d="M6.5 3h7l.7 2H17v1.5h-1v8A2.5 2.5 0 0 1 13.5 17h-7A2.5 2.5 0 0 1 4 14.5v-8H3V5h2.8l.7-2Zm1.1 2h5.8l-.35-1H7.95l-.35 1ZM5.5 6.5v8c0 .83.67 1.5 1.5 1.5h7c.83 0 1.5-.67 1.5-1.5v-8h-10Zm2 2h1.5v5.5H7.5V8.5Zm3.5 0h1.5v5.5H11V8.5Z" /></svg>
+            </div>
+            <div className="delete-modal-copy">
+              <span className="delete-modal-eyebrow">Delete chat</span>
+              <h2 id="delete-modal-title">Delete this conversation?</h2>
+              <p id="delete-modal-description"><strong>{pendingDeleteChat.title}</strong> will be permanently removed from your chat history.</p>
+            </div>
+            <div className="delete-modal-actions">
+              <button type="button" onClick={() => setPendingDeleteChat(undefined)} disabled={Boolean(deletingChatId)}>Cancel</button>
+              <button className="delete-modal-danger" type="button" onClick={() => void deleteSavedChat(pendingDeleteChat)} disabled={Boolean(deletingChatId)}>
+                {deletingChatId ? "Deleting..." : "Delete chat"}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
       {toolsMenuOpen && (
