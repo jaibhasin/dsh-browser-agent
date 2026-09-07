@@ -5,13 +5,11 @@ const STORAGE_KEY = "dshBrowserToolsV1";
 /**
  * Persisted per-chat tool permissions.
  *
- * - `deniedDefault` is the global list of tools the user disabled; it applies
- *   to every new chat that has not been customized.
- * - `deniedByChat` holds an optional per-chat override. A chat with an entry
- *   here uses that list, otherwise it falls back to `deniedDefault`.
+ * - `deniedDefault` is the template copied into newly created chats.
+ * - `deniedByChat` holds the independent disabled tools for each chat session.
  */
 export type StoredTools = {
-  version: 1;
+  version: 3;
   deniedDefault: BrowserToolName[];
   deniedByChat: Record<string, BrowserToolName[]>;
 };
@@ -28,9 +26,17 @@ export type { BrowserToolName };
 export async function loadToolSettings(): Promise<StoredTools> {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   const tools = stored[STORAGE_KEY] as Partial<StoredTools> | undefined;
-  if (tools?.version !== 1) return { version: 1, deniedDefault: [], deniedByChat: {} };
+  if (tools?.version !== 3) {
+    // Preserve the old default as the template for future chats, but never
+    // apply it directly to an existing chat without a saved snapshot.
+    return {
+      version: 3,
+      deniedDefault: sanitize(tools?.deniedDefault),
+      deniedByChat: sanitizeByChat(tools?.deniedByChat),
+    };
+  }
   return {
-    version: 1,
+    version: 3,
     deniedDefault: sanitize(tools.deniedDefault),
     deniedByChat: sanitizeByChat(tools.deniedByChat),
   };

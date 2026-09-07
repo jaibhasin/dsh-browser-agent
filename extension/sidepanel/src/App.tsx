@@ -27,7 +27,8 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [sessionNotice, setSessionNotice] = useState("");
   const [agentTabState, setAgentTabState] = useState<AgentTabState>({ activeTaskCount: 0 });
-  const [toolSettings, setToolSettings] = useState<StoredTools>({ version: 1, deniedDefault: [], deniedByChat: {} });
+  const [toolSettings, setToolSettings] = useState<StoredTools>({ version: 3, deniedDefault: [], deniedByChat: {} });
+  const [toolSettingsReady, setToolSettingsReady] = useState(false);
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
   const [dismissedTabId, setDismissedTabId] = useState<number>();
   const activeChatIds = useRef(new Set<string>());
@@ -95,6 +96,11 @@ function App() {
     sessionLinksRef.current.delete(sessionId);
     sessionCreatedAtRef.current.delete(sessionId);
     sessionStatusRef.current.delete(sessionId);
+    if (toolSettings.deniedByChat[sessionId] !== undefined) {
+      const deniedByChat = { ...toolSettings.deniedByChat };
+      delete deniedByChat[sessionId];
+      updateToolSettings({ version: 3, deniedDefault: toolSettings.deniedDefault, deniedByChat });
+    }
     syncSavedChats(historyRef.current.filter((chat) => chat.id !== sessionId));
     return removeChat(sessionId);
   }
@@ -146,8 +152,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void loadToolSettings().then((settings) => setToolSettings(settings));
+    void loadToolSettings().then((settings) => {
+      setToolSettings(settings);
+      setToolSettingsReady(true);
+    });
   }, []);
+
+  useEffect(() => {
+    if (!historyReady || !toolSettingsReady) return;
+    const sessionIds = [activeSessionId, ...historyRef.current.map((chat) => chat.id)];
+    const missingSessionIds = sessionIds.filter((sessionId) => toolSettings.deniedByChat[sessionId] === undefined);
+    if (missingSessionIds.length === 0) return;
+    const deniedByChat = { ...toolSettings.deniedByChat };
+    for (const sessionId of missingSessionIds) deniedByChat[sessionId] = [...toolSettings.deniedDefault];
+    updateToolSettings({ version: 3, deniedDefault: toolSettings.deniedDefault, deniedByChat });
+  }, [activeSessionId, historyReady, toolSettingsReady]);
 
   useEffect(() => {
     setSessionLinks((links) => collectHttpLinks(links, agentTabState.agentTab?.url));
@@ -368,6 +387,11 @@ function App() {
     sessionCreatedAtRef.current.set(sessionId, createdAt);
     sessionItemsRef.current.set(sessionId, []);
     sessionLinksRef.current.set(sessionId, []);
+    updateToolSettings({
+      version: 3,
+      deniedDefault: toolSettings.deniedDefault,
+      deniedByChat: { ...toolSettings.deniedByChat, [sessionId]: [...toolSettings.deniedDefault] },
+    });
     setActiveSessionId(sessionId);
     setSessionCreatedAt(createdAt);
     setMessages([]);
@@ -623,7 +647,7 @@ function App() {
     if (denied.has(tool)) denied.delete(tool);
     else denied.add(tool);
     updateToolSettings({
-      version: 1,
+      version: 3,
       deniedDefault: toolSettings.deniedDefault,
       deniedByChat: { ...toolSettings.deniedByChat, [activeSessionId]: [...denied].sort() },
     });
@@ -632,11 +656,15 @@ function App() {
   function resetChatTools() {
     const deniedByChat = { ...toolSettings.deniedByChat };
     delete deniedByChat[activeSessionId];
-    updateToolSettings({ version: 1, deniedDefault: toolSettings.deniedDefault, deniedByChat });
+    updateToolSettings({ version: 3, deniedDefault: toolSettings.deniedDefault, deniedByChat });
   }
 
   function setEffectiveAsDefault() {
-    updateToolSettings({ version: 1, deniedDefault: effectiveDenied(toolSettings, activeSessionId), deniedByChat: toolSettings.deniedByChat });
+    updateToolSettings({
+      version: 3,
+      deniedDefault: effectiveDenied(toolSettings, activeSessionId),
+      deniedByChat: toolSettings.deniedByChat,
+    });
   }
 
   const effectiveDeniedTools = effectiveDenied(toolSettings, activeSessionId);
