@@ -605,6 +605,14 @@ function App() {
       });
       return;
     }
+    if (paletteVisible && paletteMatches.length > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      setActivePaletteIndex((current) => {
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        return (current + direction + paletteMatches.length) % paletteMatches.length;
+      });
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (toolsMenuOpen) {
@@ -965,7 +973,20 @@ function App() {
 
       <form className="composer" onSubmit={sendMessage}>
         <label className="sr-only" htmlFor="prompt">Message the browser agent</label>
-        <textarea ref={textareaRef} id="prompt" name="prompt" rows={1} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder="Ask the browser agent..." autoComplete="off" />
+        <textarea
+          ref={textareaRef}
+          id="prompt"
+          name="prompt"
+          rows={1}
+          value={prompt}
+          onChange={(event) => {
+            setPrompt(event.target.value);
+            setActivePaletteIndex(0);
+          }}
+          onKeyDown={handlePromptKeyDown}
+          placeholder="Ask the browser agent..."
+          autoComplete="off"
+        />
         <div className="composer-footer">
           <span className="composer-hint">{toolsMenuOpen ? "Choose which tools this chat may use · Esc to close" : paletteVisible ? "Enter to run command · Esc to clear" : "Enter to send · Shift + Enter for a new line · Type / for commands"}</span>
           <button
