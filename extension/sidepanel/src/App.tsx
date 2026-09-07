@@ -6,6 +6,7 @@ import type { BridgeChatProgress } from "../../../shared/protocol";
 import { BROWSER_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type BrowserToolName, type StoredTools } from "./tools";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
+type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate"; detail: string };
 
 function App() {
   const [messages, setMessages] = useState<ConversationItem[]>([]);
@@ -31,6 +32,8 @@ function App() {
   const [agentTabState, setAgentTabState] = useState<AgentTabState>({ activeTaskCount: 0 });
   const [toolSettings, setToolSettings] = useState<StoredTools>({ version: 3, deniedDefault: [], deniedByChat: {} });
   const [toolSettingsReady, setToolSettingsReady] = useState(false);
+  const [humanInTheLoopSessions, setHumanInTheLoopSessions] = useState<Set<string>>(() => new Set());
+  const [pendingHumanApproval, setPendingHumanApproval] = useState<HumanApprovalRequest>();
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
   const [dismissedTabId, setDismissedTabId] = useState<number>();
   const activeChatIds = useRef(new Set<string>());
@@ -190,7 +193,7 @@ function App() {
       if (!chrome.runtime.lastError) setConnectionStatus(response?.status === "connected" ? "connected" : response?.status ?? "disconnected");
     });
     void refreshAgentTabState();
-    const onMessage = (message: { type?: string; status?: string; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string }) => {
+    const onMessage = (message: { type?: string; status?: string; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown }) => {
       if (message.type === "dsh-bridge-status" && message.status) {
         setConnectionStatus(message.status);
       } else if (message.type === "dsh-chat-progress" && message.progress && activeChatIds.current.has(message.progress.id)) {
@@ -198,6 +201,8 @@ function App() {
         if (sessionId) addToolProgress(sessionId, message.progress);
       } else if (message.type === "dsh-agent-tab-state" && message.state && message.sessionId === activeSessionIdRef.current) {
         applyAgentTabState(message.state);
+      } else if (message.type === "dsh-human-approval-request" && isHumanApprovalRequest(message.approval) && activeChatIds.current.has(message.approval.chatId)) {
+        setPendingHumanApproval(message.approval);
       }
     };
     chrome.runtime.onMessage.addListener(onMessage);
@@ -310,7 +315,7 @@ function App() {
       userMessageAdded = true;
       setPrompt("");
       setSessionNotice("");
-      const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
+      const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId), humanInTheLoop: humanInTheLoopSessions.has(sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
       if (!stoppedChatIds.current.has(id)) {
         updateConversation(sessionId, (currentMessages) => [...currentMessages, {
@@ -624,10 +629,12 @@ function App() {
   const slashCommands: { id: string; label: string; description: string }[] = [
     { id: "new", label: "/new", description: "Delete this chat and start a fresh session in the tab" },
     { id: "actions", label: "/actions", description: "Enable or disable the agent's browser tools" },
+    { id: "human-in-the-loop", label: "/human-in-the-loop", description: "Ask for approval before clicks and navigation" },
   ];
 
   function executeSlashCommand(commandId: string) {
     setPrompt("");
+    setActivePaletteIndex(0);
     if (commandId === "new") {
       setToolsMenuOpen(false);
       void startNewSession();
@@ -635,7 +642,18 @@ function App() {
       setActiveToolIndex(0);
       setToolsMenuOpen(true);
       textareaRef.current?.focus();
+    } else if (commandId === "human-in-the-loop") {
+      setHumanInTheLoopSessions((current) => new Set(current).add(activeSessionId));
+      setSessionNotice("Human-in-the-loop is enabled for this chat. Clicks and navigation now require your approval.");
+      textareaRef.current?.focus();
     }
+  }
+
+  function respondToHumanApproval(approved: boolean) {
+    const approval = pendingHumanApproval;
+    if (!approval) return;
+    setPendingHumanApproval(undefined);
+    void chrome.runtime.sendMessage({ type: "dsh-human-approval-response", approvalId: approval.approvalId, approved });
   }
 
   function updateToolSettings(next: StoredTools) {
@@ -674,8 +692,7 @@ function App() {
   const paletteMatches = paletteVisible
     ? slashCommands.filter((c) => c.id.startsWith(trimmedPrompt.slice(1).trim().toLowerCase()))
     : [];
-  // The row Enter will run: exact wins, otherwise the first prefix match.
-  const paletteActive = paletteMatches.find((c) => c.id === trimmedPrompt.slice(1).trim().toLowerCase()) ?? paletteMatches[0];
+  const paletteActive = paletteMatches[activePaletteIndex] ?? paletteMatches[0];
 
   return (
     <main className="app-shell">
@@ -884,6 +901,23 @@ function App() {
         </div>
       )}
 
+      {pendingHumanApproval && (
+        <div className="delete-modal-backdrop" role="presentation">
+          <section className="delete-modal approval-modal" role="alertdialog" aria-modal="true" aria-labelledby="approval-modal-title" aria-describedby="approval-modal-description">
+            <div className="delete-modal-icon approval-modal-icon" aria-hidden="true">?</div>
+            <div className="delete-modal-copy">
+              <span className="delete-modal-eyebrow">Human approval required</span>
+              <h2 id="approval-modal-title">Allow {pendingHumanApproval.tool === "browser_click" ? "this click" : "this navigation"}?</h2>
+              <p id="approval-modal-description">The agent wants to {pendingHumanApproval.tool === "browser_click" ? "click" : "navigate to"} <strong>{pendingHumanApproval.detail}</strong>.</p>
+            </div>
+            <div className="delete-modal-actions">
+              <button type="button" onClick={() => respondToHumanApproval(false)}>Deny</button>
+              <button className="delete-modal-primary" type="button" onClick={() => respondToHumanApproval(true)}>Allow</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {toolsMenuOpen && (
         <section className="tools-menu" aria-label="Tool permissions" aria-describedby="tools-menu-help">
           <div className="tools-menu-header">
@@ -978,6 +1012,13 @@ function App() {
  * - Clicking a row slides an Input/Output card open in the gap below it;
  *   the spine keeps running alongside the card, so context never jumps.
  */
+function isHumanApprovalRequest(value: unknown): value is HumanApprovalRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const approval = value as Partial<HumanApprovalRequest>;
+  return typeof approval.approvalId === "string" && typeof approval.chatId === "string" &&
+    (approval.tool === "browser_click" || approval.tool === "browser_navigate") && typeof approval.detail === "string";
+}
+
 function ToolThread({ message }: { message: ActivityGroup }) {
   return (
     <div className="tool-thread" aria-label="Tool activity">
