@@ -1,18 +1,20 @@
 # DSH Browser Agent
 
-An AI assistant in Chrome's side panel that can read pages, click controls, fill fields, and navigate websites for you.
-Powered by [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness), it works in your existing browser tabs, including websites where you are already signed in.
+Chat with an AI assistant while you browse.
+Ask it to explain a page, fill out a form, or help you work through a website.
+
+DSH Browser Agent lives in Chrome's side panel and works with the tabs you already have open, including sites where you're signed in.
+[DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runs on your computer and connects the assistant to your chosen AI model.
 
 ## Features
 
-- **Chat beside your browser.** Ask questions about a page and give the agent tasks without switching apps.
-- **Read and interact with websites.** Inspect page content, navigate, click, type, scroll, and capture screenshots.
-- **Follow its progress.** See tool activity and responses in the conversation.
-- **Save conversations locally.** Reopen chats with their messages, tool activity, and recent website links.
-- **Choose what happens when you switch tabs.** Continue in the background, pause, quit, or move the chat to another tab.
-- **Control browser tools per chat.** Disable tools you do not want a conversation to use.
-- **Ask before clicks and navigation.** Enable `/human-in-the-loop` in a chat for approval prompts.
-- **Install on macOS, Windows, or Linux.** Use a dedicated profile and a compatible, pinned DSH runtime.
+- Read pages, click buttons, type into fields, scroll, and take screenshots.
+- Watch the agent's actions as it works, right in the chat.
+- Pick up a saved conversation with its messages and website links.
+- Switch tabs and choose whether the agent keeps working, pauses, or follows you.
+- Turn browser tools on or off for each chat.
+- Use `/human-in-the-loop` to ask for approval before clicks and navigation.
+- Install on macOS, Windows, or Linux without setting up DSH yourself.
 
 ## Demo
 
@@ -22,14 +24,15 @@ Powered by [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harn
 
 ## Quick installation
 
-### 1. Install the prerequisites
+### 1. Before you start
 
-You need [Google Chrome](https://www.google.com/chrome/), [Node.js 24 LTS](https://nodejs.org/), and an API key for the model provider you will configure in DSH.
+Install [Google Chrome](https://www.google.com/chrome/) and [Node.js 24 LTS](https://nodejs.org/).
+Node.js runs the local part of the assistant.
+You'll also need an API key from the AI provider you want to use; you'll add it when you first open DSH.
 After installing Node.js, close and reopen your terminal.
 Windows users need PowerShell 5.1 or newer; Linux users need a desktop environment to use Chrome.
 
-You do not need to install DSH, pnpm, or Git separately.
-The installer downloads the required tools and builds the extension for your device.
+The installer takes care of DSH and the other tools it needs.
 
 ### 2. Run the installer
 
@@ -48,27 +51,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $script
 ```
 
 First-time installation can take a few minutes.
-Wait until the terminal displays **Setup complete!** and your extension folder path.
+Wait for **Setup complete!** in the terminal.
+Keep the terminal open so you can copy the folder path in the next step.
 
-Prefer to download the files first?
-[Download the repository ZIP](https://github.com/jaibhasin/dsh-browser-agent/archive/refs/heads/main.zip), extract it, open a terminal in the extracted folder, and run `bash scripts/install.sh` or `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1`.
+You can also [download the ZIP](https://github.com/jaibhasin/dsh-browser-agent/archive/refs/heads/main.zip) and extract it first.
+Open a terminal in that folder, then run `bash scripts/install.sh` on macOS/Linux or `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1` on Windows.
 
 ### 3. Load the extension in Chrome
 
 1. Open Chrome, paste `chrome://extensions` into the address bar, and press Enter.
 2. Turn on **Developer mode** in the top-right corner.
 3. Click **Load unpacked** in the top-left corner.
-4. Select the **extension folder printed by the installer**, then confirm your selection.
+4. Choose the **extension folder shown in your terminal** and click **Select Folder** or **Select**.
 
 Select the folder itself, not a file inside it.
-With the default installation settings, its location is:
+Unless you chose a different installation location, you'll find it here:
 
 | Platform | Extension folder |
 | --- | --- |
 | macOS / Linux | `~/.dsh/browser-agent-install/extension` |
 | Windows | `C:\Users\YOUR_USERNAME\.dsh\browser-agent-install\extension` |
 
-If you cannot see the folder, enter its full path in the folder picker:
+The `.dsh` folder may be hidden.
+To open it in the folder selection window:
 
 - **macOS:** press Cmd+Shift+G, paste the path, and press Return.
 - **Windows:** paste the path into the address bar and press Enter.
@@ -79,7 +84,7 @@ You should now see a **DSH Agent** card on the extensions page.
 ### 4. Start the agent
 
 Copy and run the `node ".../start.mjs"` command printed by the installer.
-With the default installation settings, you can also use:
+For a default installation, these commands work too:
 
 **macOS or Linux:**
 
@@ -94,7 +99,7 @@ node "$env:USERPROFILE\.dsh\browser-agent-install\start.mjs"
 ```
 
 Keep this terminal open while using the agent.
-Open the local web address printed by DSH, configure your API key, and select a model.
+Open the web address DSH prints in the terminal, add your API key, and choose a model.
 Then click Chrome's puzzle-piece **Extensions** button and choose **DSH Agent** to open the side panel.
 
 Open a website and try: **“Summarize this page.”**
@@ -105,10 +110,10 @@ Press Ctrl+C in the terminal to stop DSH.
 ### Updates and uninstall
 
 To update, stop DSH, run the installer again, and click the circular **Reload** button on the DSH Agent card at `chrome://extensions`.
-The extension stays at the same folder path, and the installer preserves your profile configuration and bridge token.
+Your settings are kept, and you won't need to choose the extension folder again.
 
 To uninstall, stop DSH and run the uninstall command printed during setup.
-If you have a checkout or extracted ZIP, you can instead run:
+If you still have the downloaded project folder, open a terminal there and run:
 
 ```sh
 # macOS / Linux
@@ -120,9 +125,10 @@ bash scripts/uninstall.sh
 node scripts/install.mjs --uninstall
 ```
 
-Uninstall moves the managed installation and its profile into timestamped `.uninstalled-*` backup folders rather than deleting them.
-These backups may contain private data; delete them when you no longer need them.
-Remove **DSH Agent** from `chrome://extensions` separately to remove its Chrome storage.
+The uninstaller keeps a backup of the installation and its settings in folders ending in `.uninstalled-*` followed by a timestamp.
+You can delete those folders once you're sure you don't need them.
+They may contain private data.
+Finally, remove **DSH Agent** from `chrome://extensions` to delete the extension and its saved browser data.
 
 ### Troubleshooting
 
@@ -140,53 +146,52 @@ Remove **DSH Agent** from `chrome://extensions` separately to remove its Chrome 
 
 ```mermaid
 flowchart LR
-    User[You in the Chrome side panel] <--> DSH[Local DSH runtime and browser plugin]
-    DSH <--> Model[Configured model provider]
-    DSH <-->|Authenticated local WebSocket| Extension[Chrome extension]
-    Extension <-->|Browser tools| Tab[Chat's assigned tab]
+    User[Your message in the side panel] <--> DSH[DSH on your computer]
+    DSH <--> Model[Your AI provider]
+    DSH <-->|Local connection| Extension[Chrome extension]
+    Extension <-->|Reads and acts on| Tab[Your chat's tab]
 ```
 
-You send a message from the side panel to DSH running on your computer.
-DSH asks your configured model how to proceed, and the browser plugin routes browser tool calls back to the extension.
-The extension acts in the chat's assigned tab and sends results back to DSH.
-Replies and tool activity appear in the side panel.
+When you send a message, DSH passes it to your chosen AI model.
+The model can ask the extension to read the page or take an action, such as clicking a button.
+The extension carries out that action in the chat's tab and reports what happened.
+You see the progress and reply in the side panel.
 
-The installer uses a dedicated `browser-agent-installed` profile and its own DSH `0.1.2-rc.1` runtime.
-It preserves existing profiles and uses lockfiles for the runtime and build dependencies to keep versions consistent.
-Managed files live under `~/.dsh/browser-agent-install`; set `DSH_HOME` before installation to choose a different DSH data directory.
+The browser agent gets its own DSH installation and settings, so it won't replace an existing DSH setup.
+Its dependencies are locked to tested versions to avoid mixing incompatible releases.
 
 ## Browser tools
 
 | Tool | What it does |
 | --- | --- |
-| `browser_snapshot` | Reads structured DOM and accessibility text with references to interactive elements. |
+| `browser_snapshot` | Reads page text and gives buttons, links, and fields numbered references. |
 | `browser_navigate` | Opens an HTTP or HTTPS URL in the chat's assigned tab. |
 | `browser_tabs` | Lists open browser tabs. |
 | `browser_wait` | Waits for the page to settle, then takes a fresh snapshot. |
-| `browser_screenshot` | Captures a PNG of the assigned tab's visible viewport. |
+| `browser_screenshot` | Takes a PNG screenshot of the visible part of the chat's tab. |
 | `browser_scroll` | Scrolls up, down, left, or right by a number of pixels. |
-| `browser_click` | Clicks an element using its snapshot reference. |
-| `browser_type` | Enters text into an input using its snapshot reference. |
+| `browser_click` | Clicks a button, link, or other element by its reference number. |
+| `browser_type` | Types into a field by its reference number. |
 
 Use the side panel's tool controls to disable individual browser tools for a chat.
-Screenshots require the assigned tab to be visible, including when a task is otherwise allowed to continue in the background.
+To take a screenshot, the agent's tab needs to be visible, even if you've allowed it to work in the background.
 
 ## Tabs and chat sessions
 
-### One chat, one assigned tab
+### Each chat belongs to a tab
 
-A chat is assigned to the active tab when its first message is sent.
-Each tab can belong to one chat at a time, and the assigned tab is marked with a blue **Agent** tab group.
-Browser actions stay on that tab until you explicitly move the chat.
-Listing tabs does not transfer control to another tab.
+When you send the first message, the chat attaches to the tab you're viewing.
+A blue **Agent** tab group shows you which tab it controls.
+Each tab can have one chat, and the agent keeps working on that tab until you choose to move it.
 
 Chats are saved locally with their messages, tool activity, and recent website links.
-Opening a saved chat focuses its tab; if that tab is gone, the extension recreates it using the last saved website when available.
-This reopens the website, not an exact copy of its previous page state.
+Open a saved chat and Chrome takes you back to its tab.
+If you've closed the tab, the extension opens a new one at its last saved website when possible.
+Unsaved page state, such as a half-filled form, isn't restored.
 
 ### When you switch tabs during work
 
-The side panel asks what should happen to the current task before proceeding:
+Switch to another tab while the agent is working, and you'll get these choices:
 
 | Choice | What happens |
 | --- | --- |
@@ -195,30 +200,35 @@ The side panel asks what should happen to the current task before proceeding:
 | **Quit current chat** | Work stops and the chat is deleted from the extension's history. |
 | **Move current chat here** | The current chat moves to the newly selected tab. |
 
-If the destination tab already has a saved chat, you can continue that conversation or start a new one.
-Starting a new chat on an owned tab replaces its previous chat in the extension's history.
-Opening another saved chat while work is active likewise lets you continue in the background, pause, or quit the current chat first.
+If the tab you switch to already has a chat, you can pick up that conversation or start fresh.
+Starting fresh replaces that tab's old chat in your history.
+If you open another saved chat while the agent is busy, you'll also get a chance to keep the current task running, pause it, or quit it.
 
 ## Security
 
-The browser bridge listens on `127.0.0.1:7331` and requires a shared authentication token plus a Chrome extension origin.
-The installer generates the token locally and includes it in your extension build.
-Treat the installed extension directory, profile, and backup folders as private; do not upload or share them.
+The connection between Chrome and DSH stays on your computer.
+It uses a private token created during installation, and the bridge checks that connections identify themselves as coming from a Chrome extension.
+Keep your installed extension, DSH settings, and backups private because they contain that token or other personal data.
 
-The extension requests broad website access so it can operate on the pages you use.
-It works with your existing signed-in browser session, so its actions can affect those accounts.
-Chats are stored locally in Chrome, and DSH maintains its own local data.
-**Local operation does not mean offline inference:** messages and browser content used in model requests are sent to your configured model provider.
-Do not assume page content or screenshots are automatically stripped of sensitive information.
+The extension needs access to websites to read and interact with them.
+Because it uses your signed-in tabs, its actions can affect your accounts.
+Your chats are saved in Chrome on your device, and DSH also keeps local data.
+Messages and page content used by the AI are sent to the model provider you chose.
+Page text and screenshots may include sensitive information.
 
 **Approval prompts are off by default.**
 Type `/human-in-the-loop` in a chat to require approval before `browser_click` and `browser_navigate` calls.
-This mode does not cover every tool; use per-chat tool controls to restrict other browser actions.
+Other tools don't get these approval prompts; you can turn them off using the chat's tool controls.
 
-The installer downloads source from `main`, uses a dedicated runtime and profile, and refuses to overwrite directories it does not recognize as its own.
-Run installation commands only from a source you trust.
+The installer downloads the code from this repository's `main` branch.
+Only run installation commands from a source you trust.
 
 ## Development
+
+The managed installation uses DSH `0.1.2-rc.1` with a separate `browser-agent-installed` profile.
+Files live under `~/.dsh/browser-agent-install` by default.
+Set `DSH_HOME` before installation to use another DSH data directory.
+The bridge listens on `127.0.0.1:7331` and authenticates WebSocket connections with the generated token.
 
 ### Set up a checkout
 
