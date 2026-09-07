@@ -20,6 +20,7 @@ function App() {
   const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [activeToolIndex, setActiveToolIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
@@ -566,9 +567,21 @@ function App() {
   }
 
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (toolsMenuOpen && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      setActiveToolIndex((current) => {
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        return (current + direction + BROWSER_TOOL_DEFS.length) % BROWSER_TOOL_DEFS.length;
+      });
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (toolsMenuOpen) return;
+      if (toolsMenuOpen) {
+        const activeTool = BROWSER_TOOL_DEFS[activeToolIndex];
+        if (activeTool) toggleToolForChat(activeTool.name);
+        return;
+      }
       // While the palette is open, Enter runs the highlighted command even
       // if the word is only partially typed (e.g. "/act" -> /actions).
       if (paletteVisible && paletteActive) {
@@ -594,6 +607,7 @@ function App() {
       setToolsMenuOpen(false);
       void startNewSession();
     } else if (commandId === "actions") {
+      setActiveToolIndex(0);
       setToolsMenuOpen(true);
       textareaRef.current?.focus();
     }
@@ -805,17 +819,23 @@ function App() {
       )}
 
       {toolsMenuOpen && (
-        <section className="tools-menu" aria-label="Tool permissions">
+        <section className="tools-menu" aria-label="Tool permissions" aria-describedby="tools-menu-help">
           <div className="tools-menu-header">
-            <strong>Tool permissions</strong>
-            <span>Disable a tool and this chat's agent can't use it.</span>
+            <div>
+              <span className="tools-menu-eyebrow">Agent controls</span>
+              <strong>Tool permissions</strong>
+            </div>
+            <span id="tools-menu-help" className="tools-menu-help">Choose what this chat can use.</span>
             <button type="button" className="tools-menu-close" onClick={() => setToolsMenuOpen(false)} aria-label="Close tool permissions">✕</button>
           </div>
-          <ul className="tools-list">
-            {BROWSER_TOOL_DEFS.map((tool) => {
+          <div className="tools-menu-summary">
+            <span><strong>{BROWSER_TOOL_DEFS.length - effectiveDeniedTools.length}</strong> of {BROWSER_TOOL_DEFS.length} tools enabled</span>
+          </div>
+          <ul className="tools-list" role="listbox" aria-label="Browser tools">
+            {BROWSER_TOOL_DEFS.map((tool, index) => {
               const enabled = !effectiveDeniedTools.includes(tool.name);
               return (
-                <li key={tool.name}>
+                <li key={tool.name} className={index === activeToolIndex ? "tool-row-active" : undefined} role="option" aria-selected={index === activeToolIndex} onMouseEnter={() => setActiveToolIndex(index)}>
                   <label className="tool-toggle">
                     <input type="checkbox" checked={enabled} onChange={() => toggleToolForChat(tool.name)} />
                     <span className="tool-toggle-track" aria-hidden="true"><span className="tool-toggle-thumb" /></span>
@@ -823,6 +843,7 @@ function App() {
                       <span className="tool-toggle-name">{tool.label}</span>
                       <span className="tool-toggle-desc">{tool.description}</span>
                     </span>
+                    <span className={`tool-toggle-status${enabled ? " tool-toggle-status-on" : ""}`}>{enabled ? "On" : "Off"}</span>
                   </label>
                 </li>
               );
