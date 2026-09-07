@@ -12,7 +12,8 @@
     "test:tab-switch": "node --experimental-strip-types tests/tab-switch-state.test.mjs",
     "setup:dsh-profile": "node scripts/setup-dsh-browser-profile.mjs",
     "preview": "vite preview --config vite.config.js",
-    "test": "pnpm test:agent-tab && pnpm test:tab-switch"
+    "test:install": "node --test tests/install.test.mjs",
+    "test": "pnpm test:agent-tab && pnpm test:tab-switch && pnpm test:install"
   },
   "dependencies": {
     "react": "^19.1.1",

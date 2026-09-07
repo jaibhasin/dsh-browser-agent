@@ -1,0 +1,34 @@
+name: Installer compatibility
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Installer safety and runtime version checks
+        run: node --test tests/install.test.mjs
+      - name: Shell entry point
+        if: runner.os != 'Windows'
+        run: bash scripts/install.sh --help
+      - name: PowerShell entry point
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/install.ps1 --help
+      - name: Install, start, update and uninstall
+        env:
+          DSH_INSTALL_E2E: '1'
+        run: node --test tests/install-e2e.test.mjs
