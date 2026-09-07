@@ -263,6 +263,44 @@ textarea {
   transition: background 120ms ease, border-color 120ms ease;
 }
 
+.chat-history li > button.chat-delete-button {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  opacity: 0;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+
+.chat-history li:hover > button.chat-delete-button,
+.chat-history li:focus-within > button.chat-delete-button,
+.chat-history li > button.chat-delete-button:focus-visible {
+  opacity: 1;
+}
+
+.chat-history li > button.chat-delete-button:hover:not(:disabled) {
+  color: var(--error);
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.25);
+}
+
+.chat-history li > button.chat-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.chat-delete-button svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
 .chat-history li > button:hover,
 .chat-history li.selected > button {
   background: var(--bg-hover);
