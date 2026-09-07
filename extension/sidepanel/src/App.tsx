@@ -18,6 +18,7 @@ function App() {
   const [pendingSavedChat, setPendingSavedChat] = useState<SavedChat>();
   const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
@@ -253,7 +254,18 @@ function App() {
     if (!text || isLoading) return;
 
     if (text.startsWith("/")) {
-      setSessionNotice("Slash commands aren't sent to the agent. Toggle the tools above to change permissions.");
+      const cmd = text.slice(1).trim().toLowerCase();
+      // Accept exact ("/actions") and unambiguous prefix ("/act") matches.
+      const candidates = cmd ? slashCommands.filter((c) => c.id.startsWith(cmd)) : [];
+      const matched = candidates.find((c) => c.id === cmd) ?? (candidates.length === 1 ? candidates[0] : undefined);
+      if (matched) {
+        executeSlashCommand(matched.id);
+        return;
+      }
+      setPrompt("");
+      setSessionNotice(cmd
+        ? `Unknown command "/${cmd}". Available: ${slashCommands.map((c) => c.label).join(", ")}`
+        : `Type a command: ${slashCommands.map((c) => c.label).join(" or ")}.`);
       return;
     }
 
@@ -325,25 +337,26 @@ function App() {
     }
   }
 
+  /**
+   * "/new" and the header + button.
+   *
+   * Stops any running task, DELETES the current chat (history + storage),
+   * then creates a fresh session that claims this tab directly — so the
+   * "this tab already has a saved chat" prompt never appears.
+   */
   async function startNewSession() {
-    if (isLoading || isStartingSession) return;
-    const createdAt = Date.now();
-    const sessionId = newSessionId();
-    deletedSessionIds.current.delete(sessionId);
-    sessionCreatedAtRef.current.set(sessionId, createdAt);
-    sessionItemsRef.current.set(sessionId, []);
-    sessionLinksRef.current.set(sessionId, []);
-    setActiveSessionId(sessionId);
-    setSessionCreatedAt(createdAt);
-    setMessages([]);
-    setSessionLinks([]);
-    setPendingDestinationChat(undefined);
-    setAgentTabState({ activeTaskCount: 0 });
-    currentTabId.current = undefined;
-    setPrompt("");
-    setSessionNotice(connectionStatus === "connected" ? "New chat ready." : "New chat is ready. It will start when DSH reconnects.");
-    textareaRef.current?.focus();
-    void refreshAgentTabState(sessionId);
+    if (isStartingSession) return;
+    setIsStartingSession(true);
+    try {
+      const previousSessionId = activeSessionId;
+      // Best-effort stop: discard the agent task even if it's mid-flight.
+      await chrome.runtime.sendMessage({ type: "dsh-agent-discard-chat", sessionId: previousSessionId }).catch(() => undefined);
+      await forgetSession(previousSessionId);
+      setIsLoading(false);
+    } finally {
+      setIsStartingSession(false);
+    }
+    await startFreshChatOnCurrentTab();
   }
 
   async function startFreshChatOnCurrentTab() {
@@ -538,8 +551,34 @@ function App() {
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (toolsMenuVisible) return;
+      if (toolsMenuOpen) return;
+      // While the palette is open, Enter runs the highlighted command even
+      // if the word is only partially typed (e.g. "/act" -> /actions).
+      if (paletteVisible && paletteActive) {
+        executeSlashCommand(paletteActive.id);
+        return;
+      }
       event.currentTarget.form?.requestSubmit();
+    }
+    if (event.key === "Escape") {
+      if (toolsMenuOpen) setToolsMenuOpen(false);
+      else if (prompt.trim().startsWith("/")) setPrompt("");
+    }
+  }
+
+  const slashCommands: { id: string; label: string; description: string }[] = [
+    { id: "new", label: "/new", description: "Delete this chat and start a fresh session in the tab" },
+    { id: "actions", label: "/actions", description: "Enable or disable the agent's browser tools" },
+  ];
+
+  function executeSlashCommand(commandId: string) {
+    setPrompt("");
+    if (commandId === "new") {
+      setToolsMenuOpen(false);
+      void startNewSession();
+    } else if (commandId === "actions") {
+      setToolsMenuOpen(true);
+      textareaRef.current?.focus();
     }
   }
 
@@ -570,7 +609,13 @@ function App() {
   }
 
   const effectiveDeniedTools = effectiveDenied(toolSettings, activeSessionId);
-  const toolsMenuVisible = prompt.trim().startsWith("/");
+  const trimmedPrompt = prompt.trim();
+  const paletteVisible = !toolsMenuOpen && trimmedPrompt.startsWith("/");
+  const paletteMatches = paletteVisible
+    ? slashCommands.filter((c) => c.id.startsWith(trimmedPrompt.slice(1).trim().toLowerCase()))
+    : [];
+  // The row Enter will run: exact wins, otherwise the first prefix match.
+  const paletteActive = paletteMatches.find((c) => c.id === trimmedPrompt.slice(1).trim().toLowerCase()) ?? paletteMatches[0];
 
   return (
     <main className="app-shell">
@@ -610,9 +655,9 @@ function App() {
             className="icon-button"
             type="button"
             onClick={() => void startNewSession()}
-            disabled={isLoading || isStartingSession}
+            disabled={isStartingSession}
             aria-label="New chat"
-            title={isStartingSession ? "Starting..." : "New chat"}
+            title={isStartingSession ? "Starting..." : "Delete this chat and start a new one"}
           >
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M8 1.25a.75.75 0 0 1 .75.75v5.25H14a.75.75 0 0 1 0 1.5H8.75V14a.75.75 0 0 1-1.5 0V8.75H2a.75.75 0 0 1 0-1.5h5.25V2A.75.75 0 0 1 8 1.25Z" />
@@ -623,7 +668,7 @@ function App() {
 
       {isHistoryOpen && (
         <section className="chat-history" aria-label="Saved chats">
-          <div className="chat-history-header"><strong>Chats</strong><button type="button" onClick={() => void startNewSession()} disabled={isLoading}>New chat</button></div>
+          <div className="chat-history-header"><strong>Chats</strong><button type="button" onClick={() => void startNewSession()} disabled={isStartingSession}>New chat</button></div>
           {savedChats.length === 0 ? <p className="chat-history-empty">Your completed chats will appear here.</p> : (
             <ul>
               {savedChats.map((chat) => (
@@ -730,11 +775,12 @@ function App() {
         </section>
       )}
 
-      {toolsMenuVisible && (
+      {toolsMenuOpen && (
         <section className="tools-menu" aria-label="Tool permissions">
           <div className="tools-menu-header">
             <strong>Tool permissions</strong>
             <span>Disable a tool and this chat's agent can't use it.</span>
+            <button type="button" className="tools-menu-close" onClick={() => setToolsMenuOpen(false)} aria-label="Close tool permissions">✕</button>
           </div>
           <ul className="tools-list">
             {BROWSER_TOOL_DEFS.map((tool) => {
@@ -760,18 +806,25 @@ function App() {
         </section>
       )}
 
+      <SlashCommandPalette
+        visible={paletteVisible}
+        commands={paletteMatches}
+        activeId={paletteActive?.id}
+        onExecute={executeSlashCommand}
+      />
+
       <form className="composer" onSubmit={sendMessage}>
         <label className="sr-only" htmlFor="prompt">Message the browser agent</label>
         <textarea ref={textareaRef} id="prompt" name="prompt" rows={1} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder="Ask the browser agent..." autoComplete="off" />
         <div className="composer-footer">
-          <span className="composer-hint">{toolsMenuVisible ? "Choose which tools this chat may use" : "Enter to send · Shift + Enter for a new line"}</span>
+          <span className="composer-hint">{toolsMenuOpen ? "Choose which tools this chat may use · Esc to close" : paletteVisible ? "Enter to run command · Esc to clear" : "Enter to send · Shift + Enter for a new line · Type / for commands"}</span>
           <button
             className={`send-button${isLoading ? " send-button-stop" : ""}`}
             type={isLoading ? "button" : "submit"}
             onClick={isLoading ? () => void stopMessage() : undefined}
             aria-label={isStopping ? "Stopping agent" : isLoading ? "Stop agent" : "Send message"}
             title={isStopping ? "Stopping agent" : isLoading ? "Stop agent" : "Send message"}
-            disabled={isStopping || (!isLoading && (connectionStatus !== "connected" || toolsMenuVisible))}
+            disabled={isStopping || (!isLoading && (connectionStatus !== "connected" || toolsMenuOpen))}
           >
             {isLoading ? <span className="stop-indicator" aria-hidden="true" /> : (
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" /></svg>
@@ -884,6 +937,58 @@ function tabLabel(tab?: TabSummary): string {
 
 function newSessionId(): string {
   return `session-${crypto.randomUUID()}`;
+}
+
+/**
+ * Slash command palette — a compact dropdown that appears when the user types "/".
+ *
+ * Architecture:
+ *   - Visibility is derived straight from the composer prompt (no extra state),
+ *     so the palette follows every keystroke as the user types a command.
+ *   - The parent filters `commands` against what's typed; `activeId` marks the
+ *     best match, which is highlighted and executed when Enter is pressed.
+ *   - Clicking a row calls `onExecute`, which runs the command and clears the prompt.
+ */
+function SlashCommandPalette({
+  visible,
+  commands,
+  activeId,
+  onExecute,
+}: {
+  visible: boolean;
+  commands: { id: string; label: string; description: string }[];
+  activeId?: string;
+  onExecute: (id: string) => void;
+}) {
+  if (!visible) return null;
+
+  return (
+    <div className="slash-command-palette" role="listbox" aria-label="Slash commands">
+      <div className="slash-command-header">Commands</div>
+      {commands.length === 0 ? (
+        <p className="slash-command-empty">No matching commands.</p>
+      ) : (
+        <ul className="slash-command-list">
+          {commands.map((cmd) => {
+            const active = cmd.id === activeId;
+            return (
+              <li
+                key={cmd.id}
+                className={`slash-command-item${active ? " slash-command-item-active" : ""}`}
+                role="option"
+                aria-selected={active}
+                onClick={() => onExecute(cmd.id)}
+              >
+                <span className="slash-command-label">{cmd.label}</span>
+                <span className="slash-command-desc">{cmd.description}</span>
+                {active && <kbd className="slash-command-kbd" aria-hidden="true">↵</kbd>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export default App;
