@@ -194,9 +194,21 @@ function App() {
     ? savedChats.find((chat) => chat.id === tabSwitchView.sessionId)
     : undefined);
 
+  /**
+   * Folds one bridge progress event into the current activity group.
+   *
+   * Progress arrives as pairs of events per tool call:
+   *   tool_started  -> creates/updates the step as "running" + stamps startedAt
+   *   tool_finished -> flips it to "success" and freezes durationMs
+   *   tool_failed   -> flips it to "error" (also freezes durationMs)
+   * The side panel is the clock: the bridge sends no timestamps, so we
+   * measure elapsed time between the two events here.
+   */
   function addToolProgress(sessionId: string, progress: BridgeChatProgress) {
     updateConversation(sessionId, (currentMessages) => {
       const groupIndex = currentMessages.findIndex((item) => item.kind === "activity" && item.id === progress.id);
+      const now = Date.now();
+      const finished = progress.phase !== "tool_started";
       const step: ToolActivity = {
         callId: progress.callId,
         tool: progress.tool,
@@ -204,6 +216,7 @@ function App() {
         ...(progress.output ? { output: progress.output } : {}),
         status: progress.phase === "tool_started" ? "running" : progress.phase === "tool_finished" ? "success" : "error",
         ...(progress.error ? { error: progress.error } : {}),
+        ...(progress.phase === "tool_started" ? { startedAt: now } : {}),
       };
       if (groupIndex === -1) return [...currentMessages, { kind: "activity", id: progress.id, steps: [step] }];
 
@@ -212,7 +225,14 @@ function App() {
       const steps = existingIndex === -1
         ? [...group.steps, step]
         : group.steps.map((candidate, index) => index === existingIndex
-          ? { ...candidate, ...step, input: step.input ?? candidate.input, output: step.output ?? candidate.output }
+          ? {
+              ...candidate,
+              ...step,
+              input: step.input ?? candidate.input,
+              output: step.output ?? candidate.output,
+              // Freeze the elapsed time now that the call finished.
+              ...(finished && candidate.startedAt !== undefined ? { durationMs: Math.max(0, now - candidate.startedAt) } : {}),
+            }
           : candidate);
       return currentMessages.map((item, index) => index === groupIndex ? { ...group, steps } : item);
     }, "active");
@@ -652,13 +672,30 @@ function App() {
 }
 
 /**
- * Tool-activity thread.
+ * Activity spine — the agent's tool-call timeline.
  *
- * Architecture: while the agent works, every tool call is rendered as a quiet,
- * centered pill on a vertical timeline. A pill shows ONLY the tool name (plus a
- * tiny status dot), so the chat stays readable. The input the agent sent and the
- * output it received are revealed only when the user clicks a pill to expand it.
- * Nothing auto-expands anymore — the thread itself is always visible.
+ * Architecture (pairs with the "Tool-activity thread" section of styles.css):
+ *
+ *   ● Snapshot            1.2s
+ *   │
+ *   ● Click               0.4s
+ *   │
+ *   ◉ Type   (pulsing)
+ *   │   ┌ Input  "search query" ─┐
+ *   │   │ Output  3 results      │
+ *   │   └────────────────────────┘
+ *   │
+ *   ● Scroll              0.3s
+ *
+ * - The vertical line is NOT one element: every step paints its own 2px
+ *   segment (.tool-step::before). Stacked with no gap, the segments read as
+ *   one solid spine that starts at the first bead and stops at the last,
+ *   even when an input/output card is expanded in the middle.
+ * - Each bead is a small dot centered ON the line; its page-colored ring
+ *   (box-shadow) masks the line behind it. Bead color = step status:
+ *   green = done, pulsing accent = running, red = failed.
+ * - Clicking a row slides an Input/Output card open in the gap below it;
+ *   the spine keeps running alongside the card, so context never jumps.
  */
 function ToolThread({ message }: { message: ActivityGroup }) {
   return (
@@ -669,9 +706,10 @@ function ToolThread({ message }: { message: ActivityGroup }) {
 }
 
 /**
- * A single tool call on the thread.
- * Collapsed state: a centered pill with a status dot + tool name.
- * Expanded state: the same pill with an input/output card underneath it.
+ * A single node on the spine.
+ *
+ * Collapsed: bead + tool name + (once finished) a quiet duration on the right.
+ * Expanded:  the same row with an input/output card hanging below it.
  * `useState` mirrors the native <details> open flag so React keeps control.
  */
 function ToolStep({ step }: { step: ToolActivity }) {
@@ -684,9 +722,12 @@ function ToolStep({ step }: { step: ToolActivity }) {
       onToggle={(event) => setIsOpen(event.currentTarget.open)}
     >
       <summary title={`${step.tool} · ${step.status}`}>
-        <span className="tool-status" aria-hidden="true" />
+        <span className="tool-node" aria-hidden="true" />
         <span className="tool-name">{toolLabel(step.tool)}</span>
         <span className="tool-chevron" aria-hidden="true">›</span>
+        {step.durationMs !== undefined && (
+          <span className="tool-duration">{formatDuration(step.durationMs)}</span>
+        )}
       </summary>
       <dl className="tool-io">
         <div><dt>Input</dt><dd>{step.input ?? "No input"}</dd></div>
@@ -694,6 +735,15 @@ function ToolStep({ step }: { step: ToolActivity }) {
       </dl>
     </details>
   );
+}
+
+/**
+ * Formats a millisecond duration the way the spine shows it:
+ * under a second as "850ms", otherwise one decimal like "1.2s".
+ */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 /**

@@ -2,7 +2,18 @@ const STORAGE_KEY = "dshBrowserChatHistoryV1";
 const MAX_SESSIONS = 100;
 
 export type ChatMessage = { kind: "message"; id: string; role: "assistant" | "user"; text: string };
-export type ToolActivity = { callId: string; tool: string; input?: string; output?: string; status: "running" | "success" | "error"; error?: string };
+
+/**
+ * One tool call the agent made while working on a chat.
+ *
+ * Timing fields (both optional so older saved chats still load fine):
+ * - `startedAt`  – epoch ms captured the moment the "tool_started" progress
+ *                  event arrives in the side panel.
+ * - `durationMs` – how long the call took, frozen in when the matching
+ *                  "tool_finished"/"tool_failed" event arrives.
+ * Together they let the activity spine show a quiet "1.2s" per step.
+ */
+export type ToolActivity = { callId: string; tool: string; input?: string; output?: string; status: "running" | "success" | "error"; error?: string; startedAt?: number; durationMs?: number };
 export type ActivityGroup = { kind: "activity"; id: string; steps: ToolActivity[] };
 export type ConversationItem = ChatMessage | ActivityGroup;
 

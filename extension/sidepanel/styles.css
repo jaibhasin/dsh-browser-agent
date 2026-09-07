@@ -529,55 +529,77 @@ h6.markdown-heading { font-size: 14px; }
 }
 
 /* =========================================================
-   Tool-activity thread
-   A slim, CENTERED timeline. Each tool call is a quiet pill
-   showing only its name + a status dot. Clicking a pill
-   expands an input/output card right underneath it.
+   Tool-activity thread — the "activity spine"
+   A solid vertical line runs down the LEFT edge of the chat.
+   Each tool call is a row whose status bead sits on the line;
+   clicking a row slides an input/output card open in the gap
+   below it while the spine keeps running alongside.
+
+   How the line is drawn (no single line element):
+   - Every .tool-step paints its own 2px segment (.tool-step::before)
+     spanning its full height. Stacked with zero gap, the segments
+     read as one continuous spine.
+   - :first-child starts its segment at the bead's center (top: 12px),
+     so the line never pokes out above the first dot.
+   - :last-child stops its segment at the bead's center (height: 12px),
+     so the line never pokes out below the last dot — even if that
+     step's card is expanded.
+   - Each bead wears a page-colored ring (box-shadow) that masks the
+     line behind it, so it reads as a dot sitting ON the line.
    ========================================================= */
 
 .tool-thread {
-  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
   width: 100%;
   padding: 2px 0;
 }
 
-/* The vertical "thread" the pills hang on (dashed so it stays subtle) */
-.tool-thread::before {
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 50%;
-  border-left: 1px dashed var(--border);
+/* One spine segment per step (see section notes above). */
+.tool-step::before {
   content: "";
-  transform: translateX(-50%);
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
 }
 
-/* ---- One tool call: collapsed pill, expanded pill + IO card ---- */
+.tool-step:first-child::before {
+  top: 12px;
+}
+
+.tool-step:last-child::before {
+  bottom: auto;
+  height: 12px;
+}
+
+.tool-step:only-child::before {
+  display: none;
+}
+
+/* ---- One tool call: a row hanging off the spine ---- */
 .tool-step {
-  position: relative; /* sits above the dashed thread line */
-  z-index: 1;
-  max-width: 100%;
+  position: relative;
+  width: 100%;
+  padding-left: 26px; /* clears the bead; content hangs to its right */
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.35;
 }
 
 .tool-step summary {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 4px 10px 4px 9px;
+  gap: 8px;
+  height: 24px;
+  padding: 0 4px 0 0;
   cursor: pointer;
   list-style: none;
   user-select: none;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  transition: background 120ms ease, border-color 120ms ease;
+  border-radius: 6px;
+  transition: background 120ms ease;
 }
 
 .tool-step summary::-webkit-details-marker {
@@ -586,48 +608,52 @@ h6.markdown-heading { font-size: 14px; }
 
 .tool-step summary:hover {
   background: var(--bg-hover);
-  border-color: var(--border-strong);
 }
 
 .tool-step summary:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 .tool-step[open] > summary {
   background: var(--bg-hover);
-  border-color: var(--border-strong);
 }
 
-/* Status dot: grey = idle, pulsing accent = running, green/red = finished */
-.tool-status {
-  flex: 0 0 auto;
-  width: 6px;
-  height: 6px;
+/* Status bead: 8px dot centered on the 2px line (line center = 8px,
+   bead left = 8 - 4 = 4). top: 8 = (24px row - 8px bead) / 2.
+   The ring is the page background, which masks the line behind it. */
+.tool-node {
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  width: 8px;
+  height: 8px;
   background: var(--text-muted);
   border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--bg-page);
 }
 
-.tool-step-running .tool-status {
+.tool-step-running .tool-node {
   background: var(--accent);
   animation: tool-pulse 1.2s ease-in-out infinite;
 }
 
-.tool-step-success .tool-status {
+.tool-step-success .tool-node {
   background: var(--success);
 }
 
-.tool-step-error .tool-status {
+.tool-step-error .tool-node {
   background: var(--error);
 }
 
+/* Pulse keeps the masking ring in every frame, then adds a fading halo. */
 @keyframes tool-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.45); }
-  70% { box-shadow: 0 0 0 5px rgba(99, 102, 241, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  0% { box-shadow: 0 0 0 3px var(--bg-page), 0 0 0 0 rgba(99, 102, 241, 0.45); }
+  70% { box-shadow: 0 0 0 3px var(--bg-page), 0 0 0 5px rgba(99, 102, 241, 0); }
+  100% { box-shadow: 0 0 0 3px var(--bg-page), 0 0 0 0 rgba(99, 102, 241, 0); }
 }
 
-/* Tool name is the only text on the collapsed pill */
+/* Tool name is the only text on the collapsed row */
 .tool-name {
   overflow: hidden;
   color: var(--text-secondary);
@@ -649,6 +675,7 @@ h6.markdown-heading { font-size: 14px; }
 }
 
 .tool-chevron {
+  flex: 0 0 auto;
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1;
@@ -659,13 +686,24 @@ h6.markdown-heading { font-size: 14px; }
   transform: rotate(90deg);
 }
 
-/* ---- Expanded input/output card ---- */
+/* Quiet per-step duration, pinned to the right edge of the row */
+.tool-duration {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* ---- Expanded input/output card ----
+   Hangs in the gap below its row, indented to the tool name;
+   the spine keeps running in the margin to its left. */
 .tool-io {
   display: grid;
   gap: 6px;
   width: min(100%, 360px);
   padding: 8px 10px;
-  margin: 6px auto 0;
+  margin: 2px 0 8px 0;
   color: var(--text-secondary);
   background: var(--bg-input);
   border: 1px solid var(--border);
