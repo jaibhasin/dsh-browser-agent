@@ -843,6 +843,22 @@ textarea::placeholder {
   transition: background 120ms ease, transform 120ms ease;
 }
 
+.send-button-stop {
+  color: #fff;
+  background: var(--error);
+}
+
+.send-button-stop:hover {
+  background: #fb7185;
+}
+
+.stop-indicator {
+  width: 9px;
+  height: 9px;
+  background: currentColor;
+  border-radius: 2px;
+}
+
 .send-button:hover {
   background: var(--accent-hover);
 }
