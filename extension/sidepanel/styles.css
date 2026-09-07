@@ -911,19 +911,36 @@ textarea:focus-visible {
 .slash-command-palette {
   position: relative;
   margin: 0 10px 8px;
+  padding: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.slash-command-header {
+  padding: 5px 10px 4px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.slash-command-empty {
+  padding: 8px 10px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .slash-command-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 4px;
+  padding: 0;
   margin: 0;
   list-style: none;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
 .slash-command-item {
@@ -938,6 +955,29 @@ textarea:focus-visible {
 
 .slash-command-item:hover {
   background: var(--bg-hover);
+}
+
+/* Best-match row: what Enter will run */
+.slash-command-item-active,
+.slash-command-item-active:hover {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.slash-command-item-active .slash-command-desc {
+  color: var(--text-secondary);
+}
+
+.slash-command-kbd {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  color: var(--accent-hover);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .slash-command-item:focus-visible {
@@ -993,6 +1033,24 @@ textarea:focus-visible {
 .tools-menu-header span {
   color: var(--text-muted);
   font-size: 10px;
+}
+
+.tools-menu-close {
+  margin-left: auto;
+  padding: 0 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.tools-menu-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .tools-list {
