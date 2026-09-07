@@ -15,10 +15,12 @@ type PendingRequest = { resolve: (value: JsonValue) => void; reject: (reason: Er
 
 /** Local DSH plugin transport. Registered DSH tools can delegate to request(). */
 export class DshBrowserWebSocketBridge {
+  private static readonly HEARTBEAT_INTERVAL_MS = 20_000;
   private readonly options: Required<Pick<DshBrowserBridgeOptions, "host" | "port" | "requestTimeoutMs">> & DshBrowserBridgeOptions;
   private readonly pending = new Map<string, PendingRequest>();
   private server?: WebSocketServer;
   private extension?: WebSocket;
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
 
   constructor(options: DshBrowserBridgeOptions) {
     if (options.token.length < 32) throw new Error("DSH browser bridge token must be at least 32 characters.");
@@ -29,8 +31,13 @@ export class DshBrowserWebSocketBridge {
     this.server = new WebSocketServer({ host: this.options.host, port: this.options.port, perMessageDeflate: false });
     this.server.on("connection", (socket, request) => this.accept(socket, request.headers.origin));
     await new Promise<void>((resolve, reject) => { this.server?.once("listening", resolve); this.server?.once("error", reject); });
+    this.heartbeatTimer = setInterval(() => {
+      if (this.extension?.readyState === WebSocket.OPEN) this.send(this.extension, { type: "ping" });
+    }, DshBrowserWebSocketBridge.HEARTBEAT_INTERVAL_MS);
   }
   async stop(): Promise<void> {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = undefined;
     this.rejectAll("The DSH browser bridge stopped.");
     this.extension?.close(1001, "DSH bridge stopped"); this.extension = undefined;
     if (!this.server) return;

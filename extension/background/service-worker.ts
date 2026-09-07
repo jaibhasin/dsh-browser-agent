@@ -164,7 +164,6 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     if (typeof id !== "string" || !id) { sendResponse({ ok: false, error: "Chat request ID is invalid." }); return; }
     if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
     if (typeof resume !== "boolean") { sendResponse({ ok: false, error: "Chat resume state is invalid." }); return; }
-    if (bridge.getStatus() !== "connected") { sendResponse({ ok: false, error: "The DSH browser bridge is not connected." }); return; }
     void claimCurrentAgentTab(sessionId)
       .then(async ({ tab, displacedSessionIds }) => {
         if (tab.id === undefined) throw new Error("The agent tab is unavailable.");

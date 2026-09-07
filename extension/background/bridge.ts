@@ -3,6 +3,7 @@ import { PROTOCOL_VERSION, type BridgeChatProgress, type BridgeChatResponse, typ
 const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
 const RECONNECT_MAX_MS = 30_000;
+const CONNECTION_WAIT_TIMEOUT_MS = 5_000;
 export type BridgeConfiguration = { url: string; token: string };
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "error";
 type RequestHandler = (request: BridgeRequest) => Promise<JsonValue> | JsonValue;
@@ -31,11 +32,20 @@ export class ExtensionBridge {
     await this.start();
   }
   getStatus(): BridgeStatus { return this.status; }
+  async waitUntilConnected(timeoutMs = CONNECTION_WAIT_TIMEOUT_MS): Promise<void> {
+    if (this.socket?.readyState === WebSocket.OPEN && this.status === "connected") return;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.socket?.readyState === WebSocket.OPEN && this.status === "connected") return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error("The DSH browser bridge is not connected.");
+  }
   setRequestHandler(handler: RequestHandler): void { this.requestHandler = handler; }
   setChatProgressHandler(handler: ChatProgressHandler): void { this.chatProgressHandler = handler; }
   sendEvent(event: string, payload: JsonValue): void { this.send({ type: "event", event, payload }); }
-  chat(id: string, text: string, sessionId: string, resume: boolean): Promise<string> {
-    if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("The DSH browser bridge is not connected."));
+  async chat(id: string, text: string, sessionId: string, resume: boolean): Promise<string> {
+    await this.waitUntilConnected();
     if (!id || this.chatRequests.has(id)) return Promise.reject(new Error("The chat request ID is invalid or already in use."));
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => { this.chatRequests.delete(id); reject(new Error("DSH chat timed out.")); }, 120_000);
@@ -43,8 +53,8 @@ export class ExtensionBridge {
       this.send({ type: "chat", id, text, sessionId, resume });
     });
   }
-  newSession(): Promise<void> {
-    if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("The DSH browser bridge is not connected."));
+  async newSession(): Promise<void> {
+    await this.waitUntilConnected();
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => { this.sessionRequests.delete(id); reject(new Error("New session timed out.")); }, 120_000);
