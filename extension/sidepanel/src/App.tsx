@@ -19,6 +19,7 @@ function App() {
   const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [sessionNotice, setSessionNotice] = useState("");
@@ -28,6 +29,8 @@ function App() {
   const [dismissedTabId, setDismissedTabId] = useState<number>();
   const activeChatIds = useRef(new Set<string>());
   const activeChatSessions = useRef(new Map<string, string>());
+  const activeChatIdBySession = useRef(new Map<string, string>());
+  const stoppedChatIds = useRef(new Set<string>());
   const activeSessionIdRef = useRef(activeSessionId);
   const historyRef = useRef<SavedChat[]>([]);
   const sessionItemsRef = useRef(new Map<string, ConversationItem[]>());
@@ -267,29 +270,58 @@ function App() {
     try {
       activeChatIds.current.add(id);
       activeChatSessions.current.set(id, sessionId);
+      activeChatIdBySession.current.set(sessionId, id);
       updateConversation(sessionId, (currentMessages) => [...currentMessages, { kind: "message", id: crypto.randomUUID(), role: "user", text }], "active");
       userMessageAdded = true;
       setPrompt("");
       setSessionNotice("");
       const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
-      updateConversation(sessionId, (currentMessages) => [...currentMessages, {
-        kind: "message",
-        id: crypto.randomUUID(),
-        role: "assistant",
-        text: response?.ok && response.text ? response.text : `I couldn't complete that request: ${response?.error ?? "The DSH bridge is unavailable."}`,
-      }], sessionStatusRef.current.get(sessionId) === "paused" ? "paused" : response?.ok ? "completed" : "interrupted");
+      if (!stoppedChatIds.current.has(id)) {
+        updateConversation(sessionId, (currentMessages) => [...currentMessages, {
+          kind: "message",
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: response?.ok && response.text ? response.text : `I couldn't complete that request: ${response?.error ?? "The DSH bridge is unavailable."}`,
+        }], sessionStatusRef.current.get(sessionId) === "paused" ? "paused" : response?.ok ? "completed" : "interrupted");
+      }
     } catch (error) {
-      updateConversation(sessionId, (currentMessages) => [...currentMessages, {
-        kind: "message",
-        id: crypto.randomUUID(),
-        role: "assistant",
-        text: error instanceof Error ? error.message : "The snapshot bridge is unavailable.",
-      }], sessionStatusRef.current.get(sessionId) === "paused" ? "paused" : "interrupted");
+      if (!stoppedChatIds.current.has(id)) {
+        updateConversation(sessionId, (currentMessages) => [...currentMessages, {
+          kind: "message",
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: error instanceof Error ? error.message : "The snapshot bridge is unavailable.",
+        }], sessionStatusRef.current.get(sessionId) === "paused" ? "paused" : "interrupted");
+      }
     } finally {
       activeChatIds.current.delete(id);
       activeChatSessions.current.delete(id);
-      if (activeSessionIdRef.current === sessionId) setIsLoading(false);
+      const isCurrentChat = activeChatIdBySession.current.get(sessionId) === id;
+      if (isCurrentChat) activeChatIdBySession.current.delete(sessionId);
+      stoppedChatIds.current.delete(id);
+      if (activeSessionIdRef.current === sessionId && isCurrentChat) setIsLoading(false);
+    }
+  }
+
+  async function stopMessage() {
+    const sessionId = activeSessionIdRef.current;
+    const id = activeChatIdBySession.current.get(sessionId);
+    if (!id || isStopping) return;
+
+    stoppedChatIds.current.add(id);
+    setIsStopping(true);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-pause-chat", sessionId }) as { ok?: boolean; error?: string };
+      if (!response?.ok) throw new Error(response?.error ?? "The agent could not be stopped.");
+      setSessionStatus(sessionId, "paused");
+      setSessionNotice("Agent stopped. Send a message to continue.");
+      setIsLoading(false);
+    } catch (error) {
+      stoppedChatIds.current.delete(id);
+      setSessionNotice(error instanceof Error ? error.message : "The agent could not be stopped.");
+    } finally {
+      setIsStopping(false);
     }
   }
 
@@ -733,8 +765,17 @@ function App() {
         <textarea ref={textareaRef} id="prompt" name="prompt" rows={1} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder="Ask the browser agent..." autoComplete="off" />
         <div className="composer-footer">
           <span className="composer-hint">{toolsMenuVisible ? "Choose which tools this chat may use" : "Enter to send · Shift + Enter for a new line"}</span>
-          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading || connectionStatus !== "connected" || toolsMenuVisible}>
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" /></svg>
+          <button
+            className={`send-button${isLoading ? " send-button-stop" : ""}`}
+            type={isLoading ? "button" : "submit"}
+            onClick={isLoading ? () => void stopMessage() : undefined}
+            aria-label={isStopping ? "Stopping agent" : isLoading ? "Stop agent" : "Send message"}
+            title={isStopping ? "Stopping agent" : isLoading ? "Stop agent" : "Send message"}
+            disabled={isStopping || (!isLoading && (connectionStatus !== "connected" || toolsMenuVisible))}
+          >
+            {isLoading ? <span className="stop-indicator" aria-hidden="true" /> : (
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" /></svg>
+            )}
           </button>
         </div>
       </form>
