@@ -1,0 +1,8 @@
+{
+  "name": "dsh-browser-agent-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.2-rc.1"
+  }
+}
