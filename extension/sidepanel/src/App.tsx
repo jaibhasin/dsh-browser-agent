@@ -18,6 +18,7 @@ function App() {
   const [pendingSavedChat, setPendingSavedChat] = useState<SavedChat>();
   const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
+  const [slashCommand, setSlashCommand] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
@@ -250,7 +251,14 @@ function App() {
     if (!text || isLoading) return;
 
     if (text.startsWith("/")) {
-      setSessionNotice("Slash commands aren't sent to the agent. Toggle the tools above to change permissions.");
+      const cmd = text.trim().replace(/^\/+/, "");
+      const matched = slashCommands.find((c) => c.id === cmd);
+      if (matched) {
+        executeSlashCommand(matched.id);
+        return;
+      }
+      setSessionNotice(`Unknown command: "${text}". Available: ${slashCommands.map((c) => c.label).join(", ")}`);
+      setPrompt("");
       return;
     }
 
@@ -506,9 +514,32 @@ function App() {
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (toolsMenuVisible) return;
+      if (toolsMenuVisible || slashCommand) return;
       event.currentTarget.form?.requestSubmit();
     }
+    if (event.key === "/" && !slashCommand) {
+      setSlashCommand("");
+    }
+    if (event.key === "Escape") {
+      setSlashCommand(null);
+      event.currentTarget.form?.requestSubmit();
+    }
+  }
+
+  const slashCommands: { id: string; label: string; description: string; disabled?: boolean }[] = [
+    { id: "new", label: "/new", description: "Start a fresh chat in this tab" },
+    { id: "actions", label: "/actions", description: "Enable or disable agent tools" },
+  ];
+
+  function executeSlashCommand(commandId: string) {
+    if (commandId === "new") {
+      void startNewSession();
+    } else if (commandId === "actions") {
+      setSlashCommand(null);
+      setPrompt("/");
+      textareaRef.current?.focus();
+    }
+    setSlashCommand(null);
   }
 
   function updateToolSettings(next: StoredTools) {
@@ -728,12 +759,18 @@ function App() {
         </section>
       )}
 
+      <SlashCommandPalette
+        visible={!!slashCommand}
+        commands={slashCommands}
+        onExecute={executeSlashCommand}
+      />
+
       <form className="composer" onSubmit={sendMessage}>
         <label className="sr-only" htmlFor="prompt">Message the browser agent</label>
         <textarea ref={textareaRef} id="prompt" name="prompt" rows={1} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder="Ask the browser agent..." autoComplete="off" />
         <div className="composer-footer">
-          <span className="composer-hint">{toolsMenuVisible ? "Choose which tools this chat may use" : "Enter to send · Shift + Enter for a new line"}</span>
-          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading || connectionStatus !== "connected" || toolsMenuVisible}>
+          <span className="composer-hint">{toolsMenuVisible ? "Choose which tools this chat may use" : slashCommand ? "Press Enter to run · Esc to dismiss" : "Enter to send · Shift + Enter for a new line"}</span>
+          <button className="send-button" type="submit" aria-label="Send message" disabled={isLoading || connectionStatus !== "connected" || toolsMenuVisible || !!slashCommand}>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" /></svg>
           </button>
         </div>
@@ -843,6 +880,41 @@ function tabLabel(tab?: TabSummary): string {
 
 function newSessionId(): string {
   return `session-${crypto.randomUUID()}`;
+}
+
+/**
+ * Slash command palette — a compact dropdown that appears when the user types "/"
+ * and opens the command menu.
+ *
+ * Architecture:
+ *   - Renders as an absolutely-positioned panel between the conversation and composer.
+ *   - Supports mouse click + keyboard (Enter to execute, Escape to dismiss).
+ *   - Each row shows the command alias (e.g. "/new") with a short description.
+ *   - The send button stays disabled while the palette is open since "/" isn't a message.
+ */
+function SlashCommandPalette({
+  visible,
+  commands,
+  onExecute,
+}: {
+  visible: boolean;
+  commands: { id: string; label: string; description: string }[];
+  onExecute: (id: string) => void;
+}) {
+  if (!visible) return null;
+
+  return (
+    <div className="slash-command-palette" role="listbox" aria-label="Slash commands">
+      <ul className="slash-command-list">
+        {commands.map((cmd) => (
+          <li key={cmd.id} className="slash-command-item" role="option" onClick={() => onExecute(cmd.id)}>
+            <span className="slash-command-label">{cmd.label}</span>
+            <span className="slash-command-desc">{cmd.description}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 export default App;
