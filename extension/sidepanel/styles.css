@@ -196,9 +196,9 @@ textarea {
    ========================================================= */
 
 .chat-history {
-  max-height: 280px;
+  max-height: 240px;
   overflow-y: auto;
-  padding: 12px;
+  padding: 10px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
 }
@@ -227,36 +227,43 @@ textarea {
 }
 
 .chat-history-empty {
-  margin: 12px 0 2px;
+  margin: 10px 0 2px;
   color: var(--text-muted);
   font-size: 11px;
 }
 
+/*
+   Chat list rows — compact single-line layout.
+   Each <li> is one horizontal row:
+   [ chat card (title + meta inline) ] [ Open site ] [ delete ]
+   Small gaps + slim padding keep the section tight.
+*/
 .chat-history ul {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   padding: 0;
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   list-style: none;
 }
 
 .chat-history li {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
-.chat-history li > button {
+/* Chat card button: title and status/date share ONE line (flex-direction: row)
+   instead of the old stacked two-line layout, roughly halving row height. */
+.chat-history li > button.chat-open-button {
   display: flex;
   flex: 1;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 5px;
-  justify-content: space-between;
+  align-items: center;
+  flex-direction: row;
+  gap: 8px;
   min-width: 0;
-  min-height: 50px;
-  padding: 9px 10px;
+  min-height: 0;
+  padding: 6px 9px;
   color: var(--text-secondary);
   cursor: pointer;
   text-align: left;
@@ -266,28 +273,34 @@ textarea {
   transition: background 120ms ease, border-color 120ms ease;
 }
 
+/*
+   Delete button — uniform ghost icon in EVERY row:
+   - same fixed 26x26 box, same muted color, same opacity at rest
+   - only turns red on its own hover/focus (never inherits the
+     selected-row styling, which is scoped to .chat-open-button)
+*/
 .chat-history li > button.chat-delete-button {
   display: grid;
-  flex: 0 0 28px;
+  flex: 0 0 26px;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 7px;
-  opacity: 0.55;
+  border-radius: 6px;
+  opacity: 0.7;
   transition: color 120ms ease, background 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
 
-.chat-history li:hover > button.chat-delete-button,
 .chat-history li:focus-within > button.chat-delete-button,
 .chat-history li > button.chat-delete-button:focus-visible {
   opacity: 1;
 }
 
 .chat-history li > button.chat-delete-button:hover:not(:disabled) {
+  opacity: 1;
   color: var(--error);
   background: rgba(248, 113, 113, 0.1);
   border-color: rgba(248, 113, 113, 0.25);
@@ -299,13 +312,16 @@ textarea {
 }
 
 .chat-delete-button svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   fill: currentColor;
 }
 
-.chat-history li > button:hover,
-.chat-history li.selected > button {
+/* Hover + selected styling applies ONLY to the chat card.
+   (Previously `li.selected > button` also hit the delete button and gave
+   it a stray bordered box, which made rows look inconsistent.) */
+.chat-history li > button.chat-open-button:hover,
+.chat-history li.selected > button.chat-open-button {
   background: var(--bg-hover);
   border-color: var(--border-strong);
 }
@@ -314,8 +330,11 @@ textarea {
   display: block;
 }
 
+/* Title takes the leftover width and ellipses; meta stays pinned to the
+   right edge of the card on the same line. */
 .chat-history li > button .chat-history-title {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
   text-overflow: ellipsis;
@@ -326,6 +345,7 @@ textarea {
 
 .chat-history-meta {
   display: flex !important;
+  flex-shrink: 0;
   align-items: center;
   gap: 7px;
   color: var(--text-muted);
@@ -360,7 +380,7 @@ textarea {
 
 .chat-history li > a {
   flex: 0 0 auto;
-  padding: 7px 8px;
+  padding: 4px 7px;
   color: var(--accent-hover);
   background: var(--accent-soft);
   border: 1px solid rgba(129, 140, 248, 0.18);
