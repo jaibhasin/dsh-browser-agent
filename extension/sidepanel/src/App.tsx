@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { MarkdownMessage } from "./MarkdownMessage";
+import { createAssistantStream, type StreamingAssistant } from "./assistant-stream";
 import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
 import { getTabSwitchView, type AgentTabState, type TabSummary } from "./tab-switch-state";
 import type { BridgeChatDelta, BridgeChatProgress, UserQuestion } from "../../../shared/protocol";
@@ -8,7 +9,6 @@ import { AGENT_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, t
 type CurrentTaskAction = "background" | "pause" | "quit";
 type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate"; detail: string };
 type UserQuestionRequest = UserQuestion;
-type StreamingAssistant = { id: string; sessionId: string; text: string };
 
 function App() {
   const [messages, setMessages] = useState<ConversationItem[]>([]);
@@ -44,8 +44,7 @@ function App() {
   const activeChatIds = useRef(new Set<string>());
   const activeChatSessions = useRef(new Map<string, string>());
   const activeChatIdBySession = useRef(new Map<string, string>());
-  const streamingAssistantRef = useRef<StreamingAssistant | undefined>(undefined);
-  const streamingFrameRef = useRef<number | undefined>(undefined);
+  const assistantStreamRef = useRef<ReturnType<typeof createAssistantStream> | undefined>(undefined);
   const stoppedChatIds = useRef(new Set<string>());
   const activeSessionIdRef = useRef(activeSessionId);
   const historyRef = useRef<SavedChat[]>([]);
@@ -60,28 +59,22 @@ function App() {
 
   activeSessionIdRef.current = activeSessionId;
 
+  if (!assistantStreamRef.current) {
+    assistantStreamRef.current = createAssistantStream(setStreamingAssistant);
+  }
+
   function appendAssistantDelta(delta: BridgeChatDelta) {
     const sessionId = activeChatSessions.current.get(delta.id);
     if (!sessionId) return;
-    const current = streamingAssistantRef.current;
-    streamingAssistantRef.current = current?.id === delta.id
-      ? { ...current, text: current.text + delta.text }
-      : { id: delta.id, sessionId, text: delta.text };
-    if (streamingFrameRef.current !== undefined) return;
-    streamingFrameRef.current = requestAnimationFrame(() => {
-      streamingFrameRef.current = undefined;
-      setStreamingAssistant(streamingAssistantRef.current);
-    });
+    assistantStreamRef.current?.append({ id: delta.id, sessionId, text: delta.text });
   }
 
   function clearAssistantStream(chatId?: string) {
-    if (chatId && streamingAssistantRef.current?.id !== chatId) return;
-    if (streamingFrameRef.current !== undefined) {
-      cancelAnimationFrame(streamingFrameRef.current);
-      streamingFrameRef.current = undefined;
-    }
-    streamingAssistantRef.current = undefined;
-    setStreamingAssistant(undefined);
+    assistantStreamRef.current?.clear(chatId);
+  }
+
+  async function finishAssistantStream(chatId: string, text: string) {
+    await assistantStreamRef.current?.finish(chatId, text);
   }
 
   function syncSavedChats(next: SavedChat[]) {
@@ -354,6 +347,7 @@ function App() {
       setSessionNotice("");
       const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId), humanInTheLoop: humanInTheLoopSessions.has(sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
+      if (response?.ok && response.text) await finishAssistantStream(id, response.text);
       clearAssistantStream(id);
       setPendingUserQuestion(undefined);
       if (!stoppedChatIds.current.has(id)) {
