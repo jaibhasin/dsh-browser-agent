@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
-import { PROTOCOL_VERSION, type BridgeChatProgress, type BridgeMessage, type BridgeResponse, type JsonValue, parseBridgeMessage } from "../../shared/protocol.js";
+import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeMessage, type BridgeResponse, type JsonValue, parseBridgeMessage } from "../../shared/protocol.js";
 
 export type DshBrowserBridgeOptions = {
   token: string;
@@ -47,6 +47,10 @@ export class DshBrowserWebSocketBridge {
   isConnected(): boolean { return this.extension?.readyState === WebSocket.OPEN; }
   setChatHandler(handler: (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop?: boolean) => Promise<string>): void { this.options.onChat = handler; }
   setNewSessionHandler(handler: () => Promise<void>): void { this.options.onNewSession = handler; }
+  sendChatDelta(delta: Omit<BridgeChatDelta, "type">): void {
+    if (!this.extension) return;
+    this.send(this.extension, { type: "chat_delta", ...delta });
+  }
   sendChatProgress(progress: Omit<BridgeChatProgress, "type">): void {
     if (!this.extension) return;
     this.send(this.extension, { type: "chat_progress", ...progress });

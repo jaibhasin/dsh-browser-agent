@@ -3,6 +3,9 @@ import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, list
 import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentTabState, getAgentTaskTab, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask } from "./agent-tab";
 
 const bridge = new ExtensionBridge();
+bridge.setChatDeltaHandler((delta) => {
+  void chrome.runtime.sendMessage({ type: "dsh-chat-delta", delta }).catch(() => undefined);
+});
 bridge.setChatProgressHandler((progress) => {
   void chrome.runtime.sendMessage({ type: "dsh-chat-progress", progress }).catch(() => undefined);
 });

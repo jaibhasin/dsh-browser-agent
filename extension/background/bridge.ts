@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
+import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
 
 const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
@@ -7,6 +7,7 @@ const CONNECTION_WAIT_TIMEOUT_MS = 5_000;
 export type BridgeConfiguration = { url: string; token: string };
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "error";
 type RequestHandler = (request: BridgeRequest) => Promise<JsonValue> | JsonValue;
+type ChatDeltaHandler = (delta: BridgeChatDelta) => void;
 type ChatProgressHandler = (progress: BridgeChatProgress) => void;
 type EventHandler = (event: string, payload: JsonValue) => void;
 
@@ -16,6 +17,7 @@ export class ExtensionBridge {
   private reconnectDelayMs = 1_000;
   private status: BridgeStatus = "disconnected";
   private requestHandler?: RequestHandler;
+  private chatDeltaHandler?: ChatDeltaHandler;
   private chatProgressHandler?: ChatProgressHandler;
   private eventHandler?: EventHandler;
   private chatRequests = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
@@ -44,6 +46,7 @@ export class ExtensionBridge {
     throw new Error("The DSH browser bridge is not connected.");
   }
   setRequestHandler(handler: RequestHandler): void { this.requestHandler = handler; }
+  setChatDeltaHandler(handler: ChatDeltaHandler): void { this.chatDeltaHandler = handler; }
   setChatProgressHandler(handler: ChatProgressHandler): void { this.chatProgressHandler = handler; }
   setEventHandler(handler: EventHandler): void { this.eventHandler = handler; }
   sendEvent(event: string, payload: JsonValue): void { this.send({ type: "event", event, payload }); }
@@ -92,6 +95,7 @@ export class ExtensionBridge {
       if (message.type === "welcome") { this.reconnectDelayMs = 1_000; this.setStatus("connected"); }
       else if (message.type === "ping") this.send({ type: "pong" });
       else if (message.type === "request") void this.handleRequest(message);
+      else if (message.type === "chat_delta") this.chatDeltaHandler?.(message);
       else if (message.type === "chat_progress") this.chatProgressHandler?.(message);
       else if (message.type === "event") this.eventHandler?.(message.event, message.payload);
       else if (message.type === "chat_response") this.resolveChat(message);

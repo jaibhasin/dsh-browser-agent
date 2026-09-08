@@ -618,6 +618,21 @@ textarea {
   min-width: 0;
 }
 
+.message-streaming .message-content::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: -2px;
+  background: var(--accent);
+  animation: streaming-cursor 900ms steps(1, end) infinite;
+}
+
+@keyframes streaming-cursor {
+  50% { opacity: 0; }
+}
+
 .message-content > p:last-child {
   margin: 0;
   color: var(--text-primary);

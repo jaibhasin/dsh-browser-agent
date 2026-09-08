@@ -96,6 +96,12 @@ interface AssistantMessageEvent {
   data?: { message?: { content?: unknown } };
 }
 
+interface AssistantChunkEvent {
+  type: "assistant/chunk";
+  seq: number;
+  data?: { chunk?: { type?: unknown; text?: unknown } };
+}
+
 interface ToolCallEvent {
   type: "tool/call";
   seq: number;
@@ -267,6 +273,12 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   ctx.on("session/event", (session, event) => {
     const chat = activeChatsBySession.get(session.id as SessionId);
     if (!chat || session !== chat.handle.agent.session || event.seq < chat.firstEventSeq) return;
+    if (event.type === "assistant/chunk") {
+      const chunk = (event as AssistantChunkEvent).data?.chunk;
+      if (chunk?.type !== "text-delta" || typeof chunk.text !== "string" || !chunk.text) return;
+      bridge.sendChatDelta({ id: chat.id, text: chunk.text });
+      return;
+    }
     if (event.type === "tool/call") {
       const call = event as ToolCallEvent;
       if (typeof call.data.callId !== "string" || typeof call.data.name !== "string") return;

@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { MarkdownMessage } from "./MarkdownMessage";
 import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
 import { getTabSwitchView, type AgentTabState, type TabSummary } from "./tab-switch-state";
-import type { BridgeChatProgress } from "../../../shared/protocol";
+import type { BridgeChatDelta, BridgeChatProgress } from "../../../shared/protocol";
 import { BROWSER_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type BrowserToolName, type StoredTools } from "./tools";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
 type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate"; detail: string };
+type StreamingAssistant = { id: string; sessionId: string; text: string };
 
 function App() {
   const [messages, setMessages] = useState<ConversationItem[]>([]);
@@ -25,6 +26,7 @@ function App() {
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [activeToolIndex, setActiveToolIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingAssistant, setStreamingAssistant] = useState<StreamingAssistant>();
   const [isStopping, setIsStopping] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
@@ -39,6 +41,8 @@ function App() {
   const activeChatIds = useRef(new Set<string>());
   const activeChatSessions = useRef(new Map<string, string>());
   const activeChatIdBySession = useRef(new Map<string, string>());
+  const streamingAssistantRef = useRef<StreamingAssistant | undefined>(undefined);
+  const streamingFrameRef = useRef<number | undefined>(undefined);
   const stoppedChatIds = useRef(new Set<string>());
   const activeSessionIdRef = useRef(activeSessionId);
   const historyRef = useRef<SavedChat[]>([]);
@@ -52,6 +56,30 @@ function App() {
   const messagesRef = useRef<HTMLDivElement>(null);
 
   activeSessionIdRef.current = activeSessionId;
+
+  function appendAssistantDelta(delta: BridgeChatDelta) {
+    const sessionId = activeChatSessions.current.get(delta.id);
+    if (!sessionId) return;
+    const current = streamingAssistantRef.current;
+    streamingAssistantRef.current = current?.id === delta.id
+      ? { ...current, text: current.text + delta.text }
+      : { id: delta.id, sessionId, text: delta.text };
+    if (streamingFrameRef.current !== undefined) return;
+    streamingFrameRef.current = requestAnimationFrame(() => {
+      streamingFrameRef.current = undefined;
+      setStreamingAssistant(streamingAssistantRef.current);
+    });
+  }
+
+  function clearAssistantStream(chatId?: string) {
+    if (chatId && streamingAssistantRef.current?.id !== chatId) return;
+    if (streamingFrameRef.current !== undefined) {
+      cancelAnimationFrame(streamingFrameRef.current);
+      streamingFrameRef.current = undefined;
+    }
+    streamingAssistantRef.current = undefined;
+    setStreamingAssistant(undefined);
+  }
 
   function syncSavedChats(next: SavedChat[]) {
     const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -133,8 +161,8 @@ function App() {
   }, [prompt]);
 
   useEffect(() => {
-    messagesRef.current?.lastElementChild?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    messagesRef.current?.lastElementChild?.scrollIntoView({ behavior: streamingAssistant ? "auto" : "smooth" });
+  }, [messages, streamingAssistant]);
 
   useEffect(() => {
     void loadChatHistory().then((history) => {
@@ -193,9 +221,11 @@ function App() {
       if (!chrome.runtime.lastError) setConnectionStatus(response?.status === "connected" ? "connected" : response?.status ?? "disconnected");
     });
     void refreshAgentTabState();
-    const onMessage = (message: { type?: string; status?: string; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown }) => {
+    const onMessage = (message: { type?: string; status?: string; delta?: BridgeChatDelta; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown }) => {
       if (message.type === "dsh-bridge-status" && message.status) {
         setConnectionStatus(message.status);
+      } else if (message.type === "dsh-chat-delta" && message.delta && activeChatIds.current.has(message.delta.id)) {
+        appendAssistantDelta(message.delta);
       } else if (message.type === "dsh-chat-progress" && message.progress && activeChatIds.current.has(message.progress.id)) {
         const sessionId = activeChatSessions.current.get(message.progress.id);
         if (sessionId) addToolProgress(sessionId, message.progress);
@@ -306,6 +336,7 @@ function App() {
     const sessionId = activeSessionId;
     const resume = messages.length > 0;
     setIsLoading(true);
+    clearAssistantStream();
     let userMessageAdded = false;
     try {
       activeChatIds.current.add(id);
@@ -317,6 +348,7 @@ function App() {
       setSessionNotice("");
       const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId), humanInTheLoop: humanInTheLoopSessions.has(sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
+      clearAssistantStream(id);
       if (!stoppedChatIds.current.has(id)) {
         updateConversation(sessionId, (currentMessages) => [...currentMessages, {
           kind: "message",
@@ -326,6 +358,7 @@ function App() {
         }], sessionStatusRef.current.get(sessionId) === "paused" ? "paused" : response?.ok ? "completed" : "interrupted");
       }
     } catch (error) {
+      clearAssistantStream(id);
       if (!stoppedChatIds.current.has(id)) {
         updateConversation(sessionId, (currentMessages) => [...currentMessages, {
           kind: "message",
@@ -350,6 +383,7 @@ function App() {
     if (!id || isStopping) return;
 
     stoppedChatIds.current.add(id);
+    clearAssistantStream(id);
     setIsStopping(true);
     try {
       const response = await chrome.runtime.sendMessage({ type: "dsh-agent-pause-chat", sessionId }) as { ok?: boolean; error?: string };
@@ -377,6 +411,7 @@ function App() {
     setIsStartingSession(true);
     try {
       const previousSessionId = activeSessionId;
+      clearAssistantStream();
       // Best-effort stop: discard the agent task even if it's mid-flight.
       await chrome.runtime.sendMessage({ type: "dsh-agent-discard-chat", sessionId: previousSessionId }).catch(() => undefined);
       await forgetSession(previousSessionId);
@@ -816,6 +851,12 @@ function App() {
           ) : (
             <ToolThread key={message.id} message={message} />
           ))}
+          {streamingAssistant?.sessionId === activeSessionId && (
+            <article className="message message-assistant message-streaming" key={`streaming-${streamingAssistant.id}`}>
+              <div className="message-meta">DSH</div>
+              <div className="message-content"><MarkdownMessage text={streamingAssistant.text} /></div>
+            </article>
+          )}
         </div>
       </section>
 
