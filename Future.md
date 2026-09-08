@@ -5,4 +5,8 @@
 4. Suggest actions in chat.
 5. Disable some actions in chat (done)
 6. Mutli-tab mode toggle (some people may want it simple)
-7. Voice mode 
+7. Voice mode
+8. Render REACT components in chat to nicely show information
+9. Add image handling capabilites(png , jpeg etc.), pdfs, md , csv, word files etc.
+10. create tool which allows agent to ask question from user. (done)
+11. compare with dsh-browser benchmark

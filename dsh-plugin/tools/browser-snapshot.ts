@@ -481,7 +481,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   }, "dsh-browser-snapshot: websocket bridge");
   ctx.tools.register(defineTool({
     name: "ask_user",
-    description: "Ask the user for a missing choice or detail when it cannot be inferred safely. Use this sparingly and only when the task is blocked without the user's input. Present a short, specific question. Provide options when there are a small number of meaningful choices; allow free text when a natural-language answer is needed.",
+    description: "Request input from the user when their response is needed to resolve uncertainty, provide missing information, make or confirm a choice, clarify intent, or guide what happens next. Ask a concise, context-aware question, provide clear options when useful, and allow free-text input when appropriate. Continue independently when user input is not meaningfully needed.",
     parameters: {
       question: { type: "string", required: true, description: "A concise question for the user." },
       options: { type: "array", items: { type: "string" }, description: "Optional list of choices, up to 8. The user can choose one directly." },
