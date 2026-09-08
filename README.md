@@ -6,6 +6,8 @@ Ask it to explain a page, fill out a form, or help you work through a website.
 DSH Browser Agent lives in Chrome's side panel and works with the tabs you already have open, including sites where you're signed in.
 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runs on your computer and connects the assistant to your chosen AI model.
 
+[View DSH Browser Agent on dshfind](https://dshfind.com/en/plugins/jaibhasin/dsh-browser-agent)
+
 ## Features
 
 - Read pages, click buttons, type into fields, scroll, and take screenshots.
@@ -14,7 +16,7 @@ DSH Browser Agent lives in Chrome's side panel and works with the tabs you alrea
 - Watch the agent's actions as it works, right in the chat.
 - Pick up a saved conversation with its messages and website links.
 - Switch tabs and choose whether the agent keeps working, pauses, or follows you.
-- Turn browser tools on or off for each chat.
+- Turn agent tools on or off for each chat.
 - Use `/human-in-the-loop` to ask for approval before clicks and navigation.
 - Install on macOS, Windows, or Linux without setting up DSH yourself.
 
@@ -162,10 +164,11 @@ You see the progress and reply in the side panel.
 The browser agent gets its own DSH installation and settings, so it won't replace an existing DSH setup.
 Its dependencies are locked to tested versions to avoid mixing incompatible releases.
 
-## Browser tools
+## Agent tools
 
 | Tool | What it does |
 | --- | --- |
+| `ask_user` | Asks the user for a missing choice or detail. |
 | `browser_snapshot` | Reads page text and gives buttons, links, and fields numbered references. |
 | `browser_navigate` | Opens an HTTP or HTTPS URL in the chat's assigned tab. |
 | `browser_tabs` | Lists open browser tabs. |
@@ -175,7 +178,7 @@ Its dependencies are locked to tested versions to avoid mixing incompatible rele
 | `browser_click` | Clicks a button, link, or other element by its reference number. |
 | `browser_type` | Types into a field by its reference number. |
 
-Use the side panel's tool controls to disable individual browser tools for a chat.
+Use the side panel's tool controls to disable individual agent tools for a chat.
 To take a screenshot, the agent's tab needs to be visible, even if you've allowed it to work in the background.
 
 ## Tabs and chat sessions
@@ -290,7 +293,7 @@ The [installer compatibility workflow](.github/workflows/install.yml) runs it on
 
 ```text
 extension/       Chrome background worker, page scripts, and React side panel
-dsh-plugin/      DSH plugin, browser tools, and WebSocket server
+dsh-plugin/      DSH plugin, agent tools, and WebSocket server
 shared/          Bridge protocol and tool definitions
 runtime/         Pinned DSH runtime manifest and npm lockfile
 scripts/         Installers, uninstaller, and profile setup helper

@@ -2,12 +2,13 @@
 export const PROTOCOL_VERSION = 1;
 
 /**
- * The browser tools the plugin registers, with friendly names the side panel
+ * The agent tools the plugin registers, with friendly names the side panel
  * renders in its enable/disable menu. The `name` values MUST match the tools
  * registered in dsh-plugin/tools/browser-snapshot.ts, because the plugin
  * filters out any unknown name before applying a per-agent restriction.
  */
-export const BROWSER_TOOL_DEFS = [
+export const AGENT_TOOL_DEFS = [
+  { name: "ask_user", label: "Ask user", description: "Ask the user for a missing choice or detail." },
   { name: "browser_navigate", label: "Navigate", description: "Open a URL in the agent tab." },
   { name: "browser_tabs", label: "Tabs", description: "List the open browser tabs." },
   { name: "browser_snapshot", label: "Snapshot", description: "Read the page as DOM and accessibility text." },
@@ -18,7 +19,7 @@ export const BROWSER_TOOL_DEFS = [
   { name: "browser_type", label: "Type", description: "Fill a visible input by ref." },
 ] as const;
 
-export type BrowserToolName = (typeof BROWSER_TOOL_DEFS)[number]["name"];
+export type AgentToolName = (typeof AGENT_TOOL_DEFS)[number]["name"];
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
@@ -56,6 +57,8 @@ export type BridgePong = { type: "pong" };
 export type BridgeChat = { type: "chat"; id: string; text: string; sessionId: string; resume: boolean; content?: BridgePromptContentPart[]; deniedTools?: string[]; humanInTheLoop?: boolean };
 export type BridgeChatResponse = { type: "chat_response"; id: string; text?: string; error?: { code: string; message: string } };
 export type BridgeChatDelta = { type: "chat_delta"; id: string; text: string };
+export type UserQuestion = { questionId: string; chatId: string; question: string; options: string[]; allowFreeText: boolean };
+export type UserQuestionResponse = { questionId: string; chatId: string; answer?: string; cancelled?: boolean };
 export type BridgeNewSession = { type: "new_session"; id: string };
 export type BridgeNewSessionResponse = { type: "new_session_response"; id: string; error?: { code: string; message: string } };
 export type BridgeChatProgress = {

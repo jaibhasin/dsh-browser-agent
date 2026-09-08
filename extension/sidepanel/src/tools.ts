@@ -1,4 +1,4 @@
-import { BROWSER_TOOL_DEFS, type BrowserToolName } from "../../../shared/protocol";
+import { AGENT_TOOL_DEFS, type AgentToolName } from "../../../shared/protocol";
 
 const STORAGE_KEY = "dshBrowserToolsV1";
 
@@ -10,18 +10,18 @@ const STORAGE_KEY = "dshBrowserToolsV1";
  */
 export type StoredTools = {
   version: 3;
-  deniedDefault: BrowserToolName[];
-  deniedByChat: Record<string, BrowserToolName[]>;
+  deniedDefault: AgentToolName[];
+  deniedByChat: Record<string, AgentToolName[]>;
 };
 
-const VALID_TOOL_NAMES = new Set<string>(BROWSER_TOOL_DEFS.map((tool) => tool.name));
+const VALID_TOOL_NAMES = new Set<string>(AGENT_TOOL_DEFS.map((tool) => tool.name));
 
 // Storage is shared by every mounted side panel in a Chrome profile; serialize
 // local mutations so an older async read cannot overwrite a newer save.
 let mutationQueue: Promise<void> = Promise.resolve();
 
-export { BROWSER_TOOL_DEFS };
-export type { BrowserToolName };
+export { AGENT_TOOL_DEFS };
+export type { AgentToolName };
 
 export async function loadToolSettings(): Promise<StoredTools> {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
@@ -52,23 +52,23 @@ export function saveToolSettings(settings: StoredTools): Promise<void> {
  * The disabled-tool list that actually applies to a session: its own override
  * if it has one, otherwise the global default.
  */
-export function effectiveDenied(settings: StoredTools, sessionId: string): BrowserToolName[] {
+export function effectiveDenied(settings: StoredTools, sessionId: string): AgentToolName[] {
   return settings.deniedByChat[sessionId] ?? settings.deniedDefault;
 }
 
-// Keep only names that still correspond to a registered browser tool, so a
+// Keep only names that still correspond to a registered agent tool, so a
 // stale set (e.g. after a tool was renamed) can never crash the plugin's
 // tool-restriction call.
-function sanitize(value: unknown): BrowserToolName[] {
+function sanitize(value: unknown): AgentToolName[] {
   if (!Array.isArray(value)) return [];
   return value
-    .filter((name): name is BrowserToolName => typeof name === "string" && VALID_TOOL_NAMES.has(name))
+    .filter((name): name is AgentToolName => typeof name === "string" && VALID_TOOL_NAMES.has(name))
     .sort();
 }
 
-function sanitizeByChat(value: unknown): Record<string, BrowserToolName[]> {
+function sanitizeByChat(value: unknown): Record<string, AgentToolName[]> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const out: Record<string, BrowserToolName[]> = {};
+  const out: Record<string, AgentToolName[]> = {};
   for (const [sessionId, tools] of Object.entries(value as Record<string, unknown>)) {
     const sanitized = sanitize(tools);
     if (sanitized.length > 0) out[sessionId] = sanitized;

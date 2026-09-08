@@ -11,8 +11,13 @@ bridge.setChatProgressHandler((progress) => {
   void chrome.runtime.sendMessage({ type: "dsh-chat-progress", progress }).catch(() => undefined);
 });
 bridge.setEventHandler((event, payload) => {
-  if (event !== "human_approval_requested") return;
-  void chrome.runtime.sendMessage({ type: "dsh-human-approval-request", approval: payload }).catch(() => undefined);
+  if (event === "human_approval_requested") {
+    void chrome.runtime.sendMessage({ type: "dsh-human-approval-request", approval: payload }).catch(() => undefined);
+    return;
+  }
+  if (event === "user_question_requested") {
+    void chrome.runtime.sendMessage({ type: "dsh-user-question-request", question: payload }).catch(() => undefined);
+  }
 });
 bridge.setRequestHandler(async (request) => {
   const taskTab = request.taskId ? await getAgentTaskTab(request.taskId) : undefined;
@@ -204,6 +209,25 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       return;
     }
     bridge.sendEvent("human_approval_response", { approvalId, approved });
+    sendResponse({ ok: true });
+    return;
+  }
+  if (message.type === "dsh-user-question-response") {
+    const questionId = (message as { questionId?: unknown }).questionId;
+    const chatId = (message as { chatId?: unknown }).chatId;
+    const answer = (message as { answer?: unknown }).answer;
+    const cancelled = (message as { cancelled?: unknown }).cancelled;
+    const validAnswer = typeof answer === "string" && answer.trim().length > 0;
+    const validCancellation = cancelled === true && answer === undefined;
+    if (typeof questionId !== "string" || !questionId || typeof chatId !== "string" || !chatId || (!validAnswer && !validCancellation)) {
+      sendResponse({ ok: false, error: "User question response is invalid." });
+      return;
+    }
+    bridge.sendEvent("user_question_response", {
+      questionId,
+      chatId,
+      ...(validCancellation ? { cancelled: true } : { answer: (answer as string).trim() }),
+    });
     sendResponse({ ok: true });
     return;
   }

@@ -1,16 +1,17 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { MarkdownMessage } from "./MarkdownMessage";
+import { createAssistantStream, type StreamingAssistant } from "./assistant-stream";
 import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatDocument, type ChatImage, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
 import { getTabSwitchView, type AgentTabState, type TabSummary } from "./tab-switch-state";
 import { DOCUMENT_EXTENSIONS, DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES } from "../../../shared/protocol";
-import { BROWSER_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type BrowserToolName, type StoredTools } from "./tools";
+import type { BridgeChatDelta, BridgeChatProgress, UserQuestion } from "../../../shared/protocol";
+import { AGENT_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type AgentToolName, type StoredTools } from "./tools";
 import { draftImageDataUrl, imageInputErrorMessage, prepareImageFiles, promptContent, type DraftImage } from "./image-attachments";
 import { DocumentInputError, documentInputErrorMessage, documentPromptContent, prepareDocumentFiles, type DraftDocument } from "./document-attachments";
-import type { BridgeChatDelta, BridgeChatProgress } from "../../../shared/protocol";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
 type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate"; detail: string };
-type StreamingAssistant = { id: string; sessionId: string; text: string };
+type UserQuestionRequest = UserQuestion;
 
 function App() {
   const [messages, setMessages] = useState<ConversationItem[]>([]);
@@ -43,13 +44,16 @@ function App() {
   const [toolSettingsReady, setToolSettingsReady] = useState(false);
   const [humanInTheLoopSessions, setHumanInTheLoopSessions] = useState<Set<string>>(() => new Set());
   const [pendingHumanApproval, setPendingHumanApproval] = useState<HumanApprovalRequest>();
+  const [pendingUserQuestion, setPendingUserQuestion] = useState<UserQuestionRequest>();
+  const [userQuestionText, setUserQuestionText] = useState("");
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
   const [dismissedTabId, setDismissedTabId] = useState<number>();
   const activeChatIds = useRef(new Set<string>());
   const activeChatSessions = useRef(new Map<string, string>());
   const activeChatIdBySession = useRef(new Map<string, string>());
-  const streamingAssistantRef = useRef<StreamingAssistant | undefined>(undefined);
-  const streamingFrameRef = useRef<number | undefined>(undefined);
+  const assistantPrefixByChat = useRef(new Map<string, string>());
+  const assistantAfterActivity = useRef(new Set<string>());
+  const assistantStreamRef = useRef<ReturnType<typeof createAssistantStream> | undefined>(undefined);
   const stoppedChatIds = useRef(new Set<string>());
   const activeSessionIdRef = useRef(activeSessionId);
   const historyRef = useRef<SavedChat[]>([]);
@@ -67,28 +71,28 @@ function App() {
 
   activeSessionIdRef.current = activeSessionId;
 
+  if (!assistantStreamRef.current) {
+    assistantStreamRef.current = createAssistantStream(setStreamingAssistant);
+  }
+
   function appendAssistantDelta(delta: BridgeChatDelta) {
     const sessionId = activeChatSessions.current.get(delta.id);
     if (!sessionId) return;
-    const current = streamingAssistantRef.current;
-    streamingAssistantRef.current = current?.id === delta.id
-      ? { ...current, text: current.text + delta.text }
-      : { id: delta.id, sessionId, text: delta.text };
-    if (streamingFrameRef.current !== undefined) return;
-    streamingFrameRef.current = requestAnimationFrame(() => {
-      streamingFrameRef.current = undefined;
-      setStreamingAssistant(streamingAssistantRef.current);
-    });
+    assistantStreamRef.current?.append({ id: delta.id, sessionId, text: delta.text });
   }
 
   function clearAssistantStream(chatId?: string) {
-    if (chatId && streamingAssistantRef.current?.id !== chatId) return;
-    if (streamingFrameRef.current !== undefined) {
-      cancelAnimationFrame(streamingFrameRef.current);
-      streamingFrameRef.current = undefined;
-    }
-    streamingAssistantRef.current = undefined;
-    setStreamingAssistant(undefined);
+    assistantStreamRef.current?.clear(chatId);
+  }
+
+  async function finishAssistantStream(chatId: string, text: string) {
+    await assistantStreamRef.current?.finish(chatId, text);
+  }
+
+  function assistantReplyAfterPrefix(chatId: string, text: string): string {
+    const prefix = assistantPrefixByChat.current.get(chatId);
+    if (!prefix || !text.startsWith(prefix)) return text;
+    return text.slice(prefix.length).replace(/^\s+/, "");
   }
 
   function syncSavedChats(next: SavedChat[]) {
@@ -231,7 +235,7 @@ function App() {
       if (!chrome.runtime.lastError) setConnectionStatus(response?.status === "connected" ? "connected" : response?.status ?? "disconnected");
     });
     void refreshAgentTabState();
-    const onMessage = (message: { type?: string; status?: string; delta?: BridgeChatDelta; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown }) => {
+    const onMessage = (message: { type?: string; status?: string; delta?: BridgeChatDelta; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown; question?: unknown }) => {
       if (message.type === "dsh-bridge-status" && message.status) {
         setConnectionStatus(message.status);
       } else if (message.type === "dsh-chat-delta" && message.delta && activeChatIds.current.has(message.delta.id)) {
@@ -243,6 +247,9 @@ function App() {
         applyAgentTabState(message.state);
       } else if (message.type === "dsh-human-approval-request" && isHumanApprovalRequest(message.approval) && activeChatIds.current.has(message.approval.chatId)) {
         setPendingHumanApproval(message.approval);
+      } else if (message.type === "dsh-user-question-request" && isUserQuestionRequest(message.question) && activeChatIds.current.has(message.question.chatId)) {
+        setUserQuestionText("");
+        setPendingUserQuestion(message.question);
       }
     };
     chrome.runtime.onMessage.addListener(onMessage);
@@ -283,6 +290,14 @@ function App() {
    * measure elapsed time between the two events here.
    */
   function addToolProgress(sessionId: string, progress: BridgeChatProgress) {
+    if (progress.phase === "tool_started" && !assistantAfterActivity.current.has(progress.id)) {
+      assistantAfterActivity.current.add(progress.id);
+      const prefix = assistantStreamRef.current?.getTarget(progress.id) ?? "";
+      if (prefix) assistantPrefixByChat.current.set(progress.id, prefix);
+      // Start a fresh live assistant segment after the tool thread. The full
+      // response is restored from the bridge when the turn completes.
+      assistantStreamRef.current?.clear(progress.id);
+    }
     updateConversation(sessionId, (currentMessages) => {
       const groupIndex = currentMessages.findIndex((item) => item.kind === "activity" && item.id === progress.id);
       const now = Date.now();
@@ -296,7 +311,14 @@ function App() {
         ...(progress.error ? { error: progress.error } : {}),
         ...(progress.phase === "tool_started" ? { startedAt: now } : {}),
       };
-      if (groupIndex === -1) return [...currentMessages, { kind: "activity", id: progress.id, steps: [step] }];
+      if (groupIndex === -1) {
+        const prefix = assistantPrefixByChat.current.get(progress.id);
+        return [
+          ...currentMessages,
+          ...(prefix ? [{ kind: "message" as const, id: crypto.randomUUID(), role: "assistant" as const, text: prefix }] : []),
+          { kind: "activity", id: progress.id, steps: [step] },
+        ];
+      }
 
       const group = currentMessages[groupIndex] as ActivityGroup;
       const existingIndex = group.steps.findIndex((candidate) => candidate.callId === progress.callId);
@@ -423,19 +445,23 @@ function App() {
         setDraftDocuments(submittedDocuments);
       }
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
+      const assistantText = response?.ok && response.text ? assistantReplyAfterPrefix(id, response.text) : response?.text;
+      if (response?.ok && assistantText) await finishAssistantStream(id, assistantText);
       clearAssistantStream(id);
+      setPendingUserQuestion(undefined);
       if (!stoppedChatIds.current.has(id)) {
         updateConversation(sessionId, (currentMessages) => [...currentMessages, {
           kind: "message",
           id: crypto.randomUUID(),
           role: "assistant",
-          text: response?.ok && response.text ? response.text : `I couldn't complete that request: ${response?.error ?? "The DSH bridge is unavailable."}`,
+          text: response?.ok && assistantText ? assistantText : `I couldn't complete that request: ${response?.error ?? "The DSH bridge is unavailable."}`,
         }], sessionStatusRef.current.get(sessionId) === "paused" ? "paused" : response?.ok ? "completed" : "interrupted");
       }
     } catch (error) {
       clearAssistantStream(id);
       if (submittedImages.length > 0) setDraftImages(submittedImages);
       if (submittedDocuments.length > 0) setDraftDocuments(submittedDocuments);
+      setPendingUserQuestion(undefined);
       if (!stoppedChatIds.current.has(id)) {
         updateConversation(sessionId, (currentMessages) => [...currentMessages, {
           kind: "message",
@@ -447,6 +473,8 @@ function App() {
     } finally {
       activeChatIds.current.delete(id);
       activeChatSessions.current.delete(id);
+      assistantPrefixByChat.current.delete(id);
+      assistantAfterActivity.current.delete(id);
       const isCurrentChat = activeChatIdBySession.current.get(sessionId) === id;
       if (isCurrentChat) activeChatIdBySession.current.delete(sessionId);
       stoppedChatIds.current.delete(id);
@@ -461,6 +489,7 @@ function App() {
 
     stoppedChatIds.current.add(id);
     clearAssistantStream(id);
+    setPendingUserQuestion(undefined);
     setIsStopping(true);
     try {
       const response = await chrome.runtime.sendMessage({ type: "dsh-agent-pause-chat", sessionId }) as { ok?: boolean; error?: string };
@@ -489,6 +518,7 @@ function App() {
     try {
       const previousSessionId = activeSessionId;
       clearAssistantStream();
+      setPendingUserQuestion(undefined);
       // Best-effort stop: discard the agent task even if it's mid-flight.
       await chrome.runtime.sendMessage({ type: "dsh-agent-discard-chat", sessionId: previousSessionId }).catch(() => undefined);
       await forgetSession(previousSessionId);
@@ -715,7 +745,7 @@ function App() {
       event.preventDefault();
       setActiveToolIndex((current) => {
         const direction = event.key === "ArrowDown" ? 1 : -1;
-        return (current + direction + BROWSER_TOOL_DEFS.length) % BROWSER_TOOL_DEFS.length;
+        return (current + direction + AGENT_TOOL_DEFS.length) % AGENT_TOOL_DEFS.length;
       });
       return;
     }
@@ -730,7 +760,7 @@ function App() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (toolsMenuOpen) {
-        const activeTool = BROWSER_TOOL_DEFS[activeToolIndex];
+        const activeTool = AGENT_TOOL_DEFS[activeToolIndex];
         if (activeTool) toggleToolForChat(activeTool.name);
         return;
       }
@@ -750,7 +780,7 @@ function App() {
 
   const slashCommands: { id: string; label: string; description: string }[] = [
     { id: "new", label: "/new", description: "Delete this chat and start a fresh session in the tab" },
-    { id: "actions", label: "/actions", description: "Enable or disable the agent's browser tools" },
+    { id: "actions", label: "/actions", description: "Enable or disable the agent's tools" },
     { id: "human-in-the-loop", label: "/human-in-the-loop", description: "Ask for approval before clicks and navigation" },
   ];
 
@@ -778,12 +808,35 @@ function App() {
     void chrome.runtime.sendMessage({ type: "dsh-human-approval-response", approvalId: approval.approvalId, approved });
   }
 
+  function respondToUserQuestion(answer?: string) {
+    const question = pendingUserQuestion;
+    if (!question) return;
+    const trimmedAnswer = answer?.trim();
+    if (trimmedAnswer === "") return;
+    setPendingUserQuestion(undefined);
+    setUserQuestionText("");
+    void chrome.runtime.sendMessage({
+      type: "dsh-user-question-response",
+      questionId: question.questionId,
+      chatId: question.chatId,
+      ...(trimmedAnswer ? { answer: trimmedAnswer } : { cancelled: true }),
+    }).then((response: { ok?: boolean; error?: string }) => {
+      if (!response?.ok) {
+        setPendingUserQuestion(question);
+        setSessionNotice(response?.error ?? "The answer could not be sent.");
+      }
+    }).catch(() => {
+      setPendingUserQuestion(question);
+      setSessionNotice("The answer could not be sent.");
+    });
+  }
+
   function updateToolSettings(next: StoredTools) {
     setToolSettings(next);
     void saveToolSettings(next);
   }
 
-  function toggleToolForChat(tool: BrowserToolName) {
+  function toggleToolForChat(tool: AgentToolName) {
     const denied = new Set(effectiveDenied(toolSettings, activeSessionId));
     if (denied.has(tool)) denied.delete(tool);
     else denied.add(tool);
@@ -920,24 +973,44 @@ function App() {
       <section className="conversation" aria-label="Current chat">
         {sessionNotice && <p className="session-notice" role="status">{sessionNotice}</p>}
         <div className="messages" ref={messagesRef} aria-live="polite">
-          {messages.map((message) => message.kind === "message" ? (
-            <article className={`message message-${message.role}`} key={message.id}>
-              <div className="message-meta">{message.role === "assistant" ? "DSH" : "You"}</div>
-              <div className="message-content">
-                {message.role === "assistant" ? <MarkdownMessage text={message.text} /> : (
-                  <UserMessageContent message={message} images={messageImageDataRef.current.get(message.id)} />
-                )}
-              </div>
-            </article>
-          ) : (
-            <ToolThread key={message.id} message={message} />
-          ))}
-          {streamingAssistant?.sessionId === activeSessionId && (
-            <article className="message message-assistant message-streaming" key={`streaming-${streamingAssistant.id}`}>
-              <div className="message-meta">DSH</div>
-              <div className="message-content"><MarkdownMessage text={streamingAssistant.text} /></div>
-            </article>
-          )}
+          {(() => {
+            const currentStreamingAssistant = streamingAssistant?.sessionId === activeSessionId ? streamingAssistant : undefined;
+            // Before the first tool starts, the live assistant segment belongs
+            // before the activity group. Once a tool has started, the stream is
+            // reset and any new text belongs after that group.
+            const activityIndex = currentStreamingAssistant && !assistantAfterActivity.current.has(currentStreamingAssistant.id)
+              ? messages.findIndex((item) => item.kind === "activity" && item.id === currentStreamingAssistant.id)
+              : -1;
+            const streamingMessage = currentStreamingAssistant && (
+              <article className="message message-assistant message-streaming" key={`streaming-${currentStreamingAssistant.id}`}>
+                <div className="message-meta">DSH</div>
+                <div className="message-content"><MarkdownMessage text={currentStreamingAssistant.text} /></div>
+              </article>
+            );
+
+            return (
+              <>
+                {messages.map((message, index) => (
+                  <Fragment key={message.id}>
+                    {index === activityIndex && streamingMessage}
+                    {message.kind === "message" ? (
+                      <article className={`message message-${message.role}`}>
+                        <div className="message-meta">{message.role === "assistant" ? "DSH" : "You"}</div>
+                        <div className="message-content">
+                          {message.role === "assistant" ? <MarkdownMessage text={message.text} /> : (
+                            <UserMessageContent message={message} images={messageImageDataRef.current.get(message.id)} />
+                          )}
+                        </div>
+                      </article>
+                    ) : (
+                      <ToolThread message={message} />
+                    )}
+                  </Fragment>
+                ))}
+                {activityIndex === -1 && streamingMessage}
+              </>
+            );
+          })()}
         </div>
       </section>
 
@@ -1031,6 +1104,47 @@ function App() {
         </div>
       )}
 
+      {pendingUserQuestion && (
+        <div className="delete-modal-backdrop" role="presentation">
+          <section className="delete-modal user-question-modal" role="dialog" aria-modal="true" aria-labelledby="user-question-title" aria-describedby="user-question-description">
+            <div className="delete-modal-icon approval-modal-icon" aria-hidden="true">?</div>
+            <div className="delete-modal-copy">
+              <span className="delete-modal-eyebrow user-question-eyebrow">The agent needs your input</span>
+              <h2 id="user-question-title">{pendingUserQuestion.question}</h2>
+              <p id="user-question-description">Choose an answer to let the agent continue.</p>
+            </div>
+            {pendingUserQuestion.options.length > 0 && (
+              <div className="user-question-options" aria-label="Answer choices">
+                {pendingUserQuestion.options.map((option) => (
+                  <button type="button" key={option} onClick={() => respondToUserQuestion(option)}>{option}</button>
+                ))}
+              </div>
+            )}
+            {pendingUserQuestion.allowFreeText && (
+              <form className="user-question-form" onSubmit={(event) => {
+                event.preventDefault();
+                respondToUserQuestion(userQuestionText);
+              }}>
+                <label htmlFor="user-question-answer">Your answer</label>
+                <div className="user-question-input-row">
+                  <input
+                    id="user-question-answer"
+                    value={userQuestionText}
+                    onChange={(event) => setUserQuestionText(event.target.value)}
+                    placeholder="Type your answer..."
+                    autoFocus
+                  />
+                  <button className="delete-modal-primary" type="submit" disabled={!userQuestionText.trim()}>Send</button>
+                </div>
+              </form>
+            )}
+            <div className="delete-modal-actions">
+              <button type="button" onClick={() => respondToUserQuestion()}>Cancel</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {pendingHumanApproval && (
         <div className="delete-modal-backdrop" role="presentation">
           <section className="delete-modal approval-modal" role="alertdialog" aria-modal="true" aria-labelledby="approval-modal-title" aria-describedby="approval-modal-description">
@@ -1059,10 +1173,10 @@ function App() {
             <button type="button" className="tools-menu-close" onClick={() => setToolsMenuOpen(false)} aria-label="Close tool permissions">✕</button>
           </div>
           <div className="tools-menu-summary">
-            <span><strong>{BROWSER_TOOL_DEFS.length - effectiveDeniedTools.length}</strong> of {BROWSER_TOOL_DEFS.length} tools enabled</span>
+            <span><strong>{AGENT_TOOL_DEFS.length - effectiveDeniedTools.length}</strong> of {AGENT_TOOL_DEFS.length} tools enabled</span>
           </div>
-          <ul className="tools-list" role="listbox" aria-label="Browser tools">
-            {BROWSER_TOOL_DEFS.map((tool, index) => {
+          <ul className="tools-list" role="listbox" aria-label="Agent tools">
+            {AGENT_TOOL_DEFS.map((tool, index) => {
               const enabled = !effectiveDeniedTools.includes(tool.name);
               return (
                 <li key={tool.name} className={index === activeToolIndex ? "tool-row-active" : undefined} role="option" aria-selected={index === activeToolIndex} onMouseEnter={() => setActiveToolIndex(index)}>
@@ -1256,6 +1370,16 @@ function isHumanApprovalRequest(value: unknown): value is HumanApprovalRequest {
   const approval = value as Partial<HumanApprovalRequest>;
   return typeof approval.approvalId === "string" && typeof approval.chatId === "string" &&
     (approval.tool === "browser_click" || approval.tool === "browser_navigate") && typeof approval.detail === "string";
+}
+
+function isUserQuestionRequest(value: unknown): value is UserQuestionRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const question = value as Partial<UserQuestionRequest>;
+  return typeof question.questionId === "string" && question.questionId.length > 0 &&
+    typeof question.chatId === "string" && question.chatId.length > 0 &&
+    typeof question.question === "string" && question.question.trim().length > 0 &&
+    Array.isArray(question.options) && question.options.every((option) => typeof option === "string") &&
+    typeof question.allowFreeText === "boolean";
 }
 
 function ToolThread({ message }: { message: ActivityGroup }) {
