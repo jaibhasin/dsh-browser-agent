@@ -6,6 +6,8 @@ Ask it to explain a page, fill out a form, or help you work through a website.
 DSH Browser Agent lives in Chrome's side panel and works with the tabs you already have open, including sites where you're signed in.
 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runs on your computer and connects the assistant to your chosen AI model.
 
+[View DSH Browser Agent on dshfind](https://dshfind.com/en/plugins/jaibhasin/dsh-browser-agent)
+
 ## Features
 
 - Read pages, click buttons, type into fields, scroll, and take screenshots.
