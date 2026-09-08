@@ -3,7 +3,7 @@ import { MarkdownMessage } from "./MarkdownMessage";
 import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
 import { getTabSwitchView, type AgentTabState, type TabSummary } from "./tab-switch-state";
 import type { BridgeChatDelta, BridgeChatProgress, UserQuestion } from "../../../shared/protocol";
-import { BROWSER_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type BrowserToolName, type StoredTools } from "./tools";
+import { AGENT_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type AgentToolName, type StoredTools } from "./tools";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
 type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate"; detail: string };
@@ -646,7 +646,7 @@ function App() {
       event.preventDefault();
       setActiveToolIndex((current) => {
         const direction = event.key === "ArrowDown" ? 1 : -1;
-        return (current + direction + BROWSER_TOOL_DEFS.length) % BROWSER_TOOL_DEFS.length;
+        return (current + direction + AGENT_TOOL_DEFS.length) % AGENT_TOOL_DEFS.length;
       });
       return;
     }
@@ -661,7 +661,7 @@ function App() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (toolsMenuOpen) {
-        const activeTool = BROWSER_TOOL_DEFS[activeToolIndex];
+        const activeTool = AGENT_TOOL_DEFS[activeToolIndex];
         if (activeTool) toggleToolForChat(activeTool.name);
         return;
       }
@@ -681,7 +681,7 @@ function App() {
 
   const slashCommands: { id: string; label: string; description: string }[] = [
     { id: "new", label: "/new", description: "Delete this chat and start a fresh session in the tab" },
-    { id: "actions", label: "/actions", description: "Enable or disable the agent's browser tools" },
+    { id: "actions", label: "/actions", description: "Enable or disable the agent's tools" },
     { id: "human-in-the-loop", label: "/human-in-the-loop", description: "Ask for approval before clicks and navigation" },
   ];
 
@@ -737,7 +737,7 @@ function App() {
     void saveToolSettings(next);
   }
 
-  function toggleToolForChat(tool: BrowserToolName) {
+  function toggleToolForChat(tool: AgentToolName) {
     const denied = new Set(effectiveDenied(toolSettings, activeSessionId));
     if (denied.has(tool)) denied.delete(tool);
     else denied.add(tool);
@@ -1052,10 +1052,10 @@ function App() {
             <button type="button" className="tools-menu-close" onClick={() => setToolsMenuOpen(false)} aria-label="Close tool permissions">✕</button>
           </div>
           <div className="tools-menu-summary">
-            <span><strong>{BROWSER_TOOL_DEFS.length - effectiveDeniedTools.length}</strong> of {BROWSER_TOOL_DEFS.length} tools enabled</span>
+            <span><strong>{AGENT_TOOL_DEFS.length - effectiveDeniedTools.length}</strong> of {AGENT_TOOL_DEFS.length} tools enabled</span>
           </div>
-          <ul className="tools-list" role="listbox" aria-label="Browser tools">
-            {BROWSER_TOOL_DEFS.map((tool, index) => {
+          <ul className="tools-list" role="listbox" aria-label="Agent tools">
+            {AGENT_TOOL_DEFS.map((tool, index) => {
               const enabled = !effectiveDeniedTools.includes(tool.name);
               return (
                 <li key={tool.name} className={index === activeToolIndex ? "tool-row-active" : undefined} role="option" aria-selected={index === activeToolIndex} onMouseEnter={() => setActiveToolIndex(index)}>
