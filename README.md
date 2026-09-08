@@ -233,7 +233,7 @@ Only run installation commands from a source you trust.
 
 ## Development
 
-The managed installation uses DSH `0.1.2-rc.1` with a separate `browser-agent-installed` profile.
+The managed installation uses DSH `0.1.2-rc.1` with a separate `dsh-browser-agent` profile.
 Files live under `~/.dsh/browser-agent-install` by default.
 Set `DSH_HOME` before installation to use another DSH data directory.
 The bridge listens on `127.0.0.1:7331` and authenticates WebSocket connections with the generated token.

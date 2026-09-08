@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const profileName = 'browser-agent-installed';
+const profileName = 'dsh-browser-agent';
 const owner = 'jaibhasin/dsh-browser-agent:1';
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dshHome = resolve(process.env.DSH_HOME || join(homedir(), '.dsh'));
@@ -94,7 +94,7 @@ function main() {
     const backup = join(root, `extension-backup-${Date.now()}`);
     const manifestPath = join(profile, 'package.json');
     const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {
-      name: 'dsh-profile-browser-agent-installed', private: true,
+      name: 'dsh-profile-browser-agent', private: true,
       dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@jaibhasin/dsh-browser-agent'] } },
     };
     manifest.dependencies = { ...manifest.dependencies, '@jaibhasin/dsh-browser-agent': `link:${join(stage, 'dsh-plugin')}` };

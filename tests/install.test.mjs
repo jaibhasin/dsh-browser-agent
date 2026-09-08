@@ -25,7 +25,7 @@ function invoke(home, ...args) {
 }
 
 test('refuses an existing unmanaged profile without changing it', () => fixture(home => {
-  const profile = join(home, 'profiles', 'browser-agent-installed');
+  const profile = join(home, 'profiles', 'dsh-browser-agent');
   mkdirSync(profile, { recursive: true });
   writeFileSync(join(profile, 'package.json'), '{"private":true}');
   const result = invoke(home);
@@ -35,7 +35,7 @@ test('refuses an existing unmanaged profile without changing it', () => fixture(
 }));
 
 test('uninstall archives owned files and leaves other profiles intact', () => fixture(home => {
-  for (const path of ['browser-agent-install', 'profiles/browser-agent-installed']) {
+  for (const path of ['browser-agent-install', 'profiles/dsh-browser-agent']) {
     mkdirSync(join(home, path), { recursive: true });
     writeFileSync(join(home, path, '.installer-owner'), 'jaibhasin/dsh-browser-agent:1');
     writeFileSync(join(home, path, 'user-data'), 'keep me');
@@ -53,7 +53,7 @@ test('uninstall validates both targets before moving either', () => fixture(home
   const root = join(home, 'browser-agent-install');
   mkdirSync(root);
   writeFileSync(join(root, '.installer-owner'), 'jaibhasin/dsh-browser-agent:1');
-  mkdirSync(join(home, 'profiles', 'browser-agent-installed'), { recursive: true });
+  mkdirSync(join(home, 'profiles', 'dsh-browser-agent'), { recursive: true });
   assert.equal(invoke(home, '--uninstall').status, 1);
   assert.ok(readdirSync(home).includes('browser-agent-install'));
 }));
