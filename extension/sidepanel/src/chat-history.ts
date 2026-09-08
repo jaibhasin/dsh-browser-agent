@@ -1,7 +1,11 @@
+import type { DocumentExtension, ImageMediaType } from "../../../shared/protocol";
+
 const STORAGE_KEY = "dshBrowserChatHistoryV1";
 const MAX_SESSIONS = 100;
 
-export type ChatMessage = { kind: "message"; id: string; role: "assistant" | "user"; text: string };
+export type ChatImage = { id: string; mediaType: ImageMediaType; bytes: number; width: number; height: number; name?: string };
+export type ChatDocument = { id: string; name: string; extension: DocumentExtension; bytes: number };
+export type ChatMessage = { kind: "message"; id: string; role: "assistant" | "user"; text: string; images?: ChatImage[]; documents?: ChatDocument[] };
 
 /**
  * One tool call the agent made while working on a chat.

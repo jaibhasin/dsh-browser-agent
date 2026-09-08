@@ -4,12 +4,13 @@ import { randomUUID } from "node:crypto";
 import { installModelSelection, type AgentHandle, type CreateAgentOptions, type ModelSelection } from "@deepseek-ai/dsh-agent";
 import { brandString } from "@deepseek-ai/dsh-brand";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import { admitPromptContent, type AttachmentStore, type ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
 import type { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
-import type { JsonValue, UserQuestion, UserQuestionResponse } from "../../shared/protocol.js";
+import type { BridgePromptContentPart, JsonValue, UserQuestion, UserQuestionResponse } from "../../shared/protocol.js";
 import { AGENT_TOOL_DEFS, type AgentToolName } from "../../shared/protocol.js";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
+import { convertDocuments } from "../document-converter.js";
 
 export const name = "dsh-browser-snapshot";
 export const inject = ["tools", "agents", "agentDefaultModel", "workspaceRegistry", "attachments"];
@@ -331,7 +332,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     });
   });
 
-  const onChat = (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false) => {
+  const onChat = (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false, content?: BridgePromptContentPart[]) => {
     const session = brandString<SessionId>(sessionId);
     const previousTurn = sessionTurns.get(sessionId) ?? Promise.resolve();
     const run = previousTurn.then(async () => {
@@ -340,8 +341,18 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         toolDeniedBySession.set(session, new Set(deniedTools.filter((name) => typeof name === "string")));
         applyToolRestriction(session);
       }
+      const documentParts = content?.filter((part): part is Extract<BridgePromptContentPart, { type: "document" }> => part.type === "document") ?? [];
+      const documentText = await convertDocuments(documentParts);
+      const promptText = [text, documentText].filter((value) => value.trim() !== "").join("\n\n");
+      const imageParts = content?.filter((part): part is Extract<BridgePromptContentPart, { type: "image" }> => part.type === "image") ?? [];
+      if (!attachments && imageParts.length > 0) {
+        throw new Error("DSH image attachment storage is unavailable.");
+      }
+      const admittedContent = imageParts.length > 0 && attachments
+        ? await admitPromptContent(attachments, [...(promptText ? [{ type: "text" as const, text: promptText }] : []), ...imageParts])
+        : [{ type: "text" as const, text: promptText }];
       const message = createUserMessage({
-        content: [{ type: "text", text }],
+        content: admittedContent,
         source: { kind: "user" },
       });
       // Drain any startup activity, then capture the log position where the

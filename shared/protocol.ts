@@ -22,6 +22,31 @@ export const AGENT_TOOL_DEFS = [
 export type AgentToolName = (typeof AGENT_TOOL_DEFS)[number]["name"];
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
+export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number];
+export const DOCUMENT_EXTENSIONS = [
+  "doc", "docx", "docm", "pdf", "csv", "xls", "xlsx", "xlsm", "xlsb",
+  "ppt", "pps", "pot", "pptx", "pptm", "ppsx", "ppsm", "odt", "ods", "odp", "rtf", "epub", "md", "txt",
+] as const;
+export type DocumentExtension = (typeof DOCUMENT_EXTENSIONS)[number];
+export const DOCUMENT_LIMITS = {
+  maxFilesPerMessage: 4,
+  maxFileBytes: 10 * 1024 * 1024,
+  maxMessageBytes: 20 * 1024 * 1024,
+  maxNameLength: 255,
+  maxMarkdownChars: 200_000,
+} as const;
+export function documentExtension(name: string): DocumentExtension | undefined {
+  const extension = name.trim().toLowerCase().split(".").pop();
+  return (DOCUMENT_EXTENSIONS as readonly string[]).includes(extension ?? "") ? extension as DocumentExtension : undefined;
+}
+export function isSupportedDocumentName(name: string): boolean {
+  return documentExtension(name) !== undefined;
+}
+export type BridgePromptContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; mediaType: ImageMediaType; data: string; name?: string }
+  | { type: "document"; name: string; mediaType?: string; data: string };
 export type BridgeHello = { type: "hello"; protocolVersion: typeof PROTOCOL_VERSION; token: string; client: "chrome-extension" };
 export type BridgeWelcome = { type: "welcome"; protocolVersion: typeof PROTOCOL_VERSION };
 export type BridgeRequest = { type: "request"; id: string; method: string; params: JsonValue; taskId?: string };
@@ -29,7 +54,7 @@ export type BridgeResponse = { type: "response"; id: string; result?: JsonValue;
 export type BridgeEvent = { type: "event"; event: string; payload: JsonValue };
 export type BridgePing = { type: "ping" };
 export type BridgePong = { type: "pong" };
-export type BridgeChat = { type: "chat"; id: string; text: string; sessionId: string; resume: boolean; deniedTools?: string[]; humanInTheLoop?: boolean };
+export type BridgeChat = { type: "chat"; id: string; text: string; sessionId: string; resume: boolean; content?: BridgePromptContentPart[]; deniedTools?: string[]; humanInTheLoop?: boolean };
 export type BridgeChatResponse = { type: "chat_response"; id: string; text?: string; error?: { code: string; message: string } };
 export type BridgeChatDelta = { type: "chat_delta"; id: string; text: string };
 export type UserQuestion = { questionId: string; chatId: string; question: string; options: string[]; allowFreeText: boolean };
@@ -71,7 +96,10 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
     case "response":
       return typeof value.id === "string" && (value.result === undefined || isJsonValue(value.result)) && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeResponse : undefined;
     case "chat":
-      return typeof value.id === "string" && typeof value.text === "string" && typeof value.sessionId === "string" && typeof value.resume === "boolean" && (value.deniedTools === undefined || (Array.isArray(value.deniedTools) && value.deniedTools.every((tool) => typeof tool === "string"))) && (value.humanInTheLoop === undefined || typeof value.humanInTheLoop === "boolean") ? value as BridgeChat : undefined;
+      return typeof value.id === "string" && typeof value.text === "string" && typeof value.sessionId === "string" && typeof value.resume === "boolean" &&
+        (value.content === undefined || (Array.isArray(value.content) && value.content.length > 0 && value.content.every(isPromptContentPart))) &&
+        (value.deniedTools === undefined || (Array.isArray(value.deniedTools) && value.deniedTools.every((tool) => typeof tool === "string"))) &&
+        (value.humanInTheLoop === undefined || typeof value.humanInTheLoop === "boolean") ? value as BridgeChat : undefined;
     case "chat_response":
       return typeof value.id === "string" && (value.text === undefined || typeof value.text === "string") && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeChatResponse : undefined;
     case "chat_delta":
@@ -98,4 +126,22 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
     default:
       return undefined;
   }
+}
+
+function isPromptContentPart(value: unknown): value is BridgePromptContentPart {
+  if (!isRecord(value) || (value.type !== "text" && value.type !== "image" && value.type !== "document")) return false;
+  if (value.type === "text") return typeof value.text === "string";
+  if (value.type === "image") {
+    return typeof value.mediaType === "string" &&
+      (IMAGE_MEDIA_TYPES as readonly string[]).includes(value.mediaType) &&
+      typeof value.data === "string" &&
+      (value.name === undefined || typeof value.name === "string");
+  }
+  return typeof value.name === "string" && value.name.length > 0 && value.name.length <= DOCUMENT_LIMITS.maxNameLength &&
+    typeof value.data === "string" && isBase64(value.data) &&
+    (value.mediaType === undefined || typeof value.mediaType === "string");
+}
+
+function isBase64(value: string): boolean {
+  return value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value);
 }

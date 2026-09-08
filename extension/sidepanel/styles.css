@@ -988,12 +988,194 @@ h6.markdown-heading { font-size: 14px; }
    ========================================================= */
 
 .composer {
+  position: relative;
   margin: 0 10px 10px;
   padding: 9px 11px 8px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.composer-busy {
+  border-color: var(--accent);
+}
+
+.image-file-input {
+  display: none;
+}
+
+.attach-button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.attach-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.attach-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.image-draft-list,
+.image-message-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.image-draft-list {
+  padding-bottom: 8px;
+}
+
+.document-draft-list,
+.document-message-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.document-draft-list {
+  padding-bottom: 8px;
+}
+
+.document-draft,
+.document-message-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 210px;
+  min-height: 30px;
+  padding: 5px 8px;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  font-size: 10px;
+}
+
+.document-draft {
+  position: relative;
+  padding-right: 25px;
+}
+
+.document-draft-icon,
+.document-message-chip strong {
+  color: var(--accent-hover);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.document-draft-name,
+.document-message-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-message-list {
+  margin-top: 8px;
+}
+
+.attachment-menu {
+  position: absolute;
+  bottom: 43px;
+  left: 11px;
+  z-index: 2;
+  display: grid;
+  min-width: 130px;
+  padding: 5px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.attachment-menu button {
+  padding: 7px 9px;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.attachment-menu button:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.image-draft {
+  position: relative;
+  width: 54px;
+  height: 54px;
+}
+
+.image-draft img,
+.image-message-list img {
+  display: block;
+  width: 54px;
+  height: 54px;
+  object-fit: cover;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.image-draft-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  place-items: center;
+  color: var(--text-primary);
+  cursor: pointer;
+  background: var(--bg-page);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.image-draft-remove:hover:not(:disabled) {
+  color: #fff;
+  background: var(--error);
+}
+
+.image-message-list {
+  margin-top: 8px;
+}
+
+.image-message-placeholder {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 8px;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 10px;
 }
 
 textarea {
