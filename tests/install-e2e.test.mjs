@@ -10,7 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 
 // Opt-in network test: installs real dependencies and boots DSH without an API key.
-test('fresh install, profile startup, update, and recoverable uninstall', { skip: process.env.DSH_INSTALL_E2E !== '1', timeout: 600_000 }, async () => {
+test('fresh install, profile startup, update, and recoverable uninstall', { skip: process.env.DSH_INSTALL_E2E !== '1', timeout: 900_000 }, async () => {
   const home = mkdtempSync(join(tmpdir(), 'dsh installer e2e '));
   const env = { ...process.env, DSH_HOME: home };
   const installer = resolve('scripts/install.mjs');
@@ -20,7 +20,7 @@ test('fresh install, profile startup, update, and recoverable uninstall', { skip
   let socket;
   try {
     const install = (...args) => {
-      const result = spawnSync(process.execPath, [installer, ...args], { env, encoding: 'utf8', timeout: 240_000 });
+      const result = spawnSync(process.execPath, [installer, ...args], { env, encoding: 'utf8', timeout: 600_000 });
       assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
       return result.stdout;
     };
