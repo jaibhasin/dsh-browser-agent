@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
-import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeMessage, type BridgeResponse, type JsonValue, parseBridgeMessage } from "../../shared/protocol.js";
+import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeMessage, type BridgePromptContentPart, type BridgeResponse, type JsonValue, parseBridgeMessage } from "../../shared/protocol.js";
 
 export type DshBrowserBridgeOptions = {
   token: string;
@@ -8,7 +8,7 @@ export type DshBrowserBridgeOptions = {
   port?: number;
   requestTimeoutMs?: number;
   onExtensionEvent?: (event: string, payload: JsonValue) => void;
-  onChat?: (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop?: boolean) => Promise<string>;
+  onChat?: (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop?: boolean, content?: BridgePromptContentPart[]) => Promise<string>;
   onNewSession?: () => Promise<void>;
 };
 type PendingRequest = { resolve: (value: JsonValue) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout>; cleanup: () => void };
@@ -45,7 +45,7 @@ export class DshBrowserWebSocketBridge {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
   isConnected(): boolean { return this.extension?.readyState === WebSocket.OPEN; }
-  setChatHandler(handler: (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop?: boolean) => Promise<string>): void { this.options.onChat = handler; }
+  setChatHandler(handler: (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop?: boolean, content?: BridgePromptContentPart[]) => Promise<string>): void { this.options.onChat = handler; }
   setNewSessionHandler(handler: () => Promise<void>): void { this.options.onNewSession = handler; }
   sendChatDelta(delta: Omit<BridgeChatDelta, "type">): void {
     if (!this.extension) return;
@@ -116,7 +116,7 @@ export class DshBrowserWebSocketBridge {
     if (message.type === "chat") {
       try {
         if (!this.options.onChat) throw new Error("DSH chat is not configured.");
-        this.send(socket, { type: "chat_response", id: message.id, text: await this.options.onChat(message.text, message.id, message.sessionId, message.resume, message.deniedTools, message.humanInTheLoop) });
+        this.send(socket, { type: "chat_response", id: message.id, text: await this.options.onChat(message.text, message.id, message.sessionId, message.resume, message.deniedTools, message.humanInTheLoop, message.content) });
       } catch (error) {
         this.send(socket, { type: "chat_response", id: message.id, error: { code: "DSH_CHAT_FAILED", message: error instanceof Error ? error.message : "DSH chat failed." } });
       }

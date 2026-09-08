@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
+import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgePromptContentPart, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
 
 const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
@@ -50,13 +50,13 @@ export class ExtensionBridge {
   setChatProgressHandler(handler: ChatProgressHandler): void { this.chatProgressHandler = handler; }
   setEventHandler(handler: EventHandler): void { this.eventHandler = handler; }
   sendEvent(event: string, payload: JsonValue): void { this.send({ type: "event", event, payload }); }
-  async chat(id: string, text: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false): Promise<string> {
+  async chat(id: string, text: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false, content?: BridgePromptContentPart[]): Promise<string> {
     await this.waitUntilConnected();
     if (!id || this.chatRequests.has(id)) return Promise.reject(new Error("The chat request ID is invalid or already in use."));
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => { this.chatRequests.delete(id); reject(new Error("DSH chat timed out.")); }, 120_000);
       this.chatRequests.set(id, { resolve, reject, timeout });
-      this.send({ type: "chat", id, text, sessionId, resume, deniedTools: deniedTools ?? [], humanInTheLoop });
+      this.send({ type: "chat", id, text, sessionId, resume, ...(content ? { content } : {}), deniedTools: deniedTools ?? [], humanInTheLoop });
     });
   }
   async newSession(): Promise<void> {

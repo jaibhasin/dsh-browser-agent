@@ -4,10 +4,10 @@ import { randomUUID } from "node:crypto";
 import { installModelSelection, type AgentHandle, type CreateAgentOptions, type ModelSelection } from "@deepseek-ai/dsh-agent";
 import { brandString } from "@deepseek-ai/dsh-brand";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import { admitPromptContent, type AttachmentStore, type ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
 import type { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
-import type { JsonValue } from "../../shared/protocol.js";
+import type { BridgePromptContentPart, JsonValue } from "../../shared/protocol.js";
 import { BROWSER_TOOL_DEFS, type BrowserToolName } from "../../shared/protocol.js";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
 
@@ -308,7 +308,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     });
   });
 
-  const onChat = (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false) => {
+  const onChat = (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false, content?: BridgePromptContentPart[]) => {
     const session = brandString<SessionId>(sessionId);
     const previousTurn = sessionTurns.get(sessionId) ?? Promise.resolve();
     const run = previousTurn.then(async () => {
@@ -317,8 +317,14 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         toolDeniedBySession.set(session, new Set(deniedTools.filter((name) => typeof name === "string")));
         applyToolRestriction(session);
       }
+      if (!attachments && content?.some((part) => part.type === "image")) {
+        throw new Error("DSH image attachment storage is unavailable.");
+      }
+      const admittedContent = content && attachments
+        ? await admitPromptContent(attachments, content)
+        : [{ type: "text" as const, text }];
       const message = createUserMessage({
-        content: [{ type: "text", text }],
+        content: admittedContent,
         source: { kind: "user" },
       });
       // Drain any startup activity, then capture the log position where the

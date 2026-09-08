@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { MarkdownMessage } from "./MarkdownMessage";
-import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
+import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatImage, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
 import { getTabSwitchView, type AgentTabState, type TabSummary } from "./tab-switch-state";
-import type { BridgeChatDelta, BridgeChatProgress } from "../../../shared/protocol";
+import { IMAGE_MEDIA_TYPES } from "../../../shared/protocol";
 import { BROWSER_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type BrowserToolName, type StoredTools } from "./tools";
+import { draftImageDataUrl, imageInputErrorMessage, prepareImageFiles, promptContent, type DraftImage } from "./image-attachments";
+import type { BridgeChatDelta, BridgeChatProgress } from "../../../shared/protocol";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
 type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate"; detail: string };
@@ -22,6 +24,8 @@ function App() {
   const [pendingSavedChat, setPendingSavedChat] = useState<SavedChat>();
   const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
+  const [draftImages, setDraftImages] = useState<DraftImage[]>([]);
+  const [isAddingImage, setIsAddingImage] = useState(false);
   const [activePaletteIndex, setActivePaletteIndex] = useState(0);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [activeToolIndex, setActiveToolIndex] = useState(0);
@@ -53,6 +57,8 @@ function App() {
   const deletedSessionIds = useRef(new Set<string>());
   const currentTabId = useRef<number | undefined>(undefined);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const messageImageDataRef = useRef(new Map<string, DraftImage[]>());
   const messagesRef = useRef<HTMLDivElement>(null);
 
   activeSessionIdRef.current = activeSessionId;
@@ -306,12 +312,27 @@ function App() {
     }, "active");
   }
 
+  async function addImageFiles(files: readonly File[]) {
+    if (files.length === 0 || isAddingImage || isLoading) return;
+    setIsAddingImage(true);
+    try {
+      const prepared = await prepareImageFiles(files, draftImages);
+      setDraftImages((current) => [...current, ...prepared]);
+      setSessionNotice("");
+    } catch (error) {
+      setSessionNotice(imageInputErrorMessage(error));
+    } finally {
+      setIsAddingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = prompt.trim();
-    if (!text || isLoading) return;
+    if ((!text && draftImages.length === 0) || isLoading || isAddingImage) return;
 
-    if (text.startsWith("/")) {
+    if (text.startsWith("/") && draftImages.length === 0) {
       const cmd = text.slice(1).trim().toLowerCase();
       // Accept exact ("/actions") and unambiguous prefix ("/act") matches.
       const candidates = cmd ? slashCommands.filter((c) => c.id.startsWith(cmd)) : [];
@@ -335,18 +356,24 @@ function App() {
     const id = crypto.randomUUID();
     const sessionId = activeSessionId;
     const resume = messages.length > 0;
+    const submittedImages = draftImages;
+    const content = promptContent(text, submittedImages);
+    const userMessageId = crypto.randomUUID();
+    const imageMetadata: ChatImage[] = submittedImages.map(({ id: imageId, mediaType, bytes, width, height, name }) => ({
+      id: imageId, mediaType, bytes, width, height, ...(name ? { name } : {}),
+    }));
+    if (submittedImages.length > 0) messageImageDataRef.current.set(userMessageId, submittedImages);
     setIsLoading(true);
     clearAssistantStream();
-    let userMessageAdded = false;
     try {
       activeChatIds.current.add(id);
       activeChatSessions.current.set(id, sessionId);
       activeChatIdBySession.current.set(sessionId, id);
-      updateConversation(sessionId, (currentMessages) => [...currentMessages, { kind: "message", id: crypto.randomUUID(), role: "user", text }], "active");
-      userMessageAdded = true;
+      updateConversation(sessionId, (currentMessages) => [...currentMessages, { kind: "message", id: userMessageId, role: "user", text, ...(imageMetadata.length > 0 ? { images: imageMetadata } : {}) }], "active");
       setPrompt("");
+      setDraftImages([]);
       setSessionNotice("");
-      const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId), humanInTheLoop: humanInTheLoopSessions.has(sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
+      const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, content, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId), humanInTheLoop: humanInTheLoopSessions.has(sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
       clearAssistantStream(id);
       if (!stoppedChatIds.current.has(id)) {
@@ -359,6 +386,7 @@ function App() {
       }
     } catch (error) {
       clearAssistantStream(id);
+      if (submittedImages.length > 0) setDraftImages(submittedImages);
       if (!stoppedChatIds.current.has(id)) {
         updateConversation(sessionId, (currentMessages) => [...currentMessages, {
           kind: "message",
@@ -440,6 +468,7 @@ function App() {
     setSessionLinks([]);
     setPendingDestinationChat(undefined);
     setPrompt("");
+    setDraftImages([]);
     setIsLoading(false);
     setAgentTabState({ activeTaskCount: 0 });
     currentTabId.current = undefined;
@@ -512,6 +541,7 @@ function App() {
     setSessionLinks(chat.links);
     setPendingDestinationChat(undefined);
     setPrompt("");
+    setDraftImages([]);
     setSessionNotice(chat.status === "interrupted" ? "This chat was interrupted. The agent will inspect the page before continuing." : "Saved chat opened.");
     setIsHistoryOpen(false);
     void refreshAgentTabState(chat.id);
@@ -845,7 +875,9 @@ function App() {
             <article className={`message message-${message.role}`} key={message.id}>
               <div className="message-meta">{message.role === "assistant" ? "DSH" : "You"}</div>
               <div className="message-content">
-                {message.role === "assistant" ? <MarkdownMessage text={message.text} /> : <p>{message.text}</p>}
+                {message.role === "assistant" ? <MarkdownMessage text={message.text} /> : (
+                  <UserMessageContent message={message} images={messageImageDataRef.current.get(message.id)} />
+                )}
               </div>
             </article>
           ) : (
@@ -1012,8 +1044,37 @@ function App() {
         onExecute={executeSlashCommand}
       />
 
-      <form className="composer" onSubmit={sendMessage}>
+      <form
+        className={`composer${isAddingImage ? " composer-busy" : ""}`}
+        onSubmit={sendMessage}
+        onDragOver={(event) => {
+          if (!isLoading && [...event.dataTransfer.types].includes("Files")) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          void addImageFiles([...event.dataTransfer.files]);
+        }}
+      >
         <label className="sr-only" htmlFor="prompt">Message the browser agent</label>
+        {draftImages.length > 0 && (
+          <div className="image-draft-list" aria-label="Images to attach">
+            {draftImages.map((image, index) => (
+              <div className="image-draft" key={image.id}>
+                <img src={draftImageDataUrl(image)} alt={image.name || `Image ${index + 1}`} />
+                <button
+                  type="button"
+                  className="image-draft-remove"
+                  aria-label={`Remove ${image.name || `image ${index + 1}`}`}
+                  title="Remove image"
+                  onClick={() => setDraftImages((current) => current.filter((candidate) => candidate.id !== image.id))}
+                  disabled={isAddingImage || isLoading}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           id="prompt"
@@ -1025,10 +1086,36 @@ function App() {
             setActivePaletteIndex(0);
           }}
           onKeyDown={handlePromptKeyDown}
+          onPaste={(event) => {
+            const files = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
+            if (files.length > 0) {
+              event.preventDefault();
+              void addImageFiles(files);
+            }
+          }}
           placeholder="Ask the browser agent..."
           autoComplete="off"
         />
         <div className="composer-footer">
+          <input
+            ref={imageInputRef}
+            className="image-file-input"
+            type="file"
+            accept={IMAGE_MEDIA_TYPES.join(",")}
+            multiple
+            tabIndex={-1}
+            onChange={(event) => void addImageFiles([...event.target.files ?? []])}
+          />
+          <button
+            type="button"
+            className="attach-button"
+            onClick={() => imageInputRef.current?.click()}
+            disabled={isAddingImage || isLoading}
+            aria-label="Attach images"
+            title="Attach images"
+          >
+            {isAddingImage ? "…" : "＋"}
+          </button>
           <span className="composer-hint">{toolsMenuOpen ? "Choose which tools this chat may use · Esc to close" : paletteVisible ? "Enter to run command · Esc to clear" : "Enter to send · Shift + Enter for a new line · Type / for commands"}</span>
           <button
             className={`send-button${isLoading ? " send-button-stop" : ""}`}
@@ -1128,6 +1215,27 @@ function ToolStep({ step }: { step: ToolActivity }) {
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function UserMessageContent({ message, images }: { message: Message; images?: DraftImage[] }) {
+  const drafts = new Map((images ?? []).map((image) => [image.id, image]));
+  return (
+    <>
+      {message.text && <p>{message.text}</p>}
+      {message.images && message.images.length > 0 && (
+        <div className="image-message-list" aria-label="Attached images">
+          {message.images.map((image) => {
+            const draft = drafts.get(image.id);
+            return draft ? (
+              <img key={image.id} src={draftImageDataUrl(draft)} alt={image.name || "Attached image"} />
+            ) : (
+              <span className="image-message-placeholder" key={image.id}>{image.name || "Attached image"}</span>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
 }
 
 /**

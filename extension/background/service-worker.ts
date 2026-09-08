@@ -169,18 +169,23 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     const resume = (message as { resume?: unknown }).resume;
     const deniedTools = (message as { deniedTools?: unknown }).deniedTools;
     const humanInTheLoop = (message as { humanInTheLoop?: unknown }).humanInTheLoop;
-    if (typeof text !== "string" || !text.trim()) { sendResponse({ ok: false, error: "Message is empty." }); return; }
+    const content = (message as { content?: unknown }).content;
+    const hasImageContent = Array.isArray(content) && content.some((part) => typeof part === "object" && part !== null && "type" in part && (part as { type?: unknown }).type === "image");
+    if (typeof text !== "string" || (!text.trim() && !hasImageContent)) { sendResponse({ ok: false, error: "Message is empty." }); return; }
     if (typeof id !== "string" || !id) { sendResponse({ ok: false, error: "Chat request ID is invalid." }); return; }
     if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
     if (typeof resume !== "boolean") { sendResponse({ ok: false, error: "Chat resume state is invalid." }); return; }
     if (deniedTools !== undefined && !(Array.isArray(deniedTools) && deniedTools.every((tool) => typeof tool === "string"))) { sendResponse({ ok: false, error: "Tool restrictions are invalid." }); return; }
     if (humanInTheLoop !== undefined && typeof humanInTheLoop !== "boolean") { sendResponse({ ok: false, error: "Human-in-the-loop setting is invalid." }); return; }
+    if (content !== undefined && (!Array.isArray(content) || content.length === 0 || content.some((part) => !isBridgePromptContentPart(part)))) {
+      sendResponse({ ok: false, error: "Image attachments are invalid." }); return;
+    }
     void claimCurrentAgentTab(sessionId)
       .then(async ({ tab, displacedSessionIds }) => {
         if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
         await startAgentTask(id, sessionId, tab.id);
         try {
-          const replyText = await bridge.chat(id, text.trim(), sessionId, resume, deniedTools as string[] | undefined, humanInTheLoop as boolean | undefined);
+          const replyText = await bridge.chat(id, text.trim(), sessionId, resume, deniedTools as string[] | undefined, humanInTheLoop as boolean | undefined, content as Parameters<ExtensionBridge["chat"]>[6]);
           return { text: replyText, displacedSessionIds };
         } finally {
           await endAgentTask(id);
@@ -279,6 +284,14 @@ function isBridgeConfiguration(value: unknown): value is BridgeConfiguration {
   return typeof value === "object" && value !== null &&
     "url" in value && typeof value.url === "string" &&
     "token" in value && typeof value.token === "string";
+}
+
+function isBridgePromptContentPart(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !("type" in value)) return false;
+  const part = value as { type?: unknown; text?: unknown; mediaType?: unknown; data?: unknown; name?: unknown };
+  if (part.type === "text") return typeof part.text === "string";
+  return part.type === "image" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(part.mediaType as string) &&
+    typeof part.data === "string" && (part.name === undefined || typeof part.name === "string");
 }
 
 function parseHttpUrl(value: string): URL {
