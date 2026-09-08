@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { createAssistantStream, type StreamingAssistant } from "./assistant-stream";
 import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
@@ -44,6 +44,8 @@ function App() {
   const activeChatIds = useRef(new Set<string>());
   const activeChatSessions = useRef(new Map<string, string>());
   const activeChatIdBySession = useRef(new Map<string, string>());
+  const assistantPrefixByChat = useRef(new Map<string, string>());
+  const assistantAfterActivity = useRef(new Set<string>());
   const assistantStreamRef = useRef<ReturnType<typeof createAssistantStream> | undefined>(undefined);
   const stoppedChatIds = useRef(new Set<string>());
   const activeSessionIdRef = useRef(activeSessionId);
@@ -75,6 +77,12 @@ function App() {
 
   async function finishAssistantStream(chatId: string, text: string) {
     await assistantStreamRef.current?.finish(chatId, text);
+  }
+
+  function assistantReplyAfterPrefix(chatId: string, text: string): string {
+    const prefix = assistantPrefixByChat.current.get(chatId);
+    if (!prefix || !text.startsWith(prefix)) return text;
+    return text.slice(prefix.length).replace(/^\s+/, "");
   }
 
   function syncSavedChats(next: SavedChat[]) {
@@ -272,6 +280,14 @@ function App() {
    * measure elapsed time between the two events here.
    */
   function addToolProgress(sessionId: string, progress: BridgeChatProgress) {
+    if (progress.phase === "tool_started" && !assistantAfterActivity.current.has(progress.id)) {
+      assistantAfterActivity.current.add(progress.id);
+      const prefix = assistantStreamRef.current?.getTarget(progress.id) ?? "";
+      if (prefix) assistantPrefixByChat.current.set(progress.id, prefix);
+      // Start a fresh live assistant segment after the tool thread. The full
+      // response is restored from the bridge when the turn completes.
+      assistantStreamRef.current?.clear(progress.id);
+    }
     updateConversation(sessionId, (currentMessages) => {
       const groupIndex = currentMessages.findIndex((item) => item.kind === "activity" && item.id === progress.id);
       const now = Date.now();
@@ -285,7 +301,14 @@ function App() {
         ...(progress.error ? { error: progress.error } : {}),
         ...(progress.phase === "tool_started" ? { startedAt: now } : {}),
       };
-      if (groupIndex === -1) return [...currentMessages, { kind: "activity", id: progress.id, steps: [step] }];
+      if (groupIndex === -1) {
+        const prefix = assistantPrefixByChat.current.get(progress.id);
+        return [
+          ...currentMessages,
+          ...(prefix ? [{ kind: "message" as const, id: crypto.randomUUID(), role: "assistant" as const, text: prefix }] : []),
+          { kind: "activity", id: progress.id, steps: [step] },
+        ];
+      }
 
       const group = currentMessages[groupIndex] as ActivityGroup;
       const existingIndex = group.steps.findIndex((candidate) => candidate.callId === progress.callId);
@@ -347,7 +370,8 @@ function App() {
       setSessionNotice("");
       const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId), humanInTheLoop: humanInTheLoopSessions.has(sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
-      if (response?.ok && response.text) await finishAssistantStream(id, response.text);
+      const assistantText = response?.ok && response.text ? assistantReplyAfterPrefix(id, response.text) : response?.text;
+      if (response?.ok && assistantText) await finishAssistantStream(id, assistantText);
       clearAssistantStream(id);
       setPendingUserQuestion(undefined);
       if (!stoppedChatIds.current.has(id)) {
@@ -355,7 +379,7 @@ function App() {
           kind: "message",
           id: crypto.randomUUID(),
           role: "assistant",
-          text: response?.ok && response.text ? response.text : `I couldn't complete that request: ${response?.error ?? "The DSH bridge is unavailable."}`,
+          text: response?.ok && assistantText ? assistantText : `I couldn't complete that request: ${response?.error ?? "The DSH bridge is unavailable."}`,
         }], sessionStatusRef.current.get(sessionId) === "paused" ? "paused" : response?.ok ? "completed" : "interrupted");
       }
     } catch (error) {
@@ -372,6 +396,8 @@ function App() {
     } finally {
       activeChatIds.current.delete(id);
       activeChatSessions.current.delete(id);
+      assistantPrefixByChat.current.delete(id);
+      assistantAfterActivity.current.delete(id);
       const isCurrentChat = activeChatIdBySession.current.get(sessionId) === id;
       if (isCurrentChat) activeChatIdBySession.current.delete(sessionId);
       stoppedChatIds.current.delete(id);
@@ -868,22 +894,42 @@ function App() {
       <section className="conversation" aria-label="Current chat">
         {sessionNotice && <p className="session-notice" role="status">{sessionNotice}</p>}
         <div className="messages" ref={messagesRef} aria-live="polite">
-          {messages.map((message) => message.kind === "message" ? (
-            <article className={`message message-${message.role}`} key={message.id}>
-              <div className="message-meta">{message.role === "assistant" ? "DSH" : "You"}</div>
-              <div className="message-content">
-                {message.role === "assistant" ? <MarkdownMessage text={message.text} /> : <p>{message.text}</p>}
-              </div>
-            </article>
-          ) : (
-            <ToolThread key={message.id} message={message} />
-          ))}
-          {streamingAssistant?.sessionId === activeSessionId && (
-            <article className="message message-assistant message-streaming" key={`streaming-${streamingAssistant.id}`}>
-              <div className="message-meta">DSH</div>
-              <div className="message-content"><MarkdownMessage text={streamingAssistant.text} /></div>
-            </article>
-          )}
+          {(() => {
+            const currentStreamingAssistant = streamingAssistant?.sessionId === activeSessionId ? streamingAssistant : undefined;
+            // Before the first tool starts, the live assistant segment belongs
+            // before the activity group. Once a tool has started, the stream is
+            // reset and any new text belongs after that group.
+            const activityIndex = currentStreamingAssistant && !assistantAfterActivity.current.has(currentStreamingAssistant.id)
+              ? messages.findIndex((item) => item.kind === "activity" && item.id === currentStreamingAssistant.id)
+              : -1;
+            const streamingMessage = currentStreamingAssistant && (
+              <article className="message message-assistant message-streaming" key={`streaming-${currentStreamingAssistant.id}`}>
+                <div className="message-meta">DSH</div>
+                <div className="message-content"><MarkdownMessage text={currentStreamingAssistant.text} /></div>
+              </article>
+            );
+
+            return (
+              <>
+                {messages.map((message, index) => (
+                  <Fragment key={message.id}>
+                    {index === activityIndex && streamingMessage}
+                    {message.kind === "message" ? (
+                      <article className={`message message-${message.role}`}>
+                        <div className="message-meta">{message.role === "assistant" ? "DSH" : "You"}</div>
+                        <div className="message-content">
+                          {message.role === "assistant" ? <MarkdownMessage text={message.text} /> : <p>{message.text}</p>}
+                        </div>
+                      </article>
+                    ) : (
+                      <ToolThread message={message} />
+                    )}
+                  </Fragment>
+                ))}
+                {activityIndex === -1 && streamingMessage}
+              </>
+            );
+          })()}
         </div>
       </section>
 

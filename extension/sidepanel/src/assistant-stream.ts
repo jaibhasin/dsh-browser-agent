@@ -31,11 +31,18 @@ export function createAssistantStream(
 
     const targetCharacters = Array.from(targetText);
     const renderedCharacters = Array.from(current.text);
-    if (renderedCharacters.length < targetCharacters.length) {
+    const finishing = completion?.id === current.id;
+    if (renderedCharacters.length < targetCharacters.length && (!finishing || targetText.startsWith(current.text))) {
       current = {
         ...current,
         text: renderedCharacters.concat(targetCharacters[renderedCharacters.length]).join(""),
       };
+      onUpdate(current);
+    } else if (finishing && current.text !== targetText) {
+      // The final response is authoritative. A provider can normalize or
+      // revise streamed text, so do not leave completion waiting for an
+      // impossible character-by-character match.
+      current = { ...current, text: targetText };
       onUpdate(current);
     }
 
@@ -88,5 +95,9 @@ export function createAssistantStream(
     onUpdate(undefined);
   }
 
-  return { append, finish, clear };
+  function getTarget(id: string): string | undefined {
+    return current?.id === id ? targetText : undefined;
+  }
+
+  return { append, finish, clear, getTarget };
 }
