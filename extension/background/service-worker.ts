@@ -1,6 +1,7 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
 import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
 import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentTabState, getAgentTaskTab, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask } from "./agent-tab";
+import { DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES } from "../../shared/protocol";
 
 const bridge = new ExtensionBridge();
 bridge.setChatDeltaHandler((delta) => {
@@ -170,15 +171,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     const deniedTools = (message as { deniedTools?: unknown }).deniedTools;
     const humanInTheLoop = (message as { humanInTheLoop?: unknown }).humanInTheLoop;
     const content = (message as { content?: unknown }).content;
-    const hasImageContent = Array.isArray(content) && content.some((part) => typeof part === "object" && part !== null && "type" in part && (part as { type?: unknown }).type === "image");
-    if (typeof text !== "string" || (!text.trim() && !hasImageContent)) { sendResponse({ ok: false, error: "Message is empty." }); return; }
+    const hasAttachmentContent = Array.isArray(content) && content.some((part) => typeof part === "object" && part !== null && "type" in part && ((part as { type?: unknown }).type === "image" || (part as { type?: unknown }).type === "document"));
+    if (typeof text !== "string" || (!text.trim() && !hasAttachmentContent)) { sendResponse({ ok: false, error: "Message is empty." }); return; }
     if (typeof id !== "string" || !id) { sendResponse({ ok: false, error: "Chat request ID is invalid." }); return; }
     if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }
     if (typeof resume !== "boolean") { sendResponse({ ok: false, error: "Chat resume state is invalid." }); return; }
     if (deniedTools !== undefined && !(Array.isArray(deniedTools) && deniedTools.every((tool) => typeof tool === "string"))) { sendResponse({ ok: false, error: "Tool restrictions are invalid." }); return; }
     if (humanInTheLoop !== undefined && typeof humanInTheLoop !== "boolean") { sendResponse({ ok: false, error: "Human-in-the-loop setting is invalid." }); return; }
     if (content !== undefined && (!Array.isArray(content) || content.length === 0 || content.some((part) => !isBridgePromptContentPart(part)))) {
-      sendResponse({ ok: false, error: "Image attachments are invalid." }); return;
+      sendResponse({ ok: false, error: "Attachments are invalid." }); return;
     }
     void claimCurrentAgentTab(sessionId)
       .then(async ({ tab, displacedSessionIds }) => {
@@ -290,8 +291,14 @@ function isBridgePromptContentPart(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value) || !("type" in value)) return false;
   const part = value as { type?: unknown; text?: unknown; mediaType?: unknown; data?: unknown; name?: unknown };
   if (part.type === "text") return typeof part.text === "string";
-  return part.type === "image" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(part.mediaType as string) &&
+  if (part.type === "image") return (IMAGE_MEDIA_TYPES as readonly string[]).includes(part.mediaType as string) &&
     typeof part.data === "string" && (part.name === undefined || typeof part.name === "string");
+  return part.type === "document" && typeof part.name === "string" && part.name.length > 0 && part.name.length <= DOCUMENT_LIMITS.maxNameLength &&
+    typeof part.data === "string" && isBase64(part.data) && (part.mediaType === undefined || typeof part.mediaType === "string");
+}
+
+function isBase64(value: string): boolean {
+  return value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value);
 }
 
 function parseHttpUrl(value: string): URL {

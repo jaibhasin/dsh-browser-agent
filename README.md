@@ -10,6 +10,7 @@ DSH Browser Agent lives in Chrome's side panel and works with the tabs you alrea
 
 - Read pages, click buttons, type into fields, scroll, and take screenshots.
 - Attach PNG, JPEG, WebP, or GIF images to ask the agent about visual content.
+- Attach Word, PDF, CSV, Excel, PowerPoint, OpenDocument, RTF, EPUB, Markdown, and text files for local conversion and analysis.
 - Watch the agent's actions as it works, right in the chat.
 - Pick up a saved conversation with its messages and website links.
 - Switch tabs and choose whether the agent keeps working, pauses, or follows you.
@@ -217,6 +218,8 @@ Your chats are saved in Chrome on your device, and DSH also keeps local data.
 Messages and page content used by the AI are sent to the model provider you chose.
 Page text and screenshots may include sensitive information.
 Images attached to chats may also be sent to the model provider you choose.
+Document attachments are converted locally by the DSH plugin before their text is sent to the model provider you choose.
+Scanned PDFs are not OCR'd or uploaded by this extension.
 
 **Approval prompts are off by default.**
 Type `/human-in-the-loop` in a chat to require approval before `browser_click` and `browser_navigate` calls.

@@ -10,6 +10,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import type { BridgePromptContentPart, JsonValue } from "../../shared/protocol.js";
 import { BROWSER_TOOL_DEFS, type BrowserToolName } from "../../shared/protocol.js";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
+import { convertDocuments } from "../document-converter.js";
 
 export const name = "dsh-browser-snapshot";
 export const inject = ["tools", "agents", "agentDefaultModel", "workspaceRegistry", "attachments"];
@@ -317,12 +318,16 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         toolDeniedBySession.set(session, new Set(deniedTools.filter((name) => typeof name === "string")));
         applyToolRestriction(session);
       }
-      if (!attachments && content?.some((part) => part.type === "image")) {
+      const documentParts = content?.filter((part): part is Extract<BridgePromptContentPart, { type: "document" }> => part.type === "document") ?? [];
+      const documentText = await convertDocuments(documentParts);
+      const promptText = [text, documentText].filter((value) => value.trim() !== "").join("\n\n");
+      const imageParts = content?.filter((part): part is Extract<BridgePromptContentPart, { type: "image" }> => part.type === "image") ?? [];
+      if (!attachments && imageParts.length > 0) {
         throw new Error("DSH image attachment storage is unavailable.");
       }
-      const admittedContent = content && attachments
-        ? await admitPromptContent(attachments, content)
-        : [{ type: "text" as const, text }];
+      const admittedContent = imageParts.length > 0 && attachments
+        ? await admitPromptContent(attachments, [...(promptText ? [{ type: "text" as const, text: promptText }] : []), ...imageParts])
+        : [{ type: "text" as const, text: promptText }];
       const message = createUserMessage({
         content: admittedContent,
         source: { kind: "user" },

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { MarkdownMessage } from "./MarkdownMessage";
-import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatImage, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
+import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatDocument, type ChatImage, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
 import { getTabSwitchView, type AgentTabState, type TabSummary } from "./tab-switch-state";
-import { IMAGE_MEDIA_TYPES } from "../../../shared/protocol";
+import { DOCUMENT_EXTENSIONS, DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES } from "../../../shared/protocol";
 import { BROWSER_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type BrowserToolName, type StoredTools } from "./tools";
 import { draftImageDataUrl, imageInputErrorMessage, prepareImageFiles, promptContent, type DraftImage } from "./image-attachments";
+import { DocumentInputError, documentInputErrorMessage, documentPromptContent, prepareDocumentFiles, type DraftDocument } from "./document-attachments";
 import type { BridgeChatDelta, BridgeChatProgress } from "../../../shared/protocol";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
@@ -25,7 +26,9 @@ function App() {
   const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
   const [draftImages, setDraftImages] = useState<DraftImage[]>([]);
+  const [draftDocuments, setDraftDocuments] = useState<DraftDocument[]>([]);
   const [isAddingImage, setIsAddingImage] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [activePaletteIndex, setActivePaletteIndex] = useState(0);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [activeToolIndex, setActiveToolIndex] = useState(0);
@@ -58,6 +61,7 @@ function App() {
   const currentTabId = useRef<number | undefined>(undefined);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const documentInputRef = useRef<HTMLInputElement>(null);
   const messageImageDataRef = useRef(new Map<string, DraftImage[]>());
   const messagesRef = useRef<HTMLDivElement>(null);
 
@@ -314,6 +318,11 @@ function App() {
 
   async function addImageFiles(files: readonly File[]) {
     if (files.length === 0 || isAddingImage || isLoading) return;
+    if (draftImages.length + draftDocuments.length + files.length > DOCUMENT_LIMITS.maxFilesPerMessage) {
+      setSessionNotice(`You can attach up to ${DOCUMENT_LIMITS.maxFilesPerMessage} files per message.`);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      return;
+    }
     setIsAddingImage(true);
     try {
       const prepared = await prepareImageFiles(files, draftImages);
@@ -327,12 +336,42 @@ function App() {
     }
   }
 
+  async function addAttachmentFiles(files: readonly File[]) {
+    if (files.length === 0 || isAddingImage || isLoading) return;
+    if (draftImages.length + draftDocuments.length + files.length > DOCUMENT_LIMITS.maxFilesPerMessage) {
+      setSessionNotice(`You can attach up to ${DOCUMENT_LIMITS.maxFilesPerMessage} files per message.`);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      if (documentInputRef.current) documentInputRef.current.value = "";
+      return;
+    }
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    const documentFiles = files.filter((file) => !file.type.startsWith("image/"));
+    setIsAddingImage(true);
+    try {
+      const [preparedImages, preparedDocuments] = await Promise.all([
+        imageFiles.length > 0 ? prepareImageFiles(imageFiles, draftImages) : [],
+        documentFiles.length > 0 ? prepareDocumentFiles(documentFiles, draftDocuments) : [],
+      ]);
+      setDraftImages((current) => [...current, ...preparedImages]);
+      setDraftDocuments((current) => [...current, ...preparedDocuments]);
+      setSessionNotice("");
+    } catch (error) {
+      setSessionNotice(error instanceof DocumentInputError
+        ? documentInputErrorMessage(error)
+        : imageInputErrorMessage(error));
+    } finally {
+      setIsAddingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      if (documentInputRef.current) documentInputRef.current.value = "";
+    }
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = prompt.trim();
-    if ((!text && draftImages.length === 0) || isLoading || isAddingImage) return;
+    if ((!text && draftImages.length === 0 && draftDocuments.length === 0) || isLoading || isAddingImage) return;
 
-    if (text.startsWith("/") && draftImages.length === 0) {
+    if (text.startsWith("/") && draftImages.length === 0 && draftDocuments.length === 0) {
       const cmd = text.slice(1).trim().toLowerCase();
       // Accept exact ("/actions") and unambiguous prefix ("/act") matches.
       const candidates = cmd ? slashCommands.filter((c) => c.id.startsWith(cmd)) : [];
@@ -357,10 +396,14 @@ function App() {
     const sessionId = activeSessionId;
     const resume = messages.length > 0;
     const submittedImages = draftImages;
-    const content = promptContent(text, submittedImages);
+    const submittedDocuments = draftDocuments;
+    const content = [...promptContent(text, submittedImages), ...documentPromptContent(submittedDocuments)];
     const userMessageId = crypto.randomUUID();
     const imageMetadata: ChatImage[] = submittedImages.map(({ id: imageId, mediaType, bytes, width, height, name }) => ({
       id: imageId, mediaType, bytes, width, height, ...(name ? { name } : {}),
+    }));
+    const documentMetadata: ChatDocument[] = submittedDocuments.map(({ id: documentId, name, extension, bytes }) => ({
+      id: documentId, name, extension, bytes,
     }));
     if (submittedImages.length > 0) messageImageDataRef.current.set(userMessageId, submittedImages);
     setIsLoading(true);
@@ -369,11 +412,16 @@ function App() {
       activeChatIds.current.add(id);
       activeChatSessions.current.set(id, sessionId);
       activeChatIdBySession.current.set(sessionId, id);
-      updateConversation(sessionId, (currentMessages) => [...currentMessages, { kind: "message", id: userMessageId, role: "user", text, ...(imageMetadata.length > 0 ? { images: imageMetadata } : {}) }], "active");
+      updateConversation(sessionId, (currentMessages) => [...currentMessages, { kind: "message", id: userMessageId, role: "user", text, ...(imageMetadata.length > 0 ? { images: imageMetadata } : {}), ...(documentMetadata.length > 0 ? { documents: documentMetadata } : {}) }], "active");
       setPrompt("");
       setDraftImages([]);
+      setDraftDocuments([]);
       setSessionNotice("");
       const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, content, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId), humanInTheLoop: humanInTheLoopSessions.has(sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
+      if (!response?.ok) {
+        setDraftImages(submittedImages);
+        setDraftDocuments(submittedDocuments);
+      }
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
       clearAssistantStream(id);
       if (!stoppedChatIds.current.has(id)) {
@@ -387,6 +435,7 @@ function App() {
     } catch (error) {
       clearAssistantStream(id);
       if (submittedImages.length > 0) setDraftImages(submittedImages);
+      if (submittedDocuments.length > 0) setDraftDocuments(submittedDocuments);
       if (!stoppedChatIds.current.has(id)) {
         updateConversation(sessionId, (currentMessages) => [...currentMessages, {
           kind: "message",
@@ -1052,7 +1101,7 @@ function App() {
         }}
         onDrop={(event) => {
           event.preventDefault();
-          void addImageFiles([...event.dataTransfer.files]);
+          void addAttachmentFiles([...event.dataTransfer.files]);
         }}
       >
         <label className="sr-only" htmlFor="prompt">Message the browser agent</label>
@@ -1067,6 +1116,26 @@ function App() {
                   aria-label={`Remove ${image.name || `image ${index + 1}`}`}
                   title="Remove image"
                   onClick={() => setDraftImages((current) => current.filter((candidate) => candidate.id !== image.id))}
+                  disabled={isAddingImage || isLoading}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {draftDocuments.length > 0 && (
+          <div className="document-draft-list" aria-label="Files to attach">
+            {draftDocuments.map((document) => (
+              <div className="document-draft" key={document.id}>
+                <span className="document-draft-icon" aria-hidden="true">{document.extension.toUpperCase()}</span>
+                <span className="document-draft-name" title={document.name}>{document.name}</span>
+                <button
+                  type="button"
+                  className="image-draft-remove"
+                  aria-label={`Remove ${document.name}`}
+                  title="Remove file"
+                  onClick={() => setDraftDocuments((current) => current.filter((candidate) => candidate.id !== document.id))}
                   disabled={isAddingImage || isLoading}
                 >
                   ×
@@ -1106,13 +1175,34 @@ function App() {
             tabIndex={-1}
             onChange={(event) => void addImageFiles([...event.target.files ?? []])}
           />
+          <input
+            ref={documentInputRef}
+            className="image-file-input"
+            type="file"
+            accept={DOCUMENT_EXTENSIONS.map((extension) => `.${extension}`).join(",")}
+            multiple
+            tabIndex={-1}
+            onChange={(event) => void addAttachmentFiles([...event.target.files ?? []])}
+          />
+          {attachmentMenuOpen && (
+            <div className="attachment-menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click(); }}>
+                Add photos
+              </button>
+              <button type="button" role="menuitem" onClick={() => { setAttachmentMenuOpen(false); documentInputRef.current?.click(); }}>
+                Add files
+              </button>
+            </div>
+          )}
           <button
             type="button"
             className="attach-button"
-            onClick={() => imageInputRef.current?.click()}
+            onClick={() => setAttachmentMenuOpen((open) => !open)}
             disabled={isAddingImage || isLoading}
-            aria-label="Attach images"
-            title="Attach images"
+            aria-label="Attach files"
+            title="Attach files"
+            aria-haspopup="menu"
+            aria-expanded={attachmentMenuOpen}
           >
             {isAddingImage ? "…" : "＋"}
           </button>
@@ -1232,6 +1322,16 @@ function UserMessageContent({ message, images }: { message: Message; images?: Dr
               <span className="image-message-placeholder" key={image.id}>{image.name || "Attached image"}</span>
             );
           })}
+        </div>
+      )}
+      {message.documents && message.documents.length > 0 && (
+        <div className="document-message-list" aria-label="Attached files">
+          {message.documents.map((document) => (
+            <span className="document-message-chip" key={document.id}>
+              <strong>{document.extension.toUpperCase()}</strong>
+              <span title={document.name}>{document.name}</span>
+            </span>
+          ))}
         </div>
       )}
     </>

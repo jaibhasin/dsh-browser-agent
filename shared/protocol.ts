@@ -23,9 +23,29 @@ export type BrowserToolName = (typeof BROWSER_TOOL_DEFS)[number]["name"];
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number];
+export const DOCUMENT_EXTENSIONS = [
+  "doc", "docx", "docm", "pdf", "csv", "xls", "xlsx", "xlsm", "xlsb",
+  "ppt", "pps", "pot", "pptx", "pptm", "ppsx", "ppsm", "odt", "ods", "odp", "rtf", "epub", "md", "txt",
+] as const;
+export type DocumentExtension = (typeof DOCUMENT_EXTENSIONS)[number];
+export const DOCUMENT_LIMITS = {
+  maxFilesPerMessage: 4,
+  maxFileBytes: 10 * 1024 * 1024,
+  maxMessageBytes: 20 * 1024 * 1024,
+  maxNameLength: 255,
+  maxMarkdownChars: 200_000,
+} as const;
+export function documentExtension(name: string): DocumentExtension | undefined {
+  const extension = name.trim().toLowerCase().split(".").pop();
+  return (DOCUMENT_EXTENSIONS as readonly string[]).includes(extension ?? "") ? extension as DocumentExtension : undefined;
+}
+export function isSupportedDocumentName(name: string): boolean {
+  return documentExtension(name) !== undefined;
+}
 export type BridgePromptContentPart =
   | { type: "text"; text: string }
-  | { type: "image"; mediaType: ImageMediaType; data: string; name?: string };
+  | { type: "image"; mediaType: ImageMediaType; data: string; name?: string }
+  | { type: "document"; name: string; mediaType?: string; data: string };
 export type BridgeHello = { type: "hello"; protocolVersion: typeof PROTOCOL_VERSION; token: string; client: "chrome-extension" };
 export type BridgeWelcome = { type: "welcome"; protocolVersion: typeof PROTOCOL_VERSION };
 export type BridgeRequest = { type: "request"; id: string; method: string; params: JsonValue; taskId?: string };
@@ -106,10 +126,19 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
 }
 
 function isPromptContentPart(value: unknown): value is BridgePromptContentPart {
-  if (!isRecord(value) || (value.type !== "text" && value.type !== "image")) return false;
+  if (!isRecord(value) || (value.type !== "text" && value.type !== "image" && value.type !== "document")) return false;
   if (value.type === "text") return typeof value.text === "string";
-  return typeof value.mediaType === "string" &&
-    (IMAGE_MEDIA_TYPES as readonly string[]).includes(value.mediaType) &&
-    typeof value.data === "string" &&
-    (value.name === undefined || typeof value.name === "string");
+  if (value.type === "image") {
+    return typeof value.mediaType === "string" &&
+      (IMAGE_MEDIA_TYPES as readonly string[]).includes(value.mediaType) &&
+      typeof value.data === "string" &&
+      (value.name === undefined || typeof value.name === "string");
+  }
+  return typeof value.name === "string" && value.name.length > 0 && value.name.length <= DOCUMENT_LIMITS.maxNameLength &&
+    typeof value.data === "string" && isBase64(value.data) &&
+    (value.mediaType === undefined || typeof value.mediaType === "string");
+}
+
+function isBase64(value: string): boolean {
+  return value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value);
 }
