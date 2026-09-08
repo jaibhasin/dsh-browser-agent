@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { MarkdownMessage } from "./MarkdownMessage";
 import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatMessage as Message, type ConversationItem, type SavedChat, type ToolActivity } from "./chat-history";
 import { getTabSwitchView, type AgentTabState, type TabSummary } from "./tab-switch-state";
-import type { BridgeChatDelta, BridgeChatProgress } from "../../../shared/protocol";
+import type { BridgeChatDelta, BridgeChatProgress, UserQuestion } from "../../../shared/protocol";
 import { BROWSER_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type BrowserToolName, type StoredTools } from "./tools";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
 type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate"; detail: string };
+type UserQuestionRequest = UserQuestion;
 type StreamingAssistant = { id: string; sessionId: string; text: string };
 
 function App() {
@@ -36,6 +37,8 @@ function App() {
   const [toolSettingsReady, setToolSettingsReady] = useState(false);
   const [humanInTheLoopSessions, setHumanInTheLoopSessions] = useState<Set<string>>(() => new Set());
   const [pendingHumanApproval, setPendingHumanApproval] = useState<HumanApprovalRequest>();
+  const [pendingUserQuestion, setPendingUserQuestion] = useState<UserQuestionRequest>();
+  const [userQuestionText, setUserQuestionText] = useState("");
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
   const [dismissedTabId, setDismissedTabId] = useState<number>();
   const activeChatIds = useRef(new Set<string>());
@@ -221,7 +224,7 @@ function App() {
       if (!chrome.runtime.lastError) setConnectionStatus(response?.status === "connected" ? "connected" : response?.status ?? "disconnected");
     });
     void refreshAgentTabState();
-    const onMessage = (message: { type?: string; status?: string; delta?: BridgeChatDelta; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown }) => {
+    const onMessage = (message: { type?: string; status?: string; delta?: BridgeChatDelta; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown; question?: unknown }) => {
       if (message.type === "dsh-bridge-status" && message.status) {
         setConnectionStatus(message.status);
       } else if (message.type === "dsh-chat-delta" && message.delta && activeChatIds.current.has(message.delta.id)) {
@@ -233,6 +236,9 @@ function App() {
         applyAgentTabState(message.state);
       } else if (message.type === "dsh-human-approval-request" && isHumanApprovalRequest(message.approval) && activeChatIds.current.has(message.approval.chatId)) {
         setPendingHumanApproval(message.approval);
+      } else if (message.type === "dsh-user-question-request" && isUserQuestionRequest(message.question) && activeChatIds.current.has(message.question.chatId)) {
+        setUserQuestionText("");
+        setPendingUserQuestion(message.question);
       }
     };
     chrome.runtime.onMessage.addListener(onMessage);
@@ -349,6 +355,7 @@ function App() {
       const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id, text, sessionId, resume, deniedTools: effectiveDenied(toolSettings, sessionId), humanInTheLoop: humanInTheLoopSessions.has(sessionId) }) as { ok?: boolean; text?: string; error?: string; displacedSessionIds?: string[] };
       await forgetDisplacedSessions(response?.displacedSessionIds, sessionId);
       clearAssistantStream(id);
+      setPendingUserQuestion(undefined);
       if (!stoppedChatIds.current.has(id)) {
         updateConversation(sessionId, (currentMessages) => [...currentMessages, {
           kind: "message",
@@ -359,6 +366,7 @@ function App() {
       }
     } catch (error) {
       clearAssistantStream(id);
+      setPendingUserQuestion(undefined);
       if (!stoppedChatIds.current.has(id)) {
         updateConversation(sessionId, (currentMessages) => [...currentMessages, {
           kind: "message",
@@ -384,6 +392,7 @@ function App() {
 
     stoppedChatIds.current.add(id);
     clearAssistantStream(id);
+    setPendingUserQuestion(undefined);
     setIsStopping(true);
     try {
       const response = await chrome.runtime.sendMessage({ type: "dsh-agent-pause-chat", sessionId }) as { ok?: boolean; error?: string };
@@ -412,6 +421,7 @@ function App() {
     try {
       const previousSessionId = activeSessionId;
       clearAssistantStream();
+      setPendingUserQuestion(undefined);
       // Best-effort stop: discard the agent task even if it's mid-flight.
       await chrome.runtime.sendMessage({ type: "dsh-agent-discard-chat", sessionId: previousSessionId }).catch(() => undefined);
       await forgetSession(previousSessionId);
@@ -699,6 +709,29 @@ function App() {
     void chrome.runtime.sendMessage({ type: "dsh-human-approval-response", approvalId: approval.approvalId, approved });
   }
 
+  function respondToUserQuestion(answer?: string) {
+    const question = pendingUserQuestion;
+    if (!question) return;
+    const trimmedAnswer = answer?.trim();
+    if (trimmedAnswer === "") return;
+    setPendingUserQuestion(undefined);
+    setUserQuestionText("");
+    void chrome.runtime.sendMessage({
+      type: "dsh-user-question-response",
+      questionId: question.questionId,
+      chatId: question.chatId,
+      ...(trimmedAnswer ? { answer: trimmedAnswer } : { cancelled: true }),
+    }).then((response: { ok?: boolean; error?: string }) => {
+      if (!response?.ok) {
+        setPendingUserQuestion(question);
+        setSessionNotice(response?.error ?? "The answer could not be sent.");
+      }
+    }).catch(() => {
+      setPendingUserQuestion(question);
+      setSessionNotice("The answer could not be sent.");
+    });
+  }
+
   function updateToolSettings(next: StoredTools) {
     setToolSettings(next);
     void saveToolSettings(next);
@@ -950,6 +983,47 @@ function App() {
         </div>
       )}
 
+      {pendingUserQuestion && (
+        <div className="delete-modal-backdrop" role="presentation">
+          <section className="delete-modal user-question-modal" role="dialog" aria-modal="true" aria-labelledby="user-question-title" aria-describedby="user-question-description">
+            <div className="delete-modal-icon approval-modal-icon" aria-hidden="true">?</div>
+            <div className="delete-modal-copy">
+              <span className="delete-modal-eyebrow user-question-eyebrow">The agent needs your input</span>
+              <h2 id="user-question-title">{pendingUserQuestion.question}</h2>
+              <p id="user-question-description">Choose an answer to let the agent continue.</p>
+            </div>
+            {pendingUserQuestion.options.length > 0 && (
+              <div className="user-question-options" aria-label="Answer choices">
+                {pendingUserQuestion.options.map((option) => (
+                  <button type="button" key={option} onClick={() => respondToUserQuestion(option)}>{option}</button>
+                ))}
+              </div>
+            )}
+            {pendingUserQuestion.allowFreeText && (
+              <form className="user-question-form" onSubmit={(event) => {
+                event.preventDefault();
+                respondToUserQuestion(userQuestionText);
+              }}>
+                <label htmlFor="user-question-answer">Your answer</label>
+                <div className="user-question-input-row">
+                  <input
+                    id="user-question-answer"
+                    value={userQuestionText}
+                    onChange={(event) => setUserQuestionText(event.target.value)}
+                    placeholder="Type your answer..."
+                    autoFocus
+                  />
+                  <button className="delete-modal-primary" type="submit" disabled={!userQuestionText.trim()}>Send</button>
+                </div>
+              </form>
+            )}
+            <div className="delete-modal-actions">
+              <button type="button" onClick={() => respondToUserQuestion()}>Cancel</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {pendingHumanApproval && (
         <div className="delete-modal-backdrop" role="presentation">
           <section className="delete-modal approval-modal" role="alertdialog" aria-modal="true" aria-labelledby="approval-modal-title" aria-describedby="approval-modal-description">
@@ -1079,6 +1153,16 @@ function isHumanApprovalRequest(value: unknown): value is HumanApprovalRequest {
   const approval = value as Partial<HumanApprovalRequest>;
   return typeof approval.approvalId === "string" && typeof approval.chatId === "string" &&
     (approval.tool === "browser_click" || approval.tool === "browser_navigate") && typeof approval.detail === "string";
+}
+
+function isUserQuestionRequest(value: unknown): value is UserQuestionRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const question = value as Partial<UserQuestionRequest>;
+  return typeof question.questionId === "string" && question.questionId.length > 0 &&
+    typeof question.chatId === "string" && question.chatId.length > 0 &&
+    typeof question.question === "string" && question.question.trim().length > 0 &&
+    Array.isArray(question.options) && question.options.every((option) => typeof option === "string") &&
+    typeof question.allowFreeText === "boolean";
 }
 
 function ToolThread({ message }: { message: ActivityGroup }) {

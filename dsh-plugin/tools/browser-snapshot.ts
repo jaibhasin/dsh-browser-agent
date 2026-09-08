@@ -7,7 +7,7 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import type { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
-import type { JsonValue } from "../../shared/protocol.js";
+import type { JsonValue, UserQuestion, UserQuestionResponse } from "../../shared/protocol.js";
 import { BROWSER_TOOL_DEFS, type BrowserToolName } from "../../shared/protocol.js";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
 
@@ -43,6 +43,7 @@ Prefer concrete answers over vague explanations.
 Have a point of view. Do not hedge unnecessarily.
 If the user's assumption is wrong, say so clearly.
 Be resourceful before asking the user for information.
+When a needed choice or detail cannot be inferred safely, use ask_user instead of guessing.
 Use natural language, not corporate assistant language.
 Humor is fine when it naturally fits; never force it.
 Don't repeat the user's question back to them.`;
@@ -134,6 +135,15 @@ interface PendingApproval {
   abort?: () => void;
 }
 
+interface PendingUserQuestion {
+  chatId: string;
+  resolve: (answer: string) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+  signal?: AbortSignal;
+  abort?: () => void;
+}
+
 /** Register browser tools and the side-panel chat bridge. */
 export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): Promise<void> {
   const agents = ctx.agents;
@@ -149,6 +159,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   const activeChatsById = new Map<string, ActiveChat>();
   const activeChatsBySession = new Map<SessionId, ActiveChat>();
   const pendingApprovals = new Map<string, PendingApproval>();
+  const pendingUserQuestions = new Map<string, PendingUserQuestion>();
   /** Carries the originating chat through DSH's asynchronous tool execution. */
   const chatContext = new AsyncLocalStorage<ActiveChat>();
   /**
@@ -171,6 +182,18 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         const activeChat = activeChatsById.get(chat);
         if (!activeChat) return;
         activeChat.handle.agent.cancel({ kind: "user" });
+        return;
+      }
+      if (event === "user_question_response") {
+        const response = parseUserQuestionResponse(payload);
+        if (!response) return;
+        const pending = pendingUserQuestions.get(response.questionId);
+        if (!pending || pending.chatId !== response.chatId) return;
+        pendingUserQuestions.delete(response.questionId);
+        clearTimeout(pending.timeout);
+        if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
+        if (response.cancelled) pending.reject(new Error("The user question was cancelled."));
+        else pending.resolve(response.answer as string);
         return;
       }
       if (event !== "human_approval_response") return;
@@ -357,6 +380,13 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
           if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
           pending.reject(new Error("The browser task ended before approval was received."));
         }
+        for (const [questionId, pending] of pendingUserQuestions) {
+          if (pending.chatId !== chat.id) continue;
+          pendingUserQuestions.delete(questionId);
+          clearTimeout(pending.timeout);
+          if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
+          pending.reject(new Error("The browser task ended before an answer was received."));
+        }
         if (activeChatsById.get(chat.id) === chat) activeChatsById.delete(chat.id);
         if (activeChatsBySession.get(session) === chat) activeChatsBySession.delete(session);
       }
@@ -409,12 +439,81 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       bridge.sendEvent("human_approval_requested", { approvalId, chatId: chat.id, tool, detail });
     });
   };
+  const requestUserQuestion = async (question: string, options: string[], allowFreeText: boolean, signal?: AbortSignal): Promise<string> => {
+    const chat = chatContext.getStore();
+    if (!chat) throw new Error("ask_user can only run inside an active browser-agent chat.");
+    if (signal?.aborted) throw new Error("The user question was cancelled.");
+    const questionId = randomUUID();
+    return await new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingUserQuestions.delete(questionId);
+        if (signal && abort) signal.removeEventListener("abort", abort);
+        reject(new Error("The user question timed out."));
+      }, 120_000);
+      const abort = () => {
+        pendingUserQuestions.delete(questionId);
+        clearTimeout(timeout);
+        reject(new Error("The user question was cancelled."));
+      };
+      pendingUserQuestions.set(questionId, {
+        chatId: chat.id,
+        resolve,
+        reject,
+        timeout,
+        signal,
+        abort,
+      });
+      signal?.addEventListener("abort", abort, { once: true });
+      bridge.sendEvent("user_question_requested", { questionId, chatId: chat.id, question, options, allowFreeText } satisfies UserQuestion);
+    });
+  };
   await bridge.start();
   ctx.effect(() => () => {
     for (const dispose of toolRestrictDisposers.values()) dispose();
     toolRestrictDisposers.clear();
+    for (const [questionId, pending] of pendingUserQuestions) {
+      pendingUserQuestions.delete(questionId);
+      clearTimeout(pending.timeout);
+      if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
+      pending.reject(new Error("The browser question flow ended."));
+    }
     return Promise.all([...handles.values()].map((handle) => handle.dispose())).then(() => bridge.stop());
   }, "dsh-browser-snapshot: websocket bridge");
+  ctx.tools.register(defineTool({
+    name: "ask_user",
+    description: "Ask the user for a missing choice or detail when it cannot be inferred safely. Use this sparingly and only when the task is blocked without the user's input. Present a short, specific question. Provide options when there are a small number of meaningful choices; allow free text when a natural-language answer is needed.",
+    parameters: {
+      question: { type: "string", required: true, description: "A concise question for the user." },
+      options: { type: "array", items: { type: "string" }, description: "Optional list of choices, up to 8. The user can choose one directly." },
+      allowFreeText: { type: "boolean", description: "Whether the user may enter an answer instead of choosing an option. Defaults to true when no options are provided." },
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: { answer: { type: "string", required: true } },
+      },
+      render: (_args, value) => [{ type: "text", text: `User answered: ${(value as { answer: string }).answer}` }],
+    },
+    async execute(args, exec) {
+      const rawQuestion = (args as { question?: unknown }).question;
+      const rawOptions = (args as { options?: unknown }).options;
+      const rawAllowFreeText = (args as { allowFreeText?: unknown }).allowFreeText;
+      if (typeof rawQuestion !== "string" || !rawQuestion.trim()) throw new Error("ask_user requires a question.");
+      if (rawQuestion.trim().length > 4_000) throw new Error("ask_user questions must be 4,000 characters or fewer.");
+      if (rawOptions !== undefined && (!Array.isArray(rawOptions) || rawOptions.some((option) => typeof option !== "string"))) {
+        throw new Error("ask_user options must be an array of strings.");
+      }
+      if (rawAllowFreeText !== undefined && typeof rawAllowFreeText !== "boolean") throw new Error("ask_user allowFreeText must be a boolean.");
+      const options = [...new Set((rawOptions as string[] | undefined ?? []).map((option) => option.trim()).filter(Boolean))];
+      if (options.length > 8) throw new Error("ask_user supports at most 8 options.");
+      if (options.some((option) => option.length > 500)) throw new Error("ask_user options must be 500 characters or fewer.");
+      const allowFreeText = (rawAllowFreeText as boolean | undefined) ?? options.length === 0;
+      if (options.length === 0 && !allowFreeText) throw new Error("ask_user needs options or free-text input.");
+      const answer = await requestUserQuestion(rawQuestion.trim(), options, allowFreeText, exec.signal);
+      return { answer };
+    },
+  }));
   ctx.tools.register(defineTool({
     name: "browser_navigate",
     description: "Navigate the tab assigned to this agent directly to an absolute HTTP or HTTPS URL. The assignment remains stable when the user views another tab. This changes browser state. The returned tab details reflect the navigation target; use browser_snapshot after navigation to inspect loaded page content.",
@@ -712,6 +811,15 @@ function renderBrowserTabs(tabs: BrowserTab[]): string {
   return tabs.length === 0 ? "No browser tabs are open." : tabs.map(renderBrowserTab).join("\n\n");
 }
 
+function parseUserQuestionResponse(value: unknown): UserQuestionResponse | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const response = value as Partial<UserQuestionResponse>;
+  if (typeof response.questionId !== "string" || !response.questionId || typeof response.chatId !== "string" || !response.chatId) return undefined;
+  if (response.cancelled === true && response.answer === undefined) return { questionId: response.questionId, chatId: response.chatId, cancelled: true };
+  if (response.cancelled !== undefined || typeof response.answer !== "string" || !response.answer.trim()) return undefined;
+  return { questionId: response.questionId, chatId: response.chatId, answer: response.answer.trim() };
+}
+
 function toolCallIdFromResult(event: ToolResultEvent): string | undefined {
   const content = event.data.message?.content;
   if (!Array.isArray(content)) return undefined;
@@ -723,6 +831,10 @@ function toolCallIdFromResult(event: ToolResultEvent): string | undefined {
 
 function describeToolInput(tool: string, rawArguments: unknown): string {
   const args = parseToolArguments(rawArguments);
+  if (tool === "ask_user") {
+    const question = stringArgument(args, "question");
+    return question ? question.slice(0, 120) : "User input";
+  }
   if (tool === "browser_snapshot") return "Current page";
   if (tool === "browser_wait") {
     const timeoutMs = integerArgument(args, "timeoutMs");

@@ -1517,6 +1517,91 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.user-question-modal {
+  max-height: min(90vh, 620px);
+  overflow-y: auto;
+}
+
+.user-question-eyebrow {
+  color: var(--accent-hover);
+}
+
+.user-question-modal h2 {
+  overflow-wrap: anywhere;
+}
+
+.user-question-options {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.user-question-options button {
+  padding: 9px 11px;
+  color: var(--text-primary);
+  cursor: pointer;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.user-question-options button:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.user-question-options button:focus-visible,
+.user-question-input-row input:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+
+.user-question-form {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.user-question-form > label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.user-question-input-row {
+  display: flex;
+  gap: 7px;
+}
+
+.user-question-input-row input {
+  min-width: 0;
+  flex: 1;
+  padding: 8px 9px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.user-question-input-row button {
+  min-width: 58px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.user-question-input-row button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .delete-modal-primary {
   color: #fff !important;
   background: var(--accent) !important;
