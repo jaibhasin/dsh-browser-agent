@@ -9,7 +9,7 @@ It works with the tabs you already have open, including sites where you're signe
 
 ## Quick installation
 
-You'll need [Chrome](https://www.google.com/chrome/), [Node.js 24 LTS](https://nodejs.org/), and an API key for your chosen AI provider.
+You'll need [Chrome](https://www.google.com/chrome/), [Node.js 22.19+ (22.x) or 24+](https://nodejs.org/), and an API key for your chosen AI provider.
 Reopen your terminal after installing Node.js.
 
 **1. Run the installer.** It sets up DSH and prepares the Chrome extension.
@@ -124,7 +124,7 @@ Finally, remove **dsh Browser Agent** from `chrome://extensions` to delete the e
 
 | What you see | What to do |
 | --- | --- |
-| `node` is not found | Install Node.js 24 LTS, then reopen your terminal. |
+| `node` is not found | Install Node.js 22.19+ (22.x) or 24+, then reopen your terminal. |
 | Chrome cannot find the extension | Select the exact folder printed by the installer, including the final `extension` directory. |
 | The side panel is disconnected | Start DSH with the installer-provided command and keep the terminal open. |
 | Port `7331` or `3080` is already in use | Stop the other DSH instance, then start this one again. |
@@ -179,7 +179,7 @@ The bridge listens on `127.0.0.1:7331` and authenticates WebSocket connections w
 
 ### Set up a checkout
 
-Use Node.js 24 LTS and pnpm `11.8.0`, matching the project's `packageManager` setting.
+Use Node.js 22.19+ (22.x) or 24+, and pnpm `11.8.0`, matching the project's `packageManager` setting.
 
 ```sh
 git clone https://github.com/jaibhasin/dsh-browser-agent.git
