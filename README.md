@@ -9,29 +9,18 @@ It works with the tabs you already have open, including sites where you're signe
 
 ## Quick installation
 
-There are two parts to set up: the Chrome extension and a local DSH bridge that lets the agent talk to your browser.
-The installer prepares both; then you'll load the extension in Chrome and start DSH.
-The standard `dsh` plugin command alone won't set up the extension.
+You'll need [Chrome](https://www.google.com/chrome/), [Node.js 24 LTS](https://nodejs.org/), and an API key for your chosen AI provider.
+Reopen your terminal after installing Node.js.
 
-### 1. Before you start
+**1. Run the installer.** It sets up DSH and prepares the Chrome extension.
 
-Install [Google Chrome](https://www.google.com/chrome/) and [Node.js 24 LTS](https://nodejs.org/).
-Node.js runs the local part of the agent.
-You'll also need an API key from the AI provider you want to use; you'll add it when you first open DSH.
-After installing Node.js, close and reopen your terminal.
-Windows users need PowerShell 5.1 or newer; Linux users need a desktop environment to use Chrome.
-
-The installer takes care of DSH and the other tools it needs.
-
-### 2. Run the installer
-
-**macOS or Linux:** open Terminal and paste:
+macOS / Linux (desktop):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jaibhasin/dsh-browser-agent/main/scripts/install.sh | bash
 ```
 
-**Windows:** open PowerShell and paste:
+Windows (PowerShell 5.1+):
 
 ```powershell
 $script = Join-Path $env:TEMP 'dsh-browser-install.ps1'
@@ -39,62 +28,62 @@ Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/jaibhasin/d
 powershell -NoProfile -ExecutionPolicy Bypass -File $script
 ```
 
-First-time installation can take a few minutes.
-Wait for **Setup complete!** in the terminal.
-Keep the terminal open so you can copy the folder path in the next step.
+Wait for **Setup complete!** and keep the terminal open for the folder path and start command.
 
-You can also [download the ZIP](https://github.com/jaibhasin/dsh-browser-agent/archive/refs/heads/main.zip) and extract it first.
-Open a terminal in that folder, then run `bash scripts/install.sh` on macOS/Linux or `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1` on Windows.
+**2. Load the extension.** Open `chrome://extensions`, enable **Developer mode**, and click **Load unpacked**.
+Select the extension folder printed by the installer.
+If it's hidden, paste the path using Cmd+Shift+G on macOS, Ctrl+L on Linux, or the address bar on Windows.
 
-### 3. Load the extension in Chrome
+**3. Start chatting.** Run the `node ".../start.mjs"` command printed by the installer and keep that terminal open.
+Open the web address DSH prints, add your API key, and choose a model.
+In Chrome, click **Extensions > dsh Browser Agent**, then try **“Summarize this page.”** on a website.
 
-1. Open Chrome, paste `chrome://extensions` into the address bar, and press Enter.
-2. Turn on **Developer mode** in the top-right corner.
-3. Click **Load unpacked** in the top-left corner.
-4. Choose the **extension folder shown in your terminal** and click **Select Folder** or **Select**.
+Use the same start command next time; press Ctrl+C to stop the agent.
 
-Select the folder itself, not a file inside it.
-Unless you chose a different installation location, you'll find it here:
+## Agent tools
 
-| Platform | Extension folder |
+| Tool | What it does |
 | --- | --- |
-| macOS / Linux | `~/.dsh/dsh-browser-agent/extension` |
-| Windows | `C:\Users\YOUR_USERNAME\.dsh\dsh-browser-agent\extension` |
+| `ask_user` | Asks the user for a missing choice or detail. |
+| `browser_snapshot` | Reads page text and gives buttons, links, and fields numbered references. |
+| `browser_navigate` | Opens an HTTP or HTTPS URL in the chat's assigned tab. |
+| `browser_tabs` | Lists open browser tabs. |
+| `browser_wait` | Waits for the page to settle, then takes a fresh snapshot. |
+| `browser_screenshot` | Takes a PNG screenshot of the visible part of the chat's tab. |
+| `browser_scroll` | Scrolls up, down, left, or right by a number of pixels. |
+| `browser_click` | Clicks a button, link, or other element by its reference number. |
+| `browser_type` | Types into a field by its reference number. |
 
-The `.dsh` folder may be hidden.
-To open it in the folder selection window:
+Use the side panel's tool controls to disable individual agent tools for a chat.
+To take a screenshot, the agent's tab needs to be visible, even if you've allowed it to work in the background.
 
-- **macOS:** press Cmd+Shift+G, paste the path, and press Return.
-- **Windows:** paste the path into the address bar and press Enter.
-- **Linux:** press Ctrl+L, paste the path, and press Enter.
+## Tabs and chat sessions
 
-You should now see a **dsh Browser Agent** card on the extensions page.
+### Each chat belongs to a tab
 
-### 4. Start the agent
+When you send the first message, the chat attaches to the tab you're viewing.
+A blue **Agent** tab group shows you which tab it controls.
+Each tab can have one chat, and the agent keeps working on that tab until you choose to move it.
 
-Copy and run the `node ".../start.mjs"` command printed by the installer.
-For a default installation, these commands work too:
+Chats are saved locally with their messages, tool activity, and recent website links.
+Open a saved chat and Chrome takes you back to its tab.
+If you've closed the tab, the extension opens a new one at its last saved website when possible.
+Unsaved page state, such as a half-filled form, isn't restored.
 
-**macOS or Linux:**
+### When you switch tabs during work
 
-```sh
-node "$HOME/.dsh/dsh-browser-agent/start.mjs"
-```
+Switch to another tab while the agent is working, and you'll get these choices:
 
-**Windows PowerShell:**
+| Choice | What happens |
+| --- | --- |
+| **Continue in background** | Work continues on the original assigned tab while you browse elsewhere. |
+| **Pause current chat** | Work stops and the chat stays saved for later. |
+| **Quit current chat** | Work stops and the chat is deleted from the extension's history. |
+| **Move current chat here** | The current chat moves to the newly selected tab. |
 
-```powershell
-node "$env:USERPROFILE\.dsh\dsh-browser-agent\start.mjs"
-```
-
-Keep this terminal open while using the agent.
-Open the web address DSH prints in the terminal, add your API key, and choose a model.
-Then click Chrome's puzzle-piece **Extensions** button and choose **dsh Browser Agent** to open the side panel.
-
-Open a website and try: **“Summarize this page.”**
-
-Next time, run the same start command and open the side panel.
-Press Ctrl+C in the terminal to stop DSH.
+If the tab you switch to already has a chat, you can pick up that conversation or start fresh.
+Starting fresh replaces that tab's old chat in your history.
+If you open another saved chat while the agent is busy, you'll also get a chance to keep the current task running, pause it, or quit it.
 
 ## What you can do
 
@@ -160,51 +149,6 @@ Those steps show up in the side panel as it works.
 
 The browser agent gets its own DSH installation and settings, so it won't replace an existing DSH setup.
 Its dependencies are locked to tested versions to avoid mixing incompatible releases.
-
-## Agent tools
-
-| Tool | What it does |
-| --- | --- |
-| `ask_user` | Asks the user for a missing choice or detail. |
-| `browser_snapshot` | Reads page text and gives buttons, links, and fields numbered references. |
-| `browser_navigate` | Opens an HTTP or HTTPS URL in the chat's assigned tab. |
-| `browser_tabs` | Lists open browser tabs. |
-| `browser_wait` | Waits for the page to settle, then takes a fresh snapshot. |
-| `browser_screenshot` | Takes a PNG screenshot of the visible part of the chat's tab. |
-| `browser_scroll` | Scrolls up, down, left, or right by a number of pixels. |
-| `browser_click` | Clicks a button, link, or other element by its reference number. |
-| `browser_type` | Types into a field by its reference number. |
-
-Use the side panel's tool controls to disable individual agent tools for a chat.
-To take a screenshot, the agent's tab needs to be visible, even if you've allowed it to work in the background.
-
-## Tabs and chat sessions
-
-### Each chat belongs to a tab
-
-When you send the first message, the chat attaches to the tab you're viewing.
-A blue **Agent** tab group shows you which tab it controls.
-Each tab can have one chat, and the agent keeps working on that tab until you choose to move it.
-
-Chats are saved locally with their messages, tool activity, and recent website links.
-Open a saved chat and Chrome takes you back to its tab.
-If you've closed the tab, the extension opens a new one at its last saved website when possible.
-Unsaved page state, such as a half-filled form, isn't restored.
-
-### When you switch tabs during work
-
-Switch to another tab while the agent is working, and you'll get these choices:
-
-| Choice | What happens |
-| --- | --- |
-| **Continue in background** | Work continues on the original assigned tab while you browse elsewhere. |
-| **Pause current chat** | Work stops and the chat stays saved for later. |
-| **Quit current chat** | Work stops and the chat is deleted from the extension's history. |
-| **Move current chat here** | The current chat moves to the newly selected tab. |
-
-If the tab you switch to already has a chat, you can pick up that conversation or start fresh.
-Starting fresh replaces that tab's old chat in your history.
-If you open another saved chat while the agent is busy, you'll also get a chance to keep the current task running, pause it, or quit it.
 
 ## Privacy and control
 
