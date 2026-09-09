@@ -8,12 +8,13 @@ import type { BridgeChatDelta, BridgeChatProgress, UserQuestion } from "../../..
 import { AGENT_TOOL_DEFS, effectiveDenied, loadToolSettings, saveToolSettings, type AgentToolName, type StoredTools } from "./tools";
 import { draftImageDataUrl, imageInputErrorMessage, prepareImageFiles, promptContent, type DraftImage } from "./image-attachments";
 import { DocumentInputError, documentInputErrorMessage, documentPromptContent, prepareDocumentFiles, type DraftDocument } from "./document-attachments";
+import { applyTheme, isThemePreference, saveThemePreference, themePreferenceLabel, type ThemePreference } from "./theme";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
 type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate"; detail: string };
 type UserQuestionRequest = UserQuestion;
 
-function App() {
+function App({ initialThemePreference = "system" }: { initialThemePreference?: ThemePreference }) {
   const [messages, setMessages] = useState<ConversationItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState(() => newSessionId());
   const [sessionCreatedAt, setSessionCreatedAt] = useState(() => Date.now());
@@ -48,6 +49,8 @@ function App() {
   const [userQuestionText, setUserQuestionText] = useState("");
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
   const [dismissedTabId, setDismissedTabId] = useState<number>();
+  const [themePreference, setThemePreference] = useState<ThemePreference>(initialThemePreference);
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const activeChatIds = useRef(new Set<string>());
   const activeChatSessions = useRef(new Map<string, string>());
   const activeChatIdBySession = useRef(new Map<string, string>());
@@ -68,8 +71,69 @@ function App() {
   const documentInputRef = useRef<HTMLInputElement>(null);
   const messageImageDataRef = useRef(new Map<string, DraftImage[]>());
   const messagesRef = useRef<HTMLDivElement>(null);
+  const themeButtonRef = useRef<HTMLButtonElement>(null);
 
   activeSessionIdRef.current = activeSessionId;
+
+  useEffect(() => {
+    applyTheme(themePreference);
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: light)");
+    const onSystemThemeChange = () => {
+      if (themePreference === "system") applyTheme("system");
+    };
+    const onStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+      if (areaName !== "local") return;
+      const next = changes.dshBrowserThemeV1?.newValue;
+      if (isThemePreference(next)) setThemePreference(next);
+      else if (next === undefined) setThemePreference("system");
+    };
+    mediaQuery.addEventListener("change", onSystemThemeChange);
+    chrome.storage.onChanged.addListener(onStorageChange);
+    return () => {
+      mediaQuery.removeEventListener("change", onSystemThemeChange);
+      chrome.storage.onChanged.removeListener(onStorageChange);
+    };
+  }, [themePreference]);
+
+  useEffect(() => {
+    if (!isThemeMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !themeButtonRef.current?.parentElement?.contains(target)) setIsThemeMenuOpen(false);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsThemeMenuOpen(false);
+        themeButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isThemeMenuOpen]);
+
+  function changeThemePreference(preference: ThemePreference) {
+    setThemePreference(preference);
+    applyTheme(preference);
+    setIsThemeMenuOpen(false);
+    void saveThemePreference(preference);
+  }
+
+  function handleThemeOptionKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const options = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(".theme-option");
+    if (!options?.length) return;
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? options.length - 1
+        : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+    options[nextIndex]?.focus();
+  }
 
   if (!assistantStreamRef.current) {
     assistantStreamRef.current = createAssistantStream(setStreamingAssistant);
@@ -891,6 +955,46 @@ function App() {
               aria-hidden="true"
             />
           )}
+          <div className="theme-control">
+            <button
+              ref={themeButtonRef}
+              className="icon-button"
+              type="button"
+              onClick={() => setIsThemeMenuOpen((open) => !open)}
+              aria-expanded={isThemeMenuOpen}
+              aria-haspopup="menu"
+              aria-label={`Theme: ${themePreferenceLabel(themePreference)}`}
+              title={`Theme: ${themePreferenceLabel(themePreference)}`}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                {themePreference === "light" ? (
+                  <path d="M8 3.25A4.75 4.75 0 1 0 8 12.75 4.75 4.75 0 0 0 8 3.25Zm0 1.5A3.25 3.25 0 1 1 8 11.25 3.25 3.25 0 0 1 8 4.75ZM7.25 0h1.5v2h-1.5V0Zm0 14h1.5v2h-1.5v-2ZM0 7.25h2v1.5H0v-1.5Zm14 0h2v1.5h-2v-1.5ZM2.14 3.2l1.06-1.06 1.42 1.42-1.06 1.06L2.14 3.2Zm9.24 9.24 1.06-1.06 1.42 1.42-1.06 1.06-1.42-1.42ZM2.14 12.8l1.42-1.42 1.06 1.06-1.42 1.42-1.06-1.06Zm9.24-9.24 1.42-1.42 1.06 1.06-1.42 1.42-1.06-1.06Z" />
+                ) : themePreference === "dark" ? (
+                  <path d="M10.8 1.3a6.5 6.5 0 1 0 3.9 11.7A6.5 6.5 0 0 1 10.8 1.3Z" />
+                ) : (
+                  <path d="M3 2.25A1.75 1.75 0 0 1 4.75.5h6.5A1.75 1.75 0 0 1 13 2.25v11.5a1.75 1.75 0 0 1-1.75 1.75h-6.5A1.75 1.75 0 0 1 3 13.75V2.25Zm1.5 0v11.5c0 .14.11.25.25.25h6.5c.14 0 .25-.11.25-.25V2.25a.25.25 0 0 0-.25-.25h-6.5a.25.25 0 0 0-.25.25ZM6 1.25h4v.75H6v-.75Zm1 12h2v.75H7v-.75Z" />
+                )}
+              </svg>
+            </button>
+            {isThemeMenuOpen && (
+              <div className="theme-menu" role="menu" aria-label="Theme preference">
+                {(["system", "light", "dark"] as ThemePreference[]).map((preference, index) => (
+                  <button
+                    key={preference}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={themePreference === preference}
+                    className={themePreference === preference ? "theme-option theme-option-selected" : "theme-option"}
+                    onKeyDown={(event) => handleThemeOptionKeyDown(event, index)}
+                    onClick={() => changeThemePreference(preference)}
+                  >
+                    <span>{themePreferenceLabel(preference)}</span>
+                    {themePreference === preference && <span className="theme-option-check" aria-hidden="true">✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             className="icon-button"
             type="button"
