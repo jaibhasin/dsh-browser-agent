@@ -317,16 +317,21 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
    * measure elapsed time between the two events here.
    */
   function addToolProgress(sessionId: string, progress: BridgeChatProgress) {
-    if (progress.phase === "tool_started" && !assistantAfterActivity.current.has(progress.id)) {
+    const activityId = `${progress.id}:${progress.callId}`;
+    let streamedSegment = "";
+    if (progress.phase === "tool_started") {
+      streamedSegment = assistantStreamRef.current?.getTarget(progress.id) ?? "";
+      if (streamedSegment) {
+        const previousPrefix = assistantPrefixByChat.current.get(progress.id) ?? "";
+        assistantPrefixByChat.current.set(progress.id, previousPrefix + streamedSegment);
+      }
       assistantAfterActivity.current.add(progress.id);
-      const prefix = assistantStreamRef.current?.getTarget(progress.id) ?? "";
-      if (prefix) assistantPrefixByChat.current.set(progress.id, prefix);
-      // Start a fresh live assistant segment after the tool thread. The full
-      // response is restored from the bridge when the turn completes.
+      // Each tool boundary closes the current assistant segment. The next
+      // delta will render after this tool, preserving text/tool interleaving.
       assistantStreamRef.current?.clear(progress.id);
     }
     updateConversation(sessionId, (currentMessages) => {
-      const groupIndex = currentMessages.findIndex((item) => item.kind === "activity" && item.id === progress.id);
+      const groupIndex = currentMessages.findIndex((item) => item.kind === "activity" && item.id === activityId);
       const now = Date.now();
       const finished = progress.phase !== "tool_started";
       const step: ToolActivity = {
@@ -339,11 +344,10 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
         ...(progress.phase === "tool_started" ? { startedAt: now } : {}),
       };
       if (groupIndex === -1) {
-        const prefix = assistantPrefixByChat.current.get(progress.id);
         return [
           ...currentMessages,
-          ...(prefix ? [{ kind: "message" as const, id: crypto.randomUUID(), role: "assistant" as const, text: prefix }] : []),
-          { kind: "activity", id: progress.id, steps: [step] },
+          ...(streamedSegment ? [{ kind: "message" as const, id: crypto.randomUUID(), role: "assistant" as const, text: streamedSegment }] : []),
+          { kind: "activity", id: activityId, steps: [step] },
         ];
       }
 
