@@ -7,6 +7,8 @@ You can watch its steps in the chat and keep browsing while it works.
 It works with the tabs you already have open, including sites where you're signed in.
 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runs on your computer and connects it to the AI model you choose.
 
+![dsh Browser Agent merging a pull request in its own repository](assets/dsh-browser-agent-merge-pr.gif)
+
 ## Quick installation
 
 You'll need [Chrome](https://www.google.com/chrome/), [Node.js 22.19+ (22.x) or 24+](https://nodejs.org/), and an API key for your chosen AI provider.
