@@ -14,6 +14,17 @@ export async function saveThemePreference(preference: ThemePreference): Promise<
   await chrome.storage.local.set({ [STORAGE_KEY]: preference });
 }
 
+export function themePreferenceFromStorageChange(changes: { [key: string]: chrome.storage.StorageChange }): ThemePreference | undefined {
+  if (!Object.prototype.hasOwnProperty.call(changes, STORAGE_KEY)) return undefined;
+  const next = changes[STORAGE_KEY]?.newValue;
+  return isThemePreference(next) ? next : "system";
+}
+
+export function themePreferenceFromCommand(args: string[]): ThemePreference | undefined {
+  if (args.length !== 1) return undefined;
+  return isThemePreference(args[0]) ? args[0] : undefined;
+}
+
 export function isThemePreference(value: unknown): value is ThemePreference {
   return typeof value === "string" && VALID_PREFERENCES.has(value as ThemePreference);
 }

@@ -275,56 +275,6 @@ textarea {
   fill: currentColor;
 }
 
-.theme-control {
-  position: relative;
-}
-
-.theme-menu {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 7px);
-  right: 0;
-  display: grid;
-  min-width: 118px;
-  padding: 4px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  box-shadow: 0 8px 24px var(--shadow-strong);
-}
-
-.theme-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 7px 8px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  font-size: 11px;
-  text-align: left;
-}
-
-.theme-option:hover,
-.theme-option:focus-visible,
-.theme-option-selected {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.theme-option-check {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.theme-option:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
 /* =========================================================
    Chat history drawer
    ========================================================= */
