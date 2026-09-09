@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawn as spawnProcess, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { openChromeExtensionsPage } from '../scripts/open-chrome-extensions.mjs';
 
@@ -20,10 +20,47 @@ test('opens the Chrome extensions page using the platform browser launcher', () 
   const calls = [];
   const spawn = (command, argv) => {
     calls.push([command, argv]);
-    return { status: 0 };
+    return { unref() {} };
   };
-  assert.equal(openChromeExtensionsPage({ platform: 'darwin', spawn }), true);
+  assert.equal(openChromeExtensionsPage({ platform: 'darwin', env: {}, spawn }), true);
   assert.deepEqual(calls[0], ['open', ['-a', 'Google Chrome', 'chrome://extensions']]);
+});
+
+test('skips the Chrome launcher in CI', () => {
+  let called = false;
+  const spawn = () => {
+    called = true;
+    return { unref() {} };
+  };
+  assert.equal(openChromeExtensionsPage({ platform: 'darwin', env: { CI: 'true' }, spawn }), false);
+  assert.equal(called, false);
+});
+
+test('detaches a live browser launcher without waiting for it', () => {
+  const liveChild = spawnProcess(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { stdio: 'ignore' });
+  const originalUnref = liveChild.unref.bind(liveChild);
+  let unrefCalled = false;
+  let launchOptions;
+  liveChild.unref = () => {
+    unrefCalled = true;
+    return originalUnref();
+  };
+  const startedAt = performance.now();
+  try {
+    assert.equal(openChromeExtensionsPage({
+      platform: 'darwin',
+      env: {},
+      spawn: (_command, _argv, options) => {
+        launchOptions = options;
+        return liveChild;
+      },
+    }), true);
+    assert.ok(performance.now() - startedAt < 1_000);
+    assert.deepEqual(launchOptions, { stdio: 'ignore', detached: true });
+    assert.equal(unrefCalled, true);
+  } finally {
+    liveChild.kill();
+  }
 });
 function fixture(fn) {
   const home = mkdtempSync(join(tmpdir(), 'dsh-install-test-'));
