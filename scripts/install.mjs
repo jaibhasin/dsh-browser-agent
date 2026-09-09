@@ -4,12 +4,14 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { openChromeExtensionsPage } from './open-chrome-extensions.mjs';
 
 const profileName = 'dsh-browser-agent';
 const owner = 'jaibhasin/dsh-browser-agent:1';
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dshHome = resolve(process.env.DSH_HOME || join(homedir(), '.dsh'));
-const root = join(dshHome, 'browser-agent-install');
+const root = join(dshHome, 'dsh-browser-agent');
+const legacyRoot = join(dshHome, 'browser-agent-install');
 const profile = join(dshHome, 'profiles', profileName);
 const args = process.argv.slice(2);
 
@@ -39,6 +41,11 @@ function main() {
   const [major, minor] = process.versions.node.split('.').map(Number);
   if (!((major === 22 && minor >= 19) || major >= 24)) throw new Error('Install Node.js 24 LTS from https://nodejs.org.');
   // Both paths must belong to this installer before any mutation takes place.
+  if (existsSync(legacyRoot)) {
+    checkOwned(legacyRoot);
+    if (existsSync(root)) throw new Error(`Both the old and new installation directories exist: ${legacyRoot} and ${root}`);
+    renameSync(legacyRoot, root);
+  }
   checkOwned(root);
   checkOwned(profile);
   if (args.includes('--uninstall')) {
@@ -119,6 +126,8 @@ function main() {
     renameSync(manifestPath + '.tmp', manifestPath);
     write(join(root, 'start.mjs'), `import { pathToFileURL } from 'node:url';\nprocess.env.DSH_HOME = ${JSON.stringify(dshHome)};\nprocess.argv = [process.execPath, ${JSON.stringify(executable)}, '--profile', '${profileName}', '--no-open'];\nawait import(pathToFileURL(${JSON.stringify(executable)}).href);\n`);
     console.log(`\nSetup complete! Finish these steps in Google Chrome:\n\n1. Copy chrome://extensions into Chrome's address bar and press Enter.\n2. Turn on "Developer mode" using the switch in the top-right corner.\n3. Click "Load unpacked" in the top-left corner.\n4. Select this folder (select the folder itself, not a file inside it):\n\n   ${extension}\n\n   On Mac: press Cmd+Shift+G in the folder picker, paste the path,\n   press Return, then click Select.\n   On Windows: paste the path into the folder picker's address bar,\n   press Enter, then click Select Folder.\n   On Linux: press Ctrl+L in the folder picker, paste the path,\n   press Enter, then select the folder.\n\n${hadExtension ? 'Already have DSH Agent installed? Click its circular Reload button instead of loading it again.\n\n' : ''}5. Copy and run this command in your terminal:\n\n   node "${join(root, 'start.mjs')}"\n\n   Keep that terminal open while using DSH Agent.\n6. Open the local web address printed by DSH. Configure your API key\n   and choose a model there.\n7. In Chrome, click the puzzle-piece Extensions button, then DSH Agent\n   to open its side panel. You can now start chatting!\n\nNext time, just run the command in step 5 and open DSH Agent.\nTo stop it, press Ctrl+C in its terminal.\nIf port 7331 or 3080 is busy, stop your other DSH instance first.\n\nTo uninstall on any platform, stop DSH and run:\n   node "${join(stage, 'scripts', 'install.mjs')}" --uninstall\nThen remove DSH Agent from chrome://extensions.\nPrevious builds are retained in ${root}.`);
+    if (openChromeExtensionsPage()) console.log('Chrome has been opened to chrome://extensions.');
+    else console.log('Could not open Chrome automatically. Open chrome://extensions manually.');
   } finally {
     rmSync(lock, { recursive: true, force: true });
   }

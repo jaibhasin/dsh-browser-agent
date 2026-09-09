@@ -15,7 +15,7 @@ test('fresh install, profile startup, update, and recoverable uninstall', { skip
   const env = { ...process.env, DSH_HOME: home };
   const installer = resolve('scripts/install.mjs');
   const profile = join(home, 'profiles', 'dsh-browser-agent');
-  const root = join(home, 'browser-agent-install');
+  const root = join(home, 'dsh-browser-agent');
   let child;
   let socket;
   try {
@@ -75,7 +75,7 @@ test('fresh install, profile startup, update, and recoverable uninstall', { skip
     await stopped;
     child = undefined;
     install('--uninstall');
-    assert.ok(readdirSync(home).some(name => name.startsWith('browser-agent-install.uninstalled-')));
+    assert.ok(readdirSync(home).some(name => name.startsWith('dsh-browser-agent.uninstalled-')));
     assert.ok(readdirSync(join(home, 'profiles')).some(name => name.startsWith('dsh-browser-agent.uninstalled-')));
   } finally {
     socket?.terminate();

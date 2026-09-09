@@ -73,8 +73,8 @@ Unless you chose a different installation location, you'll find it here:
 
 | Platform | Extension folder |
 | --- | --- |
-| macOS / Linux | `~/.dsh/browser-agent-install/extension` |
-| Windows | `C:\Users\YOUR_USERNAME\.dsh\browser-agent-install\extension` |
+| macOS / Linux | `~/.dsh/dsh-browser-agent/extension` |
+| Windows | `C:\Users\YOUR_USERNAME\.dsh\dsh-browser-agent\extension` |
 
 The `.dsh` folder may be hidden.
 To open it in the folder selection window:
@@ -93,13 +93,13 @@ For a default installation, these commands work too:
 **macOS or Linux:**
 
 ```sh
-node "$HOME/.dsh/browser-agent-install/start.mjs"
+node "$HOME/.dsh/dsh-browser-agent/start.mjs"
 ```
 
 **Windows PowerShell:**
 
 ```powershell
-node "$env:USERPROFILE\.dsh\browser-agent-install\start.mjs"
+node "$env:USERPROFILE\.dsh\dsh-browser-agent\start.mjs"
 ```
 
 Keep this terminal open while using the agent.
@@ -234,7 +234,7 @@ Only run installation commands from a source you trust.
 ## Development
 
 The managed installation uses DSH `0.1.2-rc.1` with a separate `dsh-browser-agent` profile.
-Files live under `~/.dsh/browser-agent-install` by default.
+Files live under `~/.dsh/dsh-browser-agent` by default.
 Set `DSH_HOME` before installation to use another DSH data directory.
 The bridge listens on `127.0.0.1:7331` and authenticates WebSocket connections with the generated token.
 
