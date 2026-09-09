@@ -4,4 +4,12 @@ extension/dist/
 dsh-plugin/dist/
 .DS_Store
 .gstack/
-extension/.env.local
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+**/.env.local
+**/.bridge-token
+*.pem
+*.key

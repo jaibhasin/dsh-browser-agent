@@ -7,7 +7,7 @@
     "dev": "vite --config vite.config.js",
     "build": "tsc --noEmit && vite build --config vite.config.js",
     "build:dsh-plugin": "tsc --project dsh-plugin/tsconfig.json",
-    "test:bridge": "pnpm --dir dsh-plugin run test:bridge",
+    "test:bridge": "node --experimental-strip-types tests/bridge-protocol.test.mjs && pnpm --dir dsh-plugin run test:bridge",
     "test:image-attachments": "node --experimental-strip-types tests/image-attachments.test.mjs",
     "test:document-attachments": "node --experimental-strip-types tests/document-attachments.test.mjs",
     "test:document-converter": "pnpm run build:dsh-plugin && node tests/document-converter.test.mjs",
@@ -17,7 +17,7 @@
     "setup:dsh-profile": "node scripts/setup-dsh-browser-profile.mjs",
     "preview": "vite preview --config vite.config.js",
     "test:install": "node --test tests/install.test.mjs",
-    "test": "pnpm test:agent-tab && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install"
+    "test": "pnpm test:agent-tab && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install && pnpm test:bridge"
   },
   "dependencies": {
     "react": "^19.1.1",
