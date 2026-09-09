@@ -130,3 +130,13 @@ Do not add benchmark claims as part of this work; benchmarks are a separate proj
 
 The release gate is passing cross-platform installation, functional and build checks, bridge security checks, approval browser tests, and a redacted secret scan, with accurate public documentation.
 Passing these checks improves confidence but does not replace a professional security assessment.
+
+## Progress
+
+- Bridge protocol validation and the live smoke-test failure handling are implemented.
+- Environment and bridge-token files are ignored, and a credential-pattern check runs in CI.
+- CI now runs the full test suite and production build in a dedicated quality job.
+- Browser text entry joins clicks and navigation behind the human-approval gate, enabled for new and reopened chats.
+- The README reflects the approval behavior, and `SECURITY.md` explains private reporting.
+
+The cross-platform installer diagnosis, browser-level approval tests, CI action pinning, and GitHub branch ruleset remain to be completed.
