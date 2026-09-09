@@ -7,6 +7,30 @@ on:
 permissions:
   contents: read
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run tests
+        run: pnpm test
+      - name: Build plugin and extension
+        run: pnpm run build:dsh-plugin && pnpm run build
+      - name: Scan tracked files for credential patterns
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nI -E 'AKIA[0-9A-Z]{16}|(ghp_|gho_|github_pat_|xoxb-|xoxp-|sk_live_)[A-Za-z0-9_-]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' -- . ':!*.md' ':!*.lock'; then
+            echo 'Possible credential pattern found in tracked source files.' >&2
+            exit 1
+          fi
   install:
     strategy:
       fail-fast: false
