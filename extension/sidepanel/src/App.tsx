@@ -1027,7 +1027,7 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
               ? messages.findIndex((item) => item.kind === "activity" && item.id === currentStreamingAssistant.id)
               : -1;
             const streamingMessage = currentStreamingAssistant && (
-              <article className="message message-assistant message-streaming" key={`streaming-${currentStreamingAssistant.id}`}>
+              <article className="message message-assistant" key={`streaming-${currentStreamingAssistant.id}`}>
                 <div className="message-meta">DSH</div>
                 <div className="message-content"><MarkdownMessage text={currentStreamingAssistant.text} /></div>
               </article>
