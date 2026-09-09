@@ -429,7 +429,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     if (!chat) throw new Error("Agent tools can only run inside an active browser-agent chat.");
     return bridge.request(method, params, signal, chat.id);
   };
-  const requestHumanApproval = async (tool: "browser_click" | "browser_navigate", detail: string, signal?: AbortSignal): Promise<void> => {
+  const requestHumanApproval = async (tool: "browser_click" | "browser_navigate" | "browser_type", detail: string, signal?: AbortSignal): Promise<void> => {
     const chat = chatContext.getStore();
     if (!chat?.humanInTheLoop) return;
     if (signal?.aborted) throw new Error("Human approval was cancelled.");
@@ -762,6 +762,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       const ref = (args as { ref?: unknown }).ref;
       const text = (args as { text?: unknown }).text;
       if (!Number.isInteger(ref) || (ref as number) < 1 || typeof text !== "string") throw new Error("Browser type requires a positive ref and text.");
+      await requestHumanApproval("browser_type", `Element [${ref}]`, exec.signal);
       const result = await requestBrowser("type", { ref: ref as number, text }, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) || (result as { typed?: unknown }).typed !== true) {
         throw new Error("The browser extension returned an invalid type result.");

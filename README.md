@@ -91,7 +91,7 @@ If you open another saved chat while the agent is busy, you'll also get a chance
 - Run separate chats in different tabs and switch between them as you work.
 - Come back to a saved chat with its messages, tool activity, and recent website links.
 - Attach an image or document and ask questions about it.
-- Turn individual tools on or off for each chat, or use `/human-in-the-loop` to approve clicks and navigation before they happen.
+- Turn individual tools on or off for each chat, with approval prompts for clicks, typing, and navigation.
 
 Image attachments can be PNG, JPEG, WebP, or GIF.
 For documents, you can attach Word, PDF, CSV, Excel, PowerPoint, OpenDocument, RTF, EPUB, Markdown, and plain text files.
@@ -152,10 +152,10 @@ Its dependencies are locked to tested versions to avoid mixing incompatible rele
 
 ## Privacy and control
 
-The agent uses your signed-in tabs, so a click or a form submission can affect your actual accounts.
-**Approval prompts are off by default.**
-Type `/human-in-the-loop` in a chat if you want to approve `browser_click` and `browser_navigate` calls before they run.
-This doesn't add approval prompts to other tools; you can disable those individually in the chat's tool controls.
+The agent uses your signed-in tabs, so a click, text entry, or form submission can affect your actual accounts.
+**Approval prompts are on by default for clicks, typing, and navigation.**
+Use `/human-in-the-loop` to turn them on again if you are continuing an older chat created before this setting was introduced.
+You can disable individual browser tools in the chat's tool controls.
 
 The connection between Chrome and DSH stays on your computer.
 It uses a private token created during installation, and the bridge checks that connections identify themselves as coming from a Chrome extension.

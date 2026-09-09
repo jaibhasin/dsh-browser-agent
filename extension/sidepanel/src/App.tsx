@@ -11,7 +11,7 @@ import { DocumentInputError, documentInputErrorMessage, documentPromptContent, p
 import { applyTheme, isThemePreference, saveThemePreference, themePreferenceLabel, type ThemePreference } from "./theme";
 
 type CurrentTaskAction = "background" | "pause" | "quit";
-type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate"; detail: string };
+type HumanApprovalRequest = { approvalId: string; chatId: string; tool: "browser_click" | "browser_navigate" | "browser_type"; detail: string };
 type UserQuestionRequest = UserQuestion;
 
 function App({ initialThemePreference = "system" }: { initialThemePreference?: ThemePreference }) {
@@ -43,7 +43,7 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
   const [agentTabState, setAgentTabState] = useState<AgentTabState>({ activeTaskCount: 0 });
   const [toolSettings, setToolSettings] = useState<StoredTools>({ version: 3, deniedDefault: [], deniedByChat: {} });
   const [toolSettingsReady, setToolSettingsReady] = useState(false);
-  const [humanInTheLoopSessions, setHumanInTheLoopSessions] = useState<Set<string>>(() => new Set());
+  const [humanInTheLoopSessions, setHumanInTheLoopSessions] = useState<Set<string>>(() => new Set([activeSessionId]));
   const [pendingHumanApproval, setPendingHumanApproval] = useState<HumanApprovalRequest>();
   const [pendingUserQuestion, setPendingUserQuestion] = useState<UserQuestionRequest>();
   const [userQuestionText, setUserQuestionText] = useState("");
@@ -606,6 +606,7 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
       deniedByChat: { ...toolSettings.deniedByChat, [sessionId]: [...toolSettings.deniedDefault] },
     });
     setActiveSessionId(sessionId);
+    setHumanInTheLoopSessions((current) => new Set(current).add(sessionId));
     setSessionCreatedAt(createdAt);
     setMessages([]);
     setSessionLinks([]);
@@ -679,6 +680,7 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
     sessionCreatedAtRef.current.set(chat.id, chat.createdAt);
     sessionStatusRef.current.set(chat.id, chat.status);
     setActiveSessionId(chat.id);
+    setHumanInTheLoopSessions((current) => new Set(current).add(chat.id));
     setSessionCreatedAt(chat.createdAt);
     setMessages(chat.items);
     setSessionLinks(chat.links);
@@ -845,7 +847,7 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
   const slashCommands: { id: string; label: string; description: string }[] = [
     { id: "new", label: "/new", description: "Delete this chat and start a fresh session in the tab" },
     { id: "actions", label: "/actions", description: "Enable or disable the agent's tools" },
-    { id: "human-in-the-loop", label: "/human-in-the-loop", description: "Ask for approval before clicks and navigation" },
+    { id: "human-in-the-loop", label: "/human-in-the-loop", description: "Ask for approval before clicks, typing, and navigation" },
   ];
 
   function executeSlashCommand(commandId: string) {
@@ -860,7 +862,7 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
       textareaRef.current?.focus();
     } else if (commandId === "human-in-the-loop") {
       setHumanInTheLoopSessions((current) => new Set(current).add(activeSessionId));
-      setSessionNotice("Human-in-the-loop is enabled for this chat. Clicks and navigation now require your approval.");
+      setSessionNotice("Human-in-the-loop is enabled for this chat. Clicks, typing, and navigation now require your approval.");
       textareaRef.current?.focus();
     }
   }
@@ -1255,8 +1257,8 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
             <div className="delete-modal-icon approval-modal-icon" aria-hidden="true">?</div>
             <div className="delete-modal-copy">
               <span className="delete-modal-eyebrow">Human approval required</span>
-              <h2 id="approval-modal-title">Allow {pendingHumanApproval.tool === "browser_click" ? "this click" : "this navigation"}?</h2>
-              <p id="approval-modal-description">The agent wants to {pendingHumanApproval.tool === "browser_click" ? "click" : "navigate to"} <strong>{pendingHumanApproval.detail}</strong>.</p>
+              <h2 id="approval-modal-title">Allow {pendingHumanApproval.tool === "browser_click" ? "this click" : pendingHumanApproval.tool === "browser_type" ? "this text entry" : "this navigation"}?</h2>
+              <p id="approval-modal-description">The agent wants to {pendingHumanApproval.tool === "browser_click" ? "click" : pendingHumanApproval.tool === "browser_type" ? "type into" : "navigate to"} <strong>{pendingHumanApproval.detail}</strong>.</p>
             </div>
             <div className="delete-modal-actions">
               <button type="button" onClick={() => respondToHumanApproval(false)}>Deny</button>
@@ -1473,7 +1475,7 @@ function isHumanApprovalRequest(value: unknown): value is HumanApprovalRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const approval = value as Partial<HumanApprovalRequest>;
   return typeof approval.approvalId === "string" && typeof approval.chatId === "string" &&
-    (approval.tool === "browser_click" || approval.tool === "browser_navigate") && typeof approval.detail === "string";
+    (approval.tool === "browser_click" || approval.tool === "browser_navigate" || approval.tool === "browser_type") && typeof approval.detail === "string";
 }
 
 function isUserQuestionRequest(value: unknown): value is UserQuestionRequest {
