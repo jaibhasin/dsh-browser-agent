@@ -8,8 +8,9 @@ import { SlashCommandPalette } from "./SlashCommandPalette";
 
 type ComposerProps = {
   paletteVisible: boolean;
-  paletteMatches: { id: string; label: string; description: string; }[];
+  paletteMatches: readonly { id: string; label: string; description: string; }[];
   paletteActive: { id: string; label: string; description: string; } | undefined;
+  themeMenuOpen: boolean;
   executeSlashCommand: (commandId: string, args?: string[]) => void;
   isAddingImage: boolean;
   sendMessage: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -39,6 +40,7 @@ export function Composer({
   paletteVisible,
   paletteMatches,
   paletteActive,
+  themeMenuOpen,
   executeSlashCommand,
   isAddingImage,
   sendMessage,
@@ -69,6 +71,8 @@ export function Composer({
         visible={paletteVisible}
         commands={paletteMatches}
         activeId={paletteActive?.id}
+        title={themeMenuOpen ? "Choose a theme" : undefined}
+        ariaLabel={themeMenuOpen ? "Theme options" : undefined}
         onExecute={executeSlashCommand}
       />
 
@@ -185,7 +189,7 @@ export function Composer({
           >
             {isAddingImage ? "…" : "＋"}
           </button>
-          <span className="composer-hint">{toolsMenuOpen ? "Choose which tools this chat may use · Esc to close" : paletteVisible ? "Enter to run command · Esc to clear" : "Enter to send · Shift + Enter for a new line · Type / for commands"}</span>
+          <span className="composer-hint">{toolsMenuOpen ? "Choose which tools this chat may use · Esc to close" : themeMenuOpen ? "Arrow keys choose theme · Enter to apply · Esc to cancel" : paletteVisible ? "Enter to run command · Esc to clear" : "Enter to send · Shift + Enter for a new line · Type / for commands"}</span>
           <button
             className={`send-button${isLoading ? " send-button-stop" : ""}`}
             type={isLoading ? "button" : "submit"}

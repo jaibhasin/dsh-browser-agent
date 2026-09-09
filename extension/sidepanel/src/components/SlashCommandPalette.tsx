@@ -13,17 +13,21 @@ export function SlashCommandPalette({
   commands,
   activeId,
   onExecute,
+  title = "Commands",
+  ariaLabel = "Slash commands",
 }: {
   visible: boolean;
-  commands: { id: string; label: string; description: string }[];
+  commands: readonly { id: string; label: string; description: string }[];
   activeId?: string;
   onExecute: (id: string) => void;
+  title?: string;
+  ariaLabel?: string;
 }) {
   if (!visible) return null;
 
   return (
-    <div className="slash-command-palette" role="listbox" aria-label="Slash commands">
-      <div className="slash-command-header">Commands</div>
+    <div className="slash-command-palette" role="listbox" aria-label={ariaLabel}>
+      <div className="slash-command-header">{title}</div>
       {commands.length === 0 ? (
         <p className="slash-command-empty">No matching commands.</p>
       ) : (
@@ -49,4 +53,3 @@ export function SlashCommandPalette({
     </div>
   );
 }
-

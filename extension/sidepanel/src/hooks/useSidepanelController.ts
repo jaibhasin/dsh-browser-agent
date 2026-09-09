@@ -9,13 +9,13 @@ import { useToolSettings } from "./useToolSettings";
 import { promptContent, type DraftImage } from "../image-attachments";
 import { isHumanApprovalRequest, isUserQuestionRequest, type CurrentTaskAction, type HumanApprovalRequest, type UserQuestionRequest } from "../requests";
 import { getTabSwitchView, type AgentTabState } from "../tab-switch-state";
-import { isThemePreference, themePreferenceFromCommand, themePreferenceLabel, type ThemePreference } from "../theme";
+import { isThemePreference, THEME_MENU_OPTIONS, themePreferenceFromCommand, themePreferenceFromMenuCommand, themePreferenceLabel, type ThemePreference } from "../theme";
 import { AGENT_TOOL_DEFS, effectiveDenied } from "../tools";
 
 
 // Session, streaming, and tab transitions share refs and stay coordinated here.
 export function useSidepanelController(initialThemePreference: ThemePreference) {
-  const { themePreference, changeThemePreference } = useThemePreference(initialThemePreference);
+  const { changeThemePreference } = useThemePreference(initialThemePreference);
   const [messages, setMessages] = useState<ConversationItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState(() => newSessionId());
   const [sessionCreatedAt, setSessionCreatedAt] = useState(() => Date.now());
@@ -31,6 +31,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const [prompt, setPrompt] = useState("");
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [activePaletteIndex, setActivePaletteIndex] = useState(0);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [activeToolIndex, setActiveToolIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -710,6 +711,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     }
     if (event.key === "Escape") {
       if (toolsMenuOpen) setToolsMenuOpen(false);
+      else if (themeMenuOpen) setThemeMenuOpen(false);
       else if (prompt.trim().startsWith("/")) setPrompt("");
     }
   }
@@ -724,31 +726,50 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   function executeSlashCommand(commandId: string, args: string[] = []) {
     setPrompt("");
     setActivePaletteIndex(0);
+    const menuTheme = themePreferenceFromMenuCommand(commandId);
+    if (menuTheme) {
+      setThemeMenuOpen(false);
+      changeThemePreference(menuTheme);
+      setSessionNotice(`Theme set to ${themePreferenceLabel(menuTheme).toLowerCase()}.`);
+      textareaRef.current?.focus();
+      return;
+    }
     if (commandId === "new") {
+      setThemeMenuOpen(false);
       setToolsMenuOpen(false);
       void startNewSession();
     } else if (commandId === "actions") {
+      setThemeMenuOpen(false);
       setActiveToolIndex(0);
       setToolsMenuOpen(true);
       textareaRef.current?.focus();
     } else if (commandId === "human-in-the-loop") {
+      setThemeMenuOpen(false);
       setHumanInTheLoopSessions((current) => new Set(current).add(activeSessionId));
       setSessionNotice("Human-in-the-loop is enabled for this chat. Clicks, typing, and navigation now require your approval.");
       textareaRef.current?.focus();
     } else if (commandId === "theme") {
       const nextTheme = themePreferenceFromCommand(args);
       if (nextTheme) {
+        setThemeMenuOpen(false);
         changeThemePreference(nextTheme);
         setSessionNotice(`Theme set to ${themePreferenceLabel(nextTheme).toLowerCase()}.`);
       } else if (args.length === 0) {
-        setSessionNotice(`Current theme: ${themePreferenceLabel(themePreference).toLowerCase()}. Use /theme system, /theme light, or /theme dark.`);
+        setThemeMenuOpen(true);
       } else if (args.length === 1 && !isThemePreference(args[0])) {
+        setThemeMenuOpen(false);
         setSessionNotice(`Unknown theme "${args[0]}". Use system, light, or dark.`);
       } else {
+        setThemeMenuOpen(false);
         setSessionNotice("Use /theme system, /theme light, or /theme dark.");
       }
       textareaRef.current?.focus();
     }
+  }
+
+  function updateComposerPrompt(value: string | ((current: string) => string)) {
+    setPrompt(value);
+    setThemeMenuOpen(false);
   }
 
   function respondToHumanApproval(approved: boolean) {
@@ -782,9 +803,12 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   }
 
   const trimmedPrompt = prompt.trim();
-  const paletteVisible = !toolsMenuOpen && trimmedPrompt.startsWith("/");
+  const showingThemeMenu = themeMenuOpen && trimmedPrompt === "";
+  const paletteVisible = !toolsMenuOpen && (showingThemeMenu || trimmedPrompt.startsWith("/"));
   const paletteMatches = paletteVisible
-    ? slashCommands.filter((c) => c.id.startsWith(trimmedPrompt.slice(1).trim().toLowerCase()))
+    ? showingThemeMenu
+      ? THEME_MENU_OPTIONS
+      : slashCommands.filter((c) => c.id.startsWith(trimmedPrompt.slice(1).trim().toLowerCase()))
     : [];
   const paletteActive = paletteMatches[activePaletteIndex] ?? paletteMatches[0];
 
@@ -863,6 +887,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       paletteVisible,
       paletteMatches,
       paletteActive,
+      themeMenuOpen: showingThemeMenu,
       executeSlashCommand,
       isAddingImage,
       sendMessage,
@@ -874,7 +899,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       setDraftDocuments,
       textareaRef,
       prompt,
-      setPrompt,
+      setPrompt: updateComposerPrompt,
       setActivePaletteIndex,
       handlePromptKeyDown,
       addImageFiles,

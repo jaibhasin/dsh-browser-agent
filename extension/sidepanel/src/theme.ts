@@ -1,6 +1,11 @@
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
+export const THEME_MENU_OPTIONS = [
+  { id: "theme-light", label: "Light", description: "Use the light panel theme", preference: "light" },
+  { id: "theme-dark", label: "Dark", description: "Use the dark panel theme", preference: "dark" },
+] as const;
+
 const STORAGE_KEY = "dshBrowserThemeV1";
 const VALID_PREFERENCES = new Set<ThemePreference>(["system", "light", "dark"]);
 
@@ -23,6 +28,10 @@ export function themePreferenceFromStorageChange(changes: { [key: string]: chrom
 export function themePreferenceFromCommand(args: string[]): ThemePreference | undefined {
   if (args.length !== 1) return undefined;
   return isThemePreference(args[0]) ? args[0] : undefined;
+}
+
+export function themePreferenceFromMenuCommand(commandId: string): ThemePreference | undefined {
+  return THEME_MENU_OPTIONS.find((option) => option.id === commandId)?.preference;
 }
 
 export function isThemePreference(value: unknown): value is ThemePreference {
