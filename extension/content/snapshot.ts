@@ -60,6 +60,38 @@ if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
 
 type ClickResult = { ok: true } | { ok: false; error: string };
 
+function composedParent(element: Element): Element | null {
+  if (element.assignedSlot) return element.assignedSlot;
+  if (element.parentElement) return element.parentElement;
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+}
+
+/** Walk rendered component children, including slots, exactly once. */
+function* composedElements(root: Element): Generator<Element> {
+  const stack: Element[] = [root];
+  const seen = new Set<Element>();
+  while (stack.length) {
+    const element = stack.pop()!;
+    if (seen.has(element)) continue;
+    seen.add(element);
+    yield element;
+    const assigned = element instanceof HTMLSlotElement ? element.assignedElements({ flatten: true }) : [];
+    const children = element.shadowRoot ? Array.from(element.shadowRoot.children)
+      : assigned.length ? assigned : Array.from(element.children);
+    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+  }
+}
+
+function hiddenInComposedTree(element: Element): boolean {
+  for (let current: Element | null = element; current; current = composedParent(current)) {
+    const style = getComputedStyle(current);
+    if (current.getAttribute("aria-hidden") === "true" || current.hasAttribute("inert") ||
+      style.display === "none" || Number(style.opacity) === 0) return true;
+  }
+  return getComputedStyle(element).visibility === "hidden";
+}
+
 function clickRef(value: unknown): ClickResult {
   if (!Number.isInteger(value) || (value as number) < 1) {
     return { ok: false, error: "Browser ref must be a positive integer." };
@@ -70,7 +102,7 @@ function clickRef(value: unknown): ClickResult {
   const rect = element.getBoundingClientRect();
   const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
   const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
-  if (element.closest('[aria-hidden="true"]') || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 ||
+  if (hiddenInComposedTree(element) || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 ||
     rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0 || rect.top >= viewportHeight || rect.left >= viewportWidth) {
     return { ok: false, error: `Browser ref [${value}] is no longer visible. Take a new browser_snapshot.` };
   }
@@ -99,7 +131,7 @@ function typeRef(value: unknown, text: unknown): TypeResult {
   const rect = element.getBoundingClientRect();
   const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
   const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
-  if (element.closest('[aria-hidden="true"]') || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 ||
+  if (hiddenInComposedTree(element) || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 ||
     rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0 || rect.top >= viewportHeight || rect.left >= viewportWidth) {
     return { typed: false, error: `Browser ref [${value}] is no longer visible. Take a new browser_snapshot.` };
   }
@@ -117,7 +149,7 @@ function typeRef(value: unknown, text: unknown): TypeResult {
   } else {
     return { typed: false, error: "The referenced control is not a text input." };
   }
-  element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+  element.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertText", data: text }));
   element.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: true };
 }
@@ -129,13 +161,25 @@ function waitForPageSettled(timeoutMs: number): Promise<WaitResult> {
   const startedAt = performance.now();
   let lastMutationAt = startedAt;
   const observer = new MutationObserver(() => { lastMutationAt = performance.now(); });
-  observer.observe(document.documentElement, {
+  const options: MutationObserverInit = {
     subtree: true,
     childList: true,
     characterData: true,
     attributes: true,
     attributeFilter: ["aria-busy", "class", "style"],
-  });
+  };
+  observer.observe(document.documentElement, options);
+  const observedRoots = new Set<ShadowRoot>();
+  const observeRoots = () => {
+    for (const element of composedElements(document.documentElement)) {
+      if (element.shadowRoot && !observedRoots.has(element.shadowRoot)) {
+        observedRoots.add(element.shadowRoot);
+        observer.observe(element.shadowRoot, options);
+        lastMutationAt = performance.now();
+      }
+    }
+  };
+  observeRoots();
 
   return new Promise((resolve) => {
     const finish = (settled: boolean) => {
@@ -151,6 +195,7 @@ function waitForPageSettled(timeoutMs: number): Promise<WaitResult> {
       });
     };
     const check = () => {
+      observeRoots();
       const now = performance.now();
       const elapsed = now - startedAt;
       const busyElements = countVisibleBusyElements();
@@ -167,7 +212,8 @@ function waitForPageSettled(timeoutMs: number): Promise<WaitResult> {
 }
 
 function countVisibleBusyElements(): number {
-  return Array.from(document.querySelectorAll('[aria-busy="true"], progress, [role="progressbar"]')).filter((element) => {
+  return Array.from(composedElements(document.documentElement)).filter((element) => {
+    if (!element.matches('[aria-busy="true"], progress, [role="progressbar"]') || hiddenInComposedTree(element)) return false;
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
@@ -189,7 +235,7 @@ function collectSnapshot(): SnapshotResult {
   const normalise = (value: string | null | undefined): string => (value ?? "").replace(/\s+/g, " ").trim();
   const renderedState = (element: Element): "viewport" | "offscreen" | undefined => {
     const style = getComputedStyle(element);
-    if (element.closest('[aria-hidden="true"]') || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return undefined;
+    if (hiddenInComposedTree(element) || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return undefined;
     const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
     const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
     const rects = Array.from(element.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
@@ -199,7 +245,8 @@ function collectSnapshot(): SnapshotResult {
   const accessibleName = (element: Element): string => {
     const labelledBy = element.getAttribute("aria-labelledby");
     if (labelledBy) {
-      const text = labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+      const root = element.getRootNode() as Document | ShadowRoot;
+      const text = labelledBy.split(/\s+/).map((id) => root.getElementById(id)?.textContent ?? "").join(" ");
       if (normalise(text)) return normalise(text);
     }
     const aria = element.getAttribute("aria-label");
@@ -220,7 +267,8 @@ function collectSnapshot(): SnapshotResult {
     const role = element.getAttribute("role");
     return tag === "button" || (tag === "a" && element.hasAttribute("href")) || (tag === "input" && (element as HTMLInputElement).type !== "hidden") || tag === "select" || tag === "textarea" || element.hasAttribute("contenteditable") || role === "textbox" || role === "button" || role === "link" || role === "menuitem" || role === "option" || role === "tab" || element.hasAttribute("onclick");
   };
-  for (const element of Array.from(document.querySelectorAll("body *"))) {
+  for (const element of composedElements(document.body)) {
+    if (element === document.body) continue;
     const rendered = renderedState(element);
     if (!rendered) continue;
     const nodes = rendered === "viewport" ? viewportNodes : offscreenNodes;
@@ -233,8 +281,8 @@ function collectSnapshot(): SnapshotResult {
     if (!isInteractive && role === undefined && !/^h[1-6]$/.test(tag)) continue;
     const name = accessibleName(element);
     const suffix = name ? ` \"${name}\"` : "";
-    let depth = 0; let parent = element.parentElement;
-    while (parent && parent !== document.body) { depth += 1; parent = parent.parentElement; }
+    let depth = 0; let parent = composedParent(element);
+    while (parent && parent !== document.body) { depth += 1; parent = composedParent(parent); }
     nodes.push(`${"  ".repeat(Math.min(6, depth))}<${tag}${role ? ` role=${role}` : ""}>${suffix}`);
     if (isInteractive) {
       const state = [element.getAttribute("aria-expanded") && `expanded=${element.getAttribute("aria-expanded")}`, (element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true") && "disabled"].filter(Boolean).join(" ");
