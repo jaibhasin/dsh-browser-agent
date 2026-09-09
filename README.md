@@ -1,48 +1,22 @@
-# dsh Browser Agent [![dshfind](https://dshfind.com/en/plugins/jaibhasin/dsh-browser-agent)](https://dshfind.com/en/plugins/jaibhasin/dsh-browser-agent)
+# dsh Browser Agent [![dshfind](https://dshfind.com/api/badge/jaibhasin/dsh-browser-agent)](https://dshfind.com/en/plugins/jaibhasin/dsh-browser-agent?ref=badge)
 
-Use an AI Agent while you surf the web.
-Ask it to explain a page, fill out a form, perform a search, or take a screenshot.
+An AI agent in Chrome's side panel, right beside the page you're on.
+Ask it to explain something you're reading, fill out a form, or help you find your way around a website.
+You can watch its steps in the chat and keep browsing while it works.
 
-It uses [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) and lives in Chrome's side panel.
-
-## Features
-
-- It can read pages using DOM and text content - using the `browser_snapshot` tool.
-- It can click buttons, links, and other elements - using the `browser_click` tool.
-- It can type into fields - using the `browser_type` tool.
-- It can scroll up, down, left, or right - using the `browser_scroll` tool.
-- It can take screenshots of the visible part of the page - using the `browser_screenshot` tool.
-- It can navigate to a new URL - using the `browser_navigate` tool.
-- It can wait for a page to settle before taking a fresh snapshot - using the `browser_wait` tool.
-- It can ask you for missing choices or details - using the `ask_user` tool.
-- It stores your chats locally, including messages, tool activity, and recent website links, so they can be reopened later.
-- Run multiple chats across different tabs parallely and switch between them whenever you like.
-- Attach PNG, JPEG, WebP, or GIF images to ask the agent about visual content.
-- Attach Word, PDF, CSV, Excel, PowerPoint, OpenDocument, RTF, EPUB, Markdown, and text files for local conversion and analysis.
-- Turn agent tools on or off for each chat.
-- Use `/human-in-the-loop` to ask for approval before clicks and navigation.
+It works with the tabs you already have open, including sites where you're signed in.
+[DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runs on your computer and connects it to the AI model you choose.
 
 ## Quick installation
 
-Installing this project takes more than the standard `dsh` plugin command. It includes both a DSH bridge plugin and a Chrome extension, and the one-line installer sets up the Chrome version for you.
-
-macOS and Linux:
-```sh
-curl -fsSL https://raw.githubusercontent.com/jaibhasin/dsh-browser-agent/main/scripts/install.sh | bash
-```
-
-Windows PowerShell:
-```powershell
-$script = Join-Path $env:TEMP 'dsh-browser-install.ps1'
-Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/jaibhasin/dsh-browser-agent/main/scripts/install.ps1 -OutFile $script
-powershell -NoProfile -ExecutionPolicy Bypass -File $script
-```
-
+There are two parts to set up: the Chrome extension and a local DSH bridge that lets the agent talk to your browser.
+The installer prepares both; then you'll load the extension in Chrome and start DSH.
+The standard `dsh` plugin command alone won't set up the extension.
 
 ### 1. Before you start
 
 Install [Google Chrome](https://www.google.com/chrome/) and [Node.js 24 LTS](https://nodejs.org/).
-Node.js runs the local part of the assistant.
+Node.js runs the local part of the agent.
 You'll also need an API key from the AI provider you want to use; you'll add it when you first open DSH.
 After installing Node.js, close and reopen your terminal.
 Windows users need PowerShell 5.1 or newer; Linux users need a desktop environment to use Chrome.
@@ -122,7 +96,19 @@ Open a website and try: **“Summarize this page.”**
 Next time, run the same start command and open the side panel.
 Press Ctrl+C in the terminal to stop DSH.
 
-### Updates and uninstall
+## What you can do
+
+- Ask it to read a page, follow links, fill out fields, scroll, or take a screenshot.
+- Run separate chats in different tabs and switch between them as you work.
+- Come back to a saved chat with its messages, tool activity, and recent website links.
+- Attach an image or document and ask questions about it.
+- Turn individual tools on or off for each chat, or use `/human-in-the-loop` to approve clicks and navigation before they happen.
+
+Image attachments can be PNG, JPEG, WebP, or GIF.
+For documents, you can attach Word, PDF, CSV, Excel, PowerPoint, OpenDocument, RTF, EPUB, Markdown, and plain text files.
+Documents are converted locally before their text is sent to your model provider.
+
+## Updates and uninstall
 
 To update, stop DSH, run the installer again, and click the circular **Reload** button on the dsh Browser Agent card at `chrome://extensions`.
 Your settings are kept, and you won't need to choose the extension folder again.
@@ -145,7 +131,7 @@ You can delete those folders once you're sure you don't need them.
 They may contain private data.
 Finally, remove **dsh Browser Agent** from `chrome://extensions` to delete the extension and its saved browser data.
 
-### Troubleshooting
+## Troubleshooting
 
 | What you see | What to do |
 | --- | --- |
@@ -167,10 +153,10 @@ flowchart LR
     Extension <-->|Reads and acts on| Tab[Your chat's tab]
 ```
 
-When you send a message, DSH passes it to your chosen AI model.
-The model can ask the extension to read the page or take an action, such as clicking a button.
-The extension carries out that action in the chat's tab and reports what happened.
-You see the progress and reply in the side panel.
+Your message goes through DSH to your chosen AI model.
+If the model needs to read the page or click something, it asks the extension to do that in your chat's tab.
+The extension sends back the result, and the model uses it to decide what to do next.
+Those steps show up in the side panel as it works.
 
 The browser agent gets its own DSH installation and settings, so it won't replace an existing DSH setup.
 Its dependencies are locked to tested versions to avoid mixing incompatible releases.
@@ -220,24 +206,22 @@ If the tab you switch to already has a chat, you can pick up that conversation o
 Starting fresh replaces that tab's old chat in your history.
 If you open another saved chat while the agent is busy, you'll also get a chance to keep the current task running, pause it, or quit it.
 
-## Security
+## Privacy and control
+
+The agent uses your signed-in tabs, so a click or a form submission can affect your actual accounts.
+**Approval prompts are off by default.**
+Type `/human-in-the-loop` in a chat if you want to approve `browser_click` and `browser_navigate` calls before they run.
+This doesn't add approval prompts to other tools; you can disable those individually in the chat's tool controls.
 
 The connection between Chrome and DSH stays on your computer.
 It uses a private token created during installation, and the bridge checks that connections identify themselves as coming from a Chrome extension.
 Keep your installed extension, DSH settings, and backups private because they contain that token or other personal data.
 
-The extension needs access to websites to read and interact with them.
-Because it uses your signed-in tabs, its actions can affect your accounts.
 Your chats are saved in Chrome on your device, and DSH also keeps local data.
-Messages and page content used by the AI are sent to the model provider you chose.
-Page text and screenshots may include sensitive information.
-Images attached to chats may also be sent to the model provider you choose.
-Document attachments are converted locally by the DSH plugin before their text is sent to the model provider you choose.
-Scanned PDFs are not OCR'd or uploaded by this extension.
-
-**Approval prompts are off by default.**
-Type `/human-in-the-loop` in a chat to require approval before `browser_click` and `browser_navigate` calls.
-Other tools don't get these approval prompts; you can turn them off using the chat's tool controls.
+The AI still needs data to work with: messages and the page content it uses go to your chosen model provider.
+Screenshots and attached images may be sent there too, and can include sensitive information.
+Document attachments are converted to text locally by the DSH plugin, then that text is sent to the provider.
+The extension doesn't extract text from scanned PDFs using OCR or upload those PDFs.
 
 The installer downloads the code from this repository's `main` branch.
 Only run installation commands from a source you trust.
