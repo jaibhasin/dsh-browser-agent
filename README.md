@@ -11,7 +11,7 @@ It works with the tabs you already have open, including sites where you're signe
 
 ## Quick installation
 
-You'll need [Chrome](https://www.google.com/chrome/), [Node.js 22.19+ (22.x) or 24+](https://nodejs.org/), and an API key for your chosen AI provider.
+Prerequisites: [Chrome](https://www.google.com/chrome/), [Node.js 22.19+ or 24+](https://nodejs.org/), and an API key.
 Reopen your terminal after installing Node.js.
 
 **1. Run the installer.** It sets up DSH and prepares the Chrome extension.
