@@ -1,32 +1,43 @@
-# DSH Browser Agent
+# dsh Browser Agent [![dshfind](https://dshfind.com/en/plugins/jaibhasin/dsh-browser-agent)](https://dshfind.com/en/plugins/jaibhasin/dsh-browser-agent)
 
-Chat with an AI assistant while you browse.
-Ask it to explain a page, fill out a form, or help you work through a website.
+Use an AI Agent while you surf the web.
+Ask it to explain a page, fill out a form, perform a search, or take a screenshot.
 
-DSH Browser Agent lives in Chrome's side panel and works with the tabs you already have open, including sites where you're signed in.
-[DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runs on your computer and connects the assistant to your chosen AI model.
-
-[View DSH Browser Agent on dshfind](https://dshfind.com/en/plugins/jaibhasin/dsh-browser-agent)
+It uses [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) and lives in Chrome's side panel.
 
 ## Features
 
-- Read pages, click buttons, type into fields, scroll, and take screenshots.
+- It can read pages using DOM and text content - using the `browser_snapshot` tool.
+- It can click buttons, links, and other elements - using the `browser_click` tool.
+- It can type into fields - using the `browser_type` tool.
+- It can scroll up, down, left, or right - using the `browser_scroll` tool.
+- It can take screenshots of the visible part of the page - using the `browser_screenshot` tool.
+- It can navigate to a new URL - using the `browser_navigate` tool.
+- It can wait for a page to settle before taking a fresh snapshot - using the `browser_wait` tool.
+- It can ask you for missing choices or details - using the `ask_user` tool.
+- It stores your chats locally, including messages, tool activity, and recent website links, so they can be reopened later.
+- Run multiple chats across different tabs parallely and switch between them whenever you like.
 - Attach PNG, JPEG, WebP, or GIF images to ask the agent about visual content.
 - Attach Word, PDF, CSV, Excel, PowerPoint, OpenDocument, RTF, EPUB, Markdown, and text files for local conversion and analysis.
-- Watch the agent's actions as it works, right in the chat.
-- Pick up a saved conversation with its messages and website links.
-- Switch tabs and choose whether the agent keeps working, pauses, or follows you.
 - Turn agent tools on or off for each chat.
 - Use `/human-in-the-loop` to ask for approval before clicks and navigation.
-- Install on macOS, Windows, or Linux without setting up DSH yourself.
-
-## Demo
-
-*Demo GIF coming soon.*
-
-<!-- Replace the placeholder above with: ![DSH Browser Agent completing a browser task](docs/demo.gif) -->
 
 ## Quick installation
+
+Installing this project takes more than the standard `dsh` plugin command. It includes both a DSH bridge plugin and a Chrome extension, and the one-line installer sets up the Chrome version for you.
+
+macOS and Linux:
+```sh
+curl -fsSL https://raw.githubusercontent.com/jaibhasin/dsh-browser-agent/main/scripts/install.sh | bash
+```
+
+Windows PowerShell:
+```powershell
+$script = Join-Path $env:TEMP 'dsh-browser-install.ps1'
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/jaibhasin/dsh-browser-agent/main/scripts/install.ps1 -OutFile $script
+powershell -NoProfile -ExecutionPolicy Bypass -File $script
+```
+
 
 ### 1. Before you start
 
@@ -83,7 +94,7 @@ To open it in the folder selection window:
 - **Windows:** paste the path into the address bar and press Enter.
 - **Linux:** press Ctrl+L, paste the path, and press Enter.
 
-You should now see a **DSH Agent** card on the extensions page.
+You should now see a **dsh Browser Agent** card on the extensions page.
 
 ### 4. Start the agent
 
@@ -104,7 +115,7 @@ node "$env:USERPROFILE\.dsh\dsh-browser-agent\start.mjs"
 
 Keep this terminal open while using the agent.
 Open the web address DSH prints in the terminal, add your API key, and choose a model.
-Then click Chrome's puzzle-piece **Extensions** button and choose **DSH Agent** to open the side panel.
+Then click Chrome's puzzle-piece **Extensions** button and choose **dsh Browser Agent** to open the side panel.
 
 Open a website and try: **“Summarize this page.”**
 
@@ -113,7 +124,7 @@ Press Ctrl+C in the terminal to stop DSH.
 
 ### Updates and uninstall
 
-To update, stop DSH, run the installer again, and click the circular **Reload** button on the DSH Agent card at `chrome://extensions`.
+To update, stop DSH, run the installer again, and click the circular **Reload** button on the dsh Browser Agent card at `chrome://extensions`.
 Your settings are kept, and you won't need to choose the extension folder again.
 
 To uninstall, stop DSH and run the uninstall command printed during setup.
@@ -132,7 +143,7 @@ node scripts/install.mjs --uninstall
 The uninstaller keeps a backup of the installation and its settings in folders ending in `.uninstalled-*` followed by a timestamp.
 You can delete those folders once you're sure you don't need them.
 They may contain private data.
-Finally, remove **DSH Agent** from `chrome://extensions` to delete the extension and its saved browser data.
+Finally, remove **dsh Browser Agent** from `chrome://extensions` to delete the extension and its saved browser data.
 
 ### Troubleshooting
 

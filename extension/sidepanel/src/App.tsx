@@ -874,7 +874,7 @@ function App() {
       <header className="app-header">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true"><img src="../icons/deepseek-mark.svg" alt="" /></div>
-          <span className="brand-title">DSH Agent</span>
+          <span className="brand-title">dsh Browser Agent</span>
         </div>
         <div className="header-actions">
           <span
