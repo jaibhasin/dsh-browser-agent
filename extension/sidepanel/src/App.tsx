@@ -8,6 +8,7 @@ import { TabSwitchPrompts } from "./components/TabSwitchPrompts";
 import { ChatDialogs } from "./components/ChatDialogs";
 import { ToolPermissions } from "./components/ToolPermissions";
 import { Composer } from "./components/Composer";
+import { TaskDialogs } from "./components/TaskDialogs";
 
 function App({ initialThemePreference = "system" }: { initialThemePreference?: ThemePreference }) {
   const panel = useSidepanelController(initialThemePreference);
@@ -31,6 +32,7 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
       <TabSwitchPrompts {...panel.tabSwitchPrompts} />
 
       <ChatDialogs {...panel.chatDialogs} />
+      <TaskDialogs {...panel.taskDialogs} />
 
       <ToolPermissions {...panel.toolPermissions} />
 

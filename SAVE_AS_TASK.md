@@ -15,7 +15,6 @@ This should be validated with actual usage rather than treated as a guaranteed i
 
 ## Release timing
 
-Ship the current public beta first.
 Observe which tasks early users repeat, then build this feature around those workflows.
 Prioritize installation and task reliability if those prevent users from getting useful results.
 
@@ -72,6 +71,61 @@ An illustrative result might look like this:
 
 These counts are examples, not real dashboard data.
 
+## Example: check and merge the current pull request
+
+### First conversation
+
+The user opens a pull request in any repository and asks:
+
+> Check the pull request currently open in this tab.
+> Verify that it targets `main`, all required checks and tests have passed, required approvals are present, and there are no merge conflicts.
+> If every condition is satisfied, merge it into `main` and verify that the pull request is merged.
+> If anything is pending, failed, missing, or unclear, do not merge it and explain the blocker.
+
+When the user selects **Save as a task**, the guided draft identifies the pull request as page-derived input.
+The repository, pull request number, current commit, check results, approvals, and conflict state are read again from the live page for every run.
+The target branch `main` and the requirement to avoid merging when evidence is incomplete are fixed instructions unless the user changes them before saving.
+
+The saved draft might contain:
+
+| Field | Saved value |
+| --- | --- |
+| Name | Check and merge current PR |
+| Starting website | Current page |
+| Page-derived input | The pull request open in the current tab |
+| Instructions | Verify the target branch, checks, approvals, and conflicts, then merge only when all conditions are satisfied |
+| Expected result | The PR link, merge result, or the precise blocker with supporting evidence |
+| Constraints | Never merge a pending, failed, conflicting, already changed, or unverifiable PR |
+
+### Running it on another repository
+
+The user opens a different pull request in a different repository, opens **Saved tasks**, and selects **Check and merge current PR**.
+The task uses the current page and starts a fresh conversation.
+It must inspect the current pull request instead of reusing the repository or PR number from the first conversation.
+
+If the user is on a repository page rather than a pull request page, the agent asks which pull request to check.
+It must not select an arbitrary pull request.
+
+Before merging, the agent checks the current pull request revision again.
+Pending or failed checks, missing required approvals, a non-`main` target branch, merge conflicts, and unavailable evidence all block the merge.
+After a merge, the result should identify the repository, pull request, target branch, and verified merged state.
+
+## Other reusable task examples
+
+The same task base supports different page types and input patterns:
+
+| Task | Values that change between runs | Result |
+| --- | --- | --- |
+| Review a pull request | The current pull request | Findings with evidence, without posting comments |
+| Summarize a discussion | The current issue or discussion page | Decisions, unresolved questions, and next steps |
+| Weekly support review | Date range and support workspace | Prioritized unresolved tickets with links |
+| Compare a product | Current product and budget | Comparison against the user's saved criteria |
+| Check order status | Order number or current account page | Current status and delivery information |
+| Prepare a project update | Project page and date range | A concise update covering progress and blockers |
+
+During task setup, each detail is classified as fixed, supplied at run time, or read from the current page.
+The user reviews those classifications before saving so an example value such as a repository name, PR number, date, or order number does not become stale task logic.
+
 ## First version scope
 
 - Save a reusable task from an existing conversation after the user reviews the generated draft.
@@ -80,6 +134,9 @@ These counts are examples, not real dashboard data.
 - Start each run as a separate chat so users can inspect its progress and result in existing chat history.
 - Keep the saved task available when a run fails, and show the failure in that run's conversation.
 
+The first implementation stores versioned task definitions separately from chat history.
+It provides a guided review form, current-page or saved-URL context, run-time inputs, and a fresh chat for every run.
+
 Scheduling, sharing, workflow editors, recorded click replay, and automatic background triggers are future possibilities outside the first version.
 
 ## Behavior and implementation notes
@@ -87,6 +144,16 @@ Scheduling, sharing, workflow editors, recorded click replay, and automatic back
 The existing chat history in `extension/sidepanel/src/chat-history.ts` stores conversations and website links.
 Introduce a separate, versioned saved-task record so editing a task does not rewrite earlier conversations.
 Each run should capture the task definition and input values used for that run.
+Task setup uses a separate typed bridge request with browser tools disabled.
+The setup agent may return clarification questions before it returns a ready draft.
+Unfinished setup drafts and answers are persisted locally so the user can close and reopen the side panel.
+Saved task edits create a new revision, while each run stores an immutable snapshot of the revision it used.
+Clarification follow-ups include the edited draft and the questions paired with their answers.
+Input editors support fixed values, defaults, required fields, numbers, dates, choices, and booleans.
+Runs validate inputs and explicitly describe values that must be read from the live page.
+Task writes use a shared browser lock and check the revision the editor originally opened.
+Automated checks cover stale edits across panel instances, parameter prompt construction, and invalid inputs and URLs.
+Live Chrome testing, visual QA, and the cross-repository PR scenarios remain required before release.
 
 Save intent and constraints rather than replaying old element reference numbers.
 Browser references come from snapshots and must be obtained again from the current page.

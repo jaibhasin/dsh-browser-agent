@@ -61,6 +61,42 @@ export type UserQuestion = { questionId: string; chatId: string; question: strin
 export type UserQuestionResponse = { questionId: string; chatId: string; answer?: string; cancelled?: boolean };
 export type BridgeNewSession = { type: "new_session"; id: string };
 export type BridgeNewSessionResponse = { type: "new_session_response"; id: string; error?: { code: string; message: string } };
+export type TaskDraftParameter = {
+  id: string;
+  label: string;
+  type: "text" | "number" | "date" | "choice" | "boolean";
+  mode: "fixed" | "run" | "page";
+  value?: string;
+  defaultValue?: string;
+  required: boolean;
+  options?: string[];
+};
+export type TaskDraftDefinition = {
+  name: string;
+  instructions: string;
+  startingContext: { kind: "current-page" | "url"; url?: string };
+  parameters: TaskDraftParameter[];
+  constraints: string;
+  expectedResult: string;
+  warnings: string[];
+};
+export type TaskDraftQuestion = { id: string; question: string; options: string[]; allowFreeText: boolean; parameterId?: string };
+export type TaskDraftRequest = {
+  type: "task_draft";
+  id: string;
+  sourceSessionId: string;
+  conversation: string;
+  currentUrl?: string;
+  answers?: Record<string, string>;
+};
+export type TaskDraftResponse = {
+  type: "task_draft_response";
+  id: string;
+  status: "needs-input" | "ready";
+  draft: TaskDraftDefinition;
+  questions: TaskDraftQuestion[];
+  error?: undefined;
+} | { type: "task_draft_response"; id: string; status: "error"; error: { code: string; message: string } };
 export type BridgeChatProgress = {
   type: "chat_progress";
   id: string;
@@ -71,7 +107,7 @@ export type BridgeChatProgress = {
   output?: string;
   error?: string;
 };
-export type BridgeMessage = BridgeHello | BridgeWelcome | BridgeRequest | BridgeResponse | BridgeEvent | BridgePing | BridgePong | BridgeChat | BridgeChatResponse | BridgeChatDelta | BridgeNewSession | BridgeNewSessionResponse | BridgeChatProgress;
+export type BridgeMessage = BridgeHello | BridgeWelcome | BridgeRequest | BridgeResponse | BridgeEvent | BridgePing | BridgePong | BridgeChat | BridgeChatResponse | BridgeChatDelta | BridgeNewSession | BridgeNewSessionResponse | TaskDraftRequest | TaskDraftResponse | BridgeChatProgress;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -108,6 +144,10 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
       return typeof value.id === "string" ? value as BridgeNewSession : undefined;
     case "new_session_response":
       return typeof value.id === "string" && (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string")) ? value as BridgeNewSessionResponse : undefined;
+    case "task_draft":
+      return typeof value.id === "string" && typeof value.sourceSessionId === "string" && typeof value.conversation === "string" && (value.currentUrl === undefined || typeof value.currentUrl === "string") && (value.answers === undefined || isRecord(value.answers) && Object.values(value.answers).every((answer) => typeof answer === "string")) ? value as TaskDraftRequest : undefined;
+    case "task_draft_response":
+      return typeof value.id === "string" && (value.status === "error" ? isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string" : (value.status === "needs-input" || value.status === "ready") && isRecord(value.draft) && Array.isArray(value.questions)) ? value as TaskDraftResponse : undefined;
     case "chat_progress":
       return typeof value.id === "string" &&
         typeof value.callId === "string" &&

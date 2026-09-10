@@ -27,3 +27,30 @@ test("accepts only the current protocol version and extension client", () => {
   assert.equal(parseBridgeMessage({ ...base, protocolVersion: PROTOCOL_VERSION + 1 }), undefined);
   assert.equal(parseBridgeMessage({ ...base, client: "test-client" }), undefined);
 });
+
+test("accepts a typed task draft request and response", () => {
+  const request = parseBridgeMessage({
+    type: "task_draft",
+    id: "draft-1",
+    sourceSessionId: "session-1",
+    conversation: "Check the current pull request.",
+    answers: { target: "main" },
+  });
+  assert.equal(request?.type, "task_draft");
+  const response = parseBridgeMessage({
+    type: "task_draft_response",
+    id: "draft-1",
+    status: "needs-input",
+    draft: {
+      name: "Review PR",
+      instructions: "Review the current PR.",
+      startingContext: { kind: "current-page" },
+      parameters: [],
+      constraints: "",
+      expectedResult: "Findings",
+      warnings: [],
+    },
+    questions: [{ id: "target", question: "Which branch?", options: ["main"], allowFreeText: false }],
+  });
+  assert.equal(response?.type, "task_draft_response");
+});

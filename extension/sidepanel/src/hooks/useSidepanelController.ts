@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { BridgeChatDelta, BridgeChatProgress } from "../../../../shared/protocol";
 import { createAssistantStream, type StreamingAssistant } from "../assistant-stream";
-import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatDocument, type ChatImage, type ConversationItem, type SavedChat, type ToolActivity } from "../chat-history";
+import { chatTitle, collectHttpLinks, loadChatHistory, removeChat, saveChat, type ActivityGroup, type ChatDocument, type ChatImage, type ChatMessage, type ConversationItem, type SavedChat, type ToolActivity } from "../chat-history";
 import { documentPromptContent } from "../document-attachments";
 import { useAttachments } from "./useAttachments";
 import { useThemePreference } from "./useThemePreference";
@@ -11,6 +11,9 @@ import { isHumanApprovalRequest, isUserQuestionRequest, type CurrentTaskAction, 
 import { getTabSwitchView, type AgentTabState } from "../tab-switch-state";
 import { isThemePreference, THEME_MENU_OPTIONS, themePreferenceFromCommand, themePreferenceFromMenuCommand, themePreferenceLabel, type ThemePreference } from "../theme";
 import { AGENT_TOOL_DEFS, effectiveDenied } from "../tools";
+import { buildTaskRunPrompt, loadSavedTasks, loadTaskSetup, removeSavedTask, removeTaskSetup, saveSavedTask, saveTaskSetup, type SavedTask } from "../saved-tasks";
+import type { TaskDraft } from "../components/TaskDialogs";
+import type { TaskDraftQuestion } from "../../../../shared/protocol";
 
 
 // Session, streaming, and tab transitions share refs and stay coordinated here.
@@ -21,6 +24,13 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const [sessionCreatedAt, setSessionCreatedAt] = useState(() => Date.now());
   const [sessionLinks, setSessionLinks] = useState<string[]>([]);
   const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
+  const [savedTasks, setSavedTasks] = useState<SavedTask[]>([]);
+  const [taskDraft, setTaskDraft] = useState<TaskDraft>();
+  const [taskDraftQuestions, setTaskDraftQuestions] = useState<TaskDraftQuestion[]>([]);
+  const [taskDraftAnswers, setTaskDraftAnswers] = useState<Record<string, string>>({});
+  const [taskSetupBusy, setTaskSetupBusy] = useState(false);
+  const taskSetupConversation = useRef("");
+  const [runningTask, setRunningTask] = useState<SavedTask>();
   const [historyReady, setHistoryReady] = useState(false);
   const { toolSettings, updateToolSettings, toggleToolForChat, resetChatTools, setEffectiveAsDefault, effectiveDeniedTools } = useToolSettings(activeSessionId, historyReady, savedChats);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -61,6 +71,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const sessionLinksRef = useRef(new Map<string, string[]>());
   const sessionCreatedAtRef = useRef(new Map<string, number>());
   const sessionStatusRef = useRef(new Map<string, SavedChat["status"]>());
+  const sessionTaskRunsRef = useRef(new Map<string, NonNullable<SavedChat["taskRun"]>>());
   const deletedSessionIds = useRef(new Set<string>());
   const currentTabId = useRef<number | undefined>(undefined);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -114,6 +125,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       status: nextStatus,
       items,
       links: sessionLinksRef.current.get(sessionId) ?? existing?.links ?? [],
+      ...(sessionTaskRunsRef.current.get(sessionId) ?? existing?.taskRun ? { taskRun: sessionTaskRunsRef.current.get(sessionId) ?? existing?.taskRun } : {}),
     };
     sessionCreatedAtRef.current.set(sessionId, record.createdAt);
     syncSavedChats([record, ...historyRef.current.filter((chat) => chat.id !== sessionId)]);
@@ -189,12 +201,36 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
         sessionLinksRef.current.set(chat.id, chat.links);
         sessionCreatedAtRef.current.set(chat.id, chat.createdAt);
         sessionStatusRef.current.set(chat.id, chat.status);
+        if (chat.taskRun) sessionTaskRunsRef.current.set(chat.id, chat.taskRun);
       }
       historyRef.current = merged;
       setSavedChats(merged);
       setHistoryReady(true);
     });
   }, []);
+
+  useEffect(() => {
+    const refresh = () => void loadSavedTasks().then(setSavedTasks);
+    refresh();
+    const onStorageChanged = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+      if (areaName === "local" && changes.dshBrowserSavedTasksV1) refresh();
+    };
+    chrome.storage.onChanged.addListener(onStorageChanged);
+    return () => chrome.storage.onChanged.removeListener(onStorageChanged);
+  }, []);
+  useEffect(() => {
+    void loadTaskSetup().then((record) => {
+      if (!record) return;
+      taskSetupConversation.current = record.conversation;
+      if (record.draft) setTaskDraft(record.draft as TaskDraft);
+      setTaskDraftQuestions(record.questions);
+      setTaskDraftAnswers(record.answers);
+    });
+  }, []);
+  useEffect(() => {
+    if (!taskDraft || !taskSetupConversation.current) return;
+    void saveTaskSetup({ sourceSessionId: activeSessionId, conversation: taskSetupConversation.current, draft: taskDraft, questions: taskDraftQuestions, answers: taskDraftAnswers, updatedAt: Date.now() });
+  }, [activeSessionId, taskDraft, taskDraftAnswers, taskDraftQuestions]);
 
   useEffect(() => {
     setSessionLinks((links) => collectHttpLinks(links, agentTabState.agentTab?.url));
@@ -551,6 +587,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     sessionLinksRef.current.set(chat.id, chat.links);
     sessionCreatedAtRef.current.set(chat.id, chat.createdAt);
     sessionStatusRef.current.set(chat.id, chat.status);
+    if (chat.taskRun) sessionTaskRunsRef.current.set(chat.id, chat.taskRun);
     setActiveSessionId(chat.id);
     setSessionCreatedAt(chat.createdAt);
     setMessages(chat.items);
@@ -578,6 +615,144 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       return;
     }
     activateSavedChat(chat);
+  }
+
+  async function saveCurrentAsTask() {
+    if (isLoading || taskSetupBusy || messages.length === 0) return;
+    const conversation = messages.filter((item): item is ChatMessage => item.kind === "message").map((item) => `${item.role}: ${item.text.trim()}`).filter(Boolean).join("\n\n");
+    const url = agentTabState.agentTab?.url;
+    let savedUrl: string | undefined;
+    try {
+      if (url) {
+        const parsed = new URL(url);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") savedUrl = parsed.href;
+      }
+    } catch { /* The task can still run from the current page. */ }
+    taskSetupConversation.current = `Starting URL: ${savedUrl ?? "(current page)"}\n\n${conversation.slice(-20_000)}`;
+    void saveTaskSetup({ sourceSessionId: activeSessionId, conversation: taskSetupConversation.current, questions: [], answers: {}, updatedAt: Date.now() });
+    setTaskSetupBusy(true);
+    setTaskDraftQuestions([]);
+    setTaskDraftAnswers({});
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-task-draft", sourceSessionId: activeSessionId, conversation: taskSetupConversation.current, ...(savedUrl ? { currentUrl: savedUrl } : {}) }) as { ok?: boolean; draft?: { status: "needs-input" | "ready"; draft: Omit<TaskDraft, "id" | "version" | "revision" | "deniedTools" | "humanInTheLoop">; questions: TaskDraftQuestion[] }; error?: string };
+      if (!response?.ok || !response.draft) throw new Error(response?.error ?? "The task builder could not create a draft.");
+      setTaskDraft({ version: 2, revision: 1, ...response.draft.draft, deniedTools: effectiveDenied(toolSettings, activeSessionId), humanInTheLoop: humanInTheLoopSessions.has(activeSessionId) });
+      setTaskDraftQuestions(response.draft.questions);
+      void saveTaskSetup({ sourceSessionId: activeSessionId, conversation: taskSetupConversation.current, draft: { version: 2, revision: 1, ...response.draft.draft, deniedTools: effectiveDenied(toolSettings, activeSessionId), humanInTheLoop: humanInTheLoopSessions.has(activeSessionId) }, questions: response.draft.questions, answers: {}, updatedAt: Date.now() });
+    } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "The task builder could not create a draft.");
+    } finally {
+      setTaskSetupBusy(false);
+    }
+  }
+
+  async function continueTaskSetup() {
+    if (!taskDraft || taskSetupBusy) return;
+    if (taskDraftQuestions.some((question) => !taskDraftAnswers[question.id]?.trim())) {
+      setSessionNotice("Please answer each setup question before continuing.");
+      return;
+    }
+    setTaskSetupBusy(true);
+    try {
+      const conversation = `${taskSetupConversation.current}\n\nCurrent user-edited draft (preserve edits):\n${JSON.stringify(taskDraft)}\n\nQuestions and answers:\n${JSON.stringify(taskDraftQuestions.map((question) => ({ ...question, answer: taskDraftAnswers[question.id] })))}`;
+      const response = await chrome.runtime.sendMessage({ type: "dsh-task-draft", sourceSessionId: activeSessionId, conversation, answers: taskDraftAnswers }) as { ok?: boolean; draft?: { status: "needs-input" | "ready"; draft: Omit<TaskDraft, "id" | "version" | "revision" | "deniedTools" | "humanInTheLoop">; questions: TaskDraftQuestion[] }; error?: string };
+      if (!response?.ok || !response.draft) throw new Error(response?.error ?? "The task builder could not continue.");
+      setTaskDraft({ version: 2, revision: taskDraft.revision, ...response.draft.draft, deniedTools: taskDraft.deniedTools, humanInTheLoop: taskDraft.humanInTheLoop, ...(taskDraft.id ? { id: taskDraft.id } : {}) });
+      setTaskDraftQuestions(response.draft.questions);
+      void saveTaskSetup({ sourceSessionId: activeSessionId, conversation: taskSetupConversation.current, draft: { version: 2, revision: taskDraft.revision, ...response.draft.draft, deniedTools: taskDraft.deniedTools, humanInTheLoop: taskDraft.humanInTheLoop, ...(taskDraft.id ? { id: taskDraft.id } : {}) }, questions: response.draft.questions, answers: taskDraftAnswers, updatedAt: Date.now() });
+    } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "The task builder could not continue.");
+    } finally {
+      setTaskSetupBusy(false);
+    }
+  }
+
+  async function saveTask() {
+    if (!taskDraft || !taskDraft.name.trim() || !taskDraft.instructions.trim()) return;
+    const now = Date.now();
+    const existing = taskDraft.id ? savedTasks.find((candidate) => candidate.id === taskDraft.id) : undefined;
+    const expectedRevision = taskDraft.id ? taskDraft.revision : 0;
+    const task: SavedTask = { ...taskDraft, id: taskDraft.id ?? `task-${crypto.randomUUID()}`, revision: expectedRevision + 1, createdAt: existing?.createdAt ?? now, updatedAt: now };
+    try {
+      await saveSavedTask(task, expectedRevision);
+      setSavedTasks(await loadSavedTasks());
+      setTaskDraft(undefined);
+      await removeTaskSetup();
+      setSessionNotice(`Saved task "${task.name}".`);
+    } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "The task could not be saved.");
+    }
+  }
+
+  function editSavedTask(task: SavedTask) { setTaskDraftQuestions([]); setTaskDraftAnswers({}); setTaskDraft(structuredClone(task)); }
+
+  async function deleteSavedTask(task: SavedTask) {
+    try {
+      await removeSavedTask(task.id);
+      setSavedTasks((current) => current.filter((candidate) => candidate.id !== task.id));
+      setSessionNotice(`Deleted task "${task.name}".`);
+    } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "The task could not be deleted.");
+    }
+  }
+
+  function runSavedTask(task: SavedTask) { setRunningTask(task); }
+
+  async function runTaskWithInputs(task: SavedTask, values: Record<string, string>) {
+    let runPrompt: string;
+    try { runPrompt = buildTaskRunPrompt(task, values); } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "Invalid task inputs.");
+      return;
+    }
+    const missing = task.parameters.filter((parameter) => parameter.mode === "run" && parameter.required && !values[parameter.id]?.trim());
+    if (missing.length > 0) {
+      setSessionNotice(`Please provide: ${missing.map((parameter) => parameter.label).join(", ")}.`);
+      return;
+    }
+    setRunningTask(undefined);
+    const sessionId = newSessionId();
+    const createdAt = Date.now();
+    deletedSessionIds.current.delete(sessionId);
+    sessionCreatedAtRef.current.set(sessionId, createdAt);
+    sessionItemsRef.current.set(sessionId, []);
+    sessionLinksRef.current.set(sessionId, []);
+    sessionStatusRef.current.set(sessionId, "active");
+    sessionTaskRunsRef.current.set(sessionId, {
+      taskId: task.id,
+      taskRevision: task.revision,
+      taskSnapshot: structuredClone(task),
+      inputValues: { ...values },
+      target: task.startingContext.kind === "url" ? { kind: "url", url: task.startingContext.url } : { kind: "tab", url: agentTabState.agentTab?.url },
+      startedAt: createdAt,
+    });
+    setActiveSessionId(sessionId);
+    setSessionCreatedAt(createdAt);
+    setMessages([]);
+    setSessionLinks([]);
+    setIsHistoryOpen(false);
+    const userMessageId = crypto.randomUUID();
+    const requestId = crypto.randomUUID();
+    activeChatIds.current.add(requestId);
+    activeChatSessions.current.set(requestId, sessionId);
+    activeChatIdBySession.current.set(sessionId, requestId);
+    setIsLoading(true);
+    const initialItems: ConversationItem[] = [{ kind: "message", id: userMessageId, role: "user", text: runPrompt }];
+    sessionItemsRef.current.set(sessionId, initialItems);
+    setMessages(initialItems);
+    persistSession(sessionId, "active");
+    try {
+      if (task.startingContext.kind === "url" && task.startingContext.url) {
+        const focusResponse = await chrome.runtime.sendMessage({ type: "dsh-agent-focus-chat", sessionId, url: task.startingContext.url }) as { ok?: boolean; error?: string };
+        if (!focusResponse?.ok) throw new Error(focusResponse?.error ?? "The task starting page could not be opened.");
+      }
+      const response = await chrome.runtime.sendMessage({ type: "dsh-chat", id: requestId, text: runPrompt, sessionId, resume: false, deniedTools: task.deniedTools, humanInTheLoop: task.humanInTheLoop }) as { ok?: boolean; text?: string; error?: string };
+      if (response?.text) await finishAssistantStream(requestId, response.text);
+      updateConversation(sessionId, (items) => [...items, { kind: "message", id: crypto.randomUUID(), role: "assistant", text: response?.ok ? (response.text ?? "Task completed.") : `Task could not complete: ${response?.error ?? "Unknown error"}` }], response?.ok ? "completed" : "interrupted");
+    } catch (error) {
+      updateConversation(sessionId, (items) => [...items, { kind: "message", id: crypto.randomUUID(), role: "assistant", text: error instanceof Error ? error.message : "The saved task failed." }], "interrupted");
+    } finally {
+      activeChatIds.current.delete(requestId); activeChatSessions.current.delete(requestId); activeChatIdBySession.current.delete(sessionId); setIsLoading(false);
+    }
   }
 
   async function deleteSavedChat(chat: SavedChat) {
@@ -820,6 +995,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       isHistoryOpen,
       startNewSession,
       isStartingSession,
+      saveCurrentAsTask,
     },
     chatHistory: {
       isHistoryOpen,
@@ -832,6 +1008,10 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       setPendingDeleteChat,
       deletingChatId,
       isLoading,
+      savedTasks,
+      runSavedTask,
+      editSavedTask,
+      deleteSavedTask,
     },
     conversation: {
       sessionNotice,
@@ -870,6 +1050,21 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       setUserQuestionText,
       pendingHumanApproval,
       respondToHumanApproval,
+    },
+    taskDialogs: {
+      notice: sessionNotice,
+      draft: taskDraft,
+      setDraft: setTaskDraft,
+      saveTask,
+      close: () => { setTaskDraft(undefined); setTaskDraftQuestions([]); setTaskDraftAnswers({}); taskSetupConversation.current = ""; void removeTaskSetup(); },
+      runningTask,
+      setRunningTask,
+      runTaskWithInputs,
+      questions: taskDraftQuestions,
+      answers: taskDraftAnswers,
+      setAnswers: setTaskDraftAnswers,
+      continueSetup: continueTaskSetup,
+      setupBusy: taskSetupBusy,
     },
     toolPermissions: {
       toolsMenuOpen,
@@ -912,6 +1107,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       isStopping,
       connectionStatus,
     },
+    saveCurrentAsTask,
     agentTabState,
   };
 }

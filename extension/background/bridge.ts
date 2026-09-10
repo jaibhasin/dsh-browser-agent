@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgePromptContentPart, type BridgeRequest, type JsonValue, parseBridgeMessage } from "../../shared/protocol";
+import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgePromptContentPart, type BridgeRequest, type JsonValue, type TaskDraftRequest, type TaskDraftResponse, parseBridgeMessage } from "../../shared/protocol";
 
 const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
@@ -22,6 +22,7 @@ export class ExtensionBridge {
   private eventHandler?: EventHandler;
   private chatRequests = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
   private sessionRequests = new Map<string, { resolve: () => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
+  private taskDraftRequests = new Map<string, { resolve: (response: TaskDraftResponse) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
 
   async start(): Promise<void> {
     const config = await this.getConfiguration();
@@ -68,6 +69,15 @@ export class ExtensionBridge {
       this.send({ type: "new_session", id });
     });
   }
+  async taskDraft(request: Omit<TaskDraftRequest, "type" | "id">): Promise<TaskDraftResponse> {
+    await this.waitUntilConnected();
+    const id = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { this.taskDraftRequests.delete(id); reject(new Error("Task setup timed out.")); }, 120_000);
+      this.taskDraftRequests.set(id, { resolve, reject, timeout });
+      this.send({ type: "task_draft", id, ...request });
+    });
+  }
   private async getConfiguration(): Promise<BridgeConfiguration> {
     const stored = await chrome.storage.local.get("dshBridge");
     const config = stored.dshBridge as Partial<BridgeConfiguration> | undefined;
@@ -84,6 +94,11 @@ export class ExtensionBridge {
     socket.addEventListener("close", () => {
       if (this.socket === socket) this.socket = undefined;
       if (this.status === "connected" || this.status === "connecting") this.setStatus("disconnected");
+      for (const [id, pending] of this.taskDraftRequests) {
+        this.taskDraftRequests.delete(id);
+        clearTimeout(pending.timeout);
+        pending.reject(new Error("The DSH bridge disconnected during task setup."));
+      }
       this.scheduleReconnect();
     });
   }
@@ -100,6 +115,7 @@ export class ExtensionBridge {
       else if (message.type === "event") this.eventHandler?.(message.event, message.payload);
       else if (message.type === "chat_response") this.resolveChat(message);
       else if (message.type === "new_session_response") this.resolveNewSession(message);
+      else if (message.type === "task_draft_response") this.resolveTaskDraft(message);
     } catch { /* Invalid peer data never reaches browser automation code. */ }
   }
   private resolveChat(message: BridgeChatResponse): void {
@@ -113,6 +129,12 @@ export class ExtensionBridge {
     this.sessionRequests.delete(message.id); clearTimeout(pending.timeout);
     if (message.error) pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
     else pending.resolve();
+  }
+  private resolveTaskDraft(message: TaskDraftResponse): void {
+    const pending = this.taskDraftRequests.get(message.id); if (!pending) return;
+    this.taskDraftRequests.delete(message.id); clearTimeout(pending.timeout);
+    if (message.status === "error") pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
+    else pending.resolve(message);
   }
   private async handleRequest(request: BridgeRequest): Promise<void> {
     try {

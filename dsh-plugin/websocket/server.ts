@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
-import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeMessage, type BridgePromptContentPart, type BridgeResponse, type JsonValue, parseBridgeMessage } from "../../shared/protocol.js";
+import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeMessage, type BridgePromptContentPart, type BridgeResponse, type JsonValue, type TaskDraftRequest, type TaskDraftResponse, parseBridgeMessage } from "../../shared/protocol.js";
 
 export type DshBrowserBridgeOptions = {
   token: string;
@@ -10,6 +10,7 @@ export type DshBrowserBridgeOptions = {
   onExtensionEvent?: (event: string, payload: JsonValue) => void;
   onChat?: (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop?: boolean, content?: BridgePromptContentPart[]) => Promise<string>;
   onNewSession?: () => Promise<void>;
+  onTaskDraft?: (request: TaskDraftRequest) => Promise<Omit<TaskDraftResponse, "type" | "id">>;
 };
 type PendingRequest = { resolve: (value: JsonValue) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout>; cleanup: () => void };
 
@@ -47,6 +48,7 @@ export class DshBrowserWebSocketBridge {
   isConnected(): boolean { return this.extension?.readyState === WebSocket.OPEN; }
   setChatHandler(handler: (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop?: boolean, content?: BridgePromptContentPart[]) => Promise<string>): void { this.options.onChat = handler; }
   setNewSessionHandler(handler: () => Promise<void>): void { this.options.onNewSession = handler; }
+  setTaskDraftHandler(handler: (request: TaskDraftRequest) => Promise<Omit<TaskDraftResponse, "type" | "id">>): void { this.options.onTaskDraft = handler; }
   sendChatDelta(delta: Omit<BridgeChatDelta, "type">): void {
     if (!this.extension) return;
     this.send(this.extension, { type: "chat_delta", ...delta });
@@ -128,6 +130,14 @@ export class DshBrowserWebSocketBridge {
         this.send(socket, { type: "new_session_response", id: message.id });
       } catch (error) {
         this.send(socket, { type: "new_session_response", id: message.id, error: { code: "DSH_NEW_SESSION_FAILED", message: error instanceof Error ? error.message : "New session failed." } });
+      }
+    }
+    if (message.type === "task_draft") {
+      try {
+        if (!this.options.onTaskDraft) throw new Error("Task setup is not configured.");
+        this.send(socket, { type: "task_draft_response", id: message.id, ...(await this.options.onTaskDraft(message)) } as TaskDraftResponse);
+      } catch (error) {
+        this.send(socket, { type: "task_draft_response", id: message.id, status: "error", error: { code: "DSH_TASK_DRAFT_FAILED", message: error instanceof Error ? error.message : "Task setup failed." } });
       }
     }
   }

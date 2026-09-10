@@ -10,6 +10,7 @@ type PanelHeaderProps = {
   isHistoryOpen: boolean;
   startNewSession: () => Promise<void>;
   isStartingSession: boolean;
+  saveCurrentAsTask: () => void;
 };
 
 export function PanelHeader({
@@ -19,6 +20,7 @@ export function PanelHeader({
   isHistoryOpen,
   startNewSession,
   isStartingSession,
+  saveCurrentAsTask,
 }: PanelHeaderProps) {
   return (
     <>
@@ -42,6 +44,9 @@ export function PanelHeader({
               aria-hidden="true"
             />
           )}
+          <button className="icon-button" type="button" onClick={saveCurrentAsTask} aria-label="Save as a task" title="Save this conversation as a task" disabled={agentTabState.activeTaskCount > 0}>
+            <span aria-hidden="true">☆</span>
+          </button>
           <button
             className="icon-button"
             type="button"

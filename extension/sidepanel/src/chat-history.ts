@@ -29,6 +29,14 @@ export type SavedChat = {
   status: "active" | "paused" | "completed" | "interrupted";
   items: ConversationItem[];
   links: string[];
+  taskRun?: {
+    taskId: string;
+    taskRevision: number;
+    taskSnapshot: unknown;
+    inputValues: Record<string, string>;
+    target: { kind: "tab" | "url"; url?: string };
+    startedAt: number;
+  };
 };
 
 type StoredHistory = { version: 1; chats: SavedChat[] };
@@ -45,7 +53,10 @@ function isSavedChat(value: unknown): value is SavedChat {
   return typeof chat.id === "string" && typeof chat.title === "string" &&
     typeof chat.createdAt === "number" && typeof chat.updatedAt === "number" &&
     (chat.status === "active" || chat.status === "paused" || chat.status === "completed" || chat.status === "interrupted") &&
-    Array.isArray(chat.items) && Array.isArray(chat.links) && chat.links.every((link) => typeof link === "string");
+    Array.isArray(chat.items) && Array.isArray(chat.links) && chat.links.every((link) => typeof link === "string") &&
+    (chat.taskRun === undefined || (typeof chat.taskRun === "object" && chat.taskRun !== null && typeof chat.taskRun.taskId === "string" && typeof chat.taskRun.taskRevision === "number" &&
+      typeof chat.taskRun.startedAt === "number" && typeof chat.taskRun.inputValues === "object" && chat.taskRun.inputValues !== null &&
+      typeof chat.taskRun.target === "object" && chat.taskRun.target !== null && (chat.taskRun.target.kind === "tab" || chat.taskRun.target.kind === "url")));
 }
 
 export async function loadChatHistory(): Promise<SavedChat[]> {

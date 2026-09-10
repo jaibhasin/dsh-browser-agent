@@ -201,6 +201,19 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "DSH chat failed." }));
     return true;
   }
+  if (message.type === "dsh-task-draft") {
+    const sourceSessionId = (message as { sourceSessionId?: unknown }).sourceSessionId;
+    const conversation = (message as { conversation?: unknown }).conversation;
+    const currentUrl = (message as { currentUrl?: unknown }).currentUrl;
+    const answers = (message as { answers?: unknown }).answers;
+    if (typeof sourceSessionId !== "string" || !sourceSessionId || typeof conversation !== "string" || !conversation.trim() || (currentUrl !== undefined && typeof currentUrl !== "string") || (answers !== undefined && (!answers || typeof answers !== "object" || Array.isArray(answers) || Object.values(answers as Record<string, unknown>).some((answer) => typeof answer !== "string")))) {
+      sendResponse({ ok: false, error: "Task setup input is invalid." }); return;
+    }
+    void bridge.taskDraft({ sourceSessionId, conversation, ...(currentUrl ? { currentUrl } : {}), ...(answers ? { answers: answers as Record<string, string> } : {}) })
+      .then((draft) => sendResponse({ ok: true, draft }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Task setup failed." }));
+    return true;
+  }
   if (message.type === "dsh-human-approval-response") {
     const approvalId = (message as { approvalId?: unknown }).approvalId;
     const approved = (message as { approved?: unknown }).approved;

@@ -479,6 +479,15 @@ textarea {
   border-color: var(--accent-border);
 }
 
+.saved-tasks { border-top: 1px solid var(--border); }
+.task-edit-button { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 8px 4px; }
+.task-modal { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; background: var(--bg-panel); color: var(--text-primary); border: 1px solid var(--border); border-radius: 16px; padding: 20px; box-shadow: 0 20px 60px rgb(0 0 0 / 28%); }
+.task-modal label, .task-modal fieldset { display: grid; gap: 6px; margin: 12px 0; font-size: 12px; color: var(--text-secondary); }
+.task-modal input, .task-modal textarea, .task-modal select { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: var(--bg-input); color: var(--text-primary); font: inherit; }
+.task-modal textarea { resize: vertical; }
+.task-help { color: var(--text-secondary); font-size: 13px; line-height: 1.4; }
+.task-parameter { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-items: center; margin: 12px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
+
 /* =========================================================
    Delete confirmation
    ========================================================= */
