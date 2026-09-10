@@ -131,8 +131,10 @@
 
 body {
   min-width: 280px;
+  height: 100vh;
   min-height: 100vh;
   margin: 0;
+  overflow: hidden;
   background: var(--bg-page);
 }
 
@@ -148,7 +150,9 @@ textarea {
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* =========================================================
@@ -670,8 +674,10 @@ textarea {
 
 .messages {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 20px;
+  min-height: 0;
   overflow-y: auto;
 }
 
