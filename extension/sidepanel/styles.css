@@ -787,6 +787,46 @@ h6.markdown-heading { font-size: 14px; }
   margin-top: 3px;
 }
 
+.markdown-table-wrapper {
+  max-width: 100%;
+  margin: 0 0 12px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.markdown-table th,
+.markdown-table td {
+  padding: 7px 8px;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.markdown-table th {
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  font-weight: 700;
+}
+
+.markdown-table tbody tr + tr td,
+.markdown-table tbody tr:first-child td,
+.markdown-table thead + tbody tr:first-child td {
+  border-top: 1px solid var(--border);
+}
+
+.markdown-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .markdown-message a {
   color: var(--accent-hover);
   text-decoration-color: var(--accent-border);

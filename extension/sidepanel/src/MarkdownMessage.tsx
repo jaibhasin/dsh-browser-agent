@@ -3,6 +3,7 @@
   Keeps styling classes minimal so the parent CSS can own the look.
 */
 import { Fragment, type ElementType, type ReactNode } from "react";
+import { isMarkdownTableStart, readMarkdownTable } from "./markdown-table";
 
 type ListItem = { content: string; ordered: boolean };
 
@@ -33,6 +34,36 @@ export function MarkdownMessage({ text }: { text: string }) {
           <code>{code.join("\n")}</code>
         </pre>,
       );
+      continue;
+    }
+
+    const table = readMarkdownTable(lines, index);
+    if (table) {
+      blocks.push(
+        <div className="markdown-table-wrapper" key={blocks.length}>
+          <table className="markdown-table">
+            <thead>
+              <tr>
+                {table.headers.map((header, cellIndex) => (
+                  <th key={cellIndex} style={{ textAlign: table.alignments[cellIndex] }}>{renderInline(header)}</th>
+                ))}
+              </tr>
+            </thead>
+            {table.rows.length > 0 && (
+              <tbody>
+                {table.rows.map((row, rowIndex) => (
+                  <tr key={rowIndex}>
+                    {row.map((cell, cellIndex) => (
+                      <td key={cellIndex} style={{ textAlign: table.alignments[cellIndex] }}>{renderInline(cell)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            )}
+          </table>
+        </div>,
+      );
+      index = table.nextIndex;
       continue;
     }
 
@@ -75,7 +106,7 @@ export function MarkdownMessage({ text }: { text: string }) {
 
     const paragraph: string[] = [line.trim()];
     index += 1;
-    while (index < lines.length && lines[index].trim() && !isBlockStart(lines[index])) {
+    while (index < lines.length && lines[index].trim() && !isBlockStart(lines[index]) && !isMarkdownTableStart(lines, index)) {
       paragraph.push(lines[index].trim());
       index += 1;
     }
