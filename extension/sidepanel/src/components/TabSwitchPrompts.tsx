@@ -7,15 +7,12 @@ import type { CurrentTaskAction } from "../requests";
 
 type TabSwitchPromptsProps = {
   tabSwitchView: TabSwitchView;
-  pendingDestinationChat: SavedChat | undefined;
   agentTabState: AgentTabState;
   resolveCurrentTask: (action: CurrentTaskAction) => Promise<void>;
   isSwitchingTab: boolean;
   moveAgentToCurrentTab: () => Promise<void>;
   keepCurrentChat: () => void;
   startNewOnDestination: () => Promise<void>;
-  destinationChat: SavedChat | undefined;
-  continueDestinationChat: () => void;
   pendingSavedChat: SavedChat | undefined;
   setPendingSavedChat: React.Dispatch<React.SetStateAction<SavedChat | undefined>>;
   continueAndOpenSavedChat: () => Promise<void>;
@@ -25,15 +22,12 @@ type TabSwitchPromptsProps = {
 
 export function TabSwitchPrompts({
   tabSwitchView,
-  pendingDestinationChat,
   agentTabState,
   resolveCurrentTask,
   isSwitchingTab,
   moveAgentToCurrentTab,
   keepCurrentChat,
   startNewOnDestination,
-  destinationChat,
-  continueDestinationChat,
   pendingSavedChat,
   setPendingSavedChat,
   continueAndOpenSavedChat,
@@ -42,7 +36,7 @@ export function TabSwitchPrompts({
 }: TabSwitchPromptsProps) {
   return (
     <>
-      {tabSwitchView.kind === "active-task" && !pendingDestinationChat && (
+      {tabSwitchView.kind === "active-task" && (
         <section className="tab-switch-prompt" role="dialog" aria-label="Switch agent tab" aria-live="assertive">
           <div>
             <strong>Switch to {tabLabel(tabSwitchView.tab)}?</strong>
@@ -61,7 +55,7 @@ export function TabSwitchPrompts({
         </section>
       )}
 
-      {tabSwitchView.kind === "new-tab" && !pendingDestinationChat && (
+      {tabSwitchView.kind === "new-tab" && (
         <section className="tab-switch-prompt" role="dialog" aria-label="Start chat on this tab" aria-live="assertive">
           <div>
             <strong>Start a chat on {tabLabel(tabSwitchView.tab)}?</strong>
@@ -77,19 +71,6 @@ export function TabSwitchPrompts({
             <button className="tab-switch-primary" type="button" onClick={() => void startNewOnDestination()} disabled={isSwitchingTab}>
               {isSwitchingTab ? "Starting..." : "Start new chat"}
             </button>
-          </div>
-        </section>
-      )}
-
-      {destinationChat && (
-        <section className="tab-switch-prompt" role="dialog" aria-label="Choose chat for this tab" aria-live="assertive">
-          <div>
-            <strong>This tab already has a saved chat.</strong>
-            <p>Start a new chat here, or continue {destinationChat.title}.</p>
-          </div>
-          <div className="tab-switch-actions">
-            <button type="button" onClick={() => void startNewOnDestination()} disabled={isSwitchingTab}>Start new chat</button>
-            <button className="tab-switch-primary" type="button" onClick={continueDestinationChat} disabled={isSwitchingTab}>Continue previous chat</button>
           </div>
         </section>
       )}
