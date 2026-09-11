@@ -13,6 +13,7 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
   const [run, setRun] = useState<BenchmarkRunState>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
   async function refreshTabs() {
     try {
@@ -29,11 +30,21 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
     setError("");
     void chrome.runtime.sendMessage({ type: "dsh-benchmark-panel-opened" }).catch(() => undefined);
     void refreshTabs();
-    const timer = window.setInterval(() => void refreshTabs(), 2000);
+    const refreshRun = () => {
+      setNow(Date.now());
+      void chrome.runtime.sendMessage({ type: "dsh-benchmark-state-request" }).then((response: { state?: BenchmarkRunState }) => {
+        if (response?.state) {
+          setRun(response.state);
+          setBusy(response.state.phase !== "completed");
+        }
+      }).catch(() => undefined);
+    };
+    refreshRun();
+    const timer = window.setInterval(() => { void refreshTabs(); refreshRun(); }, 1000);
     const onMessage = (message: { type?: string; state?: BenchmarkRunState }) => {
       if (message.type === "dsh-benchmark-state" && message.state) {
         setRun(message.state);
-        if (message.state.phase === "completed") setBusy(false);
+        setBusy(message.state.phase !== "completed");
       }
     };
     chrome.runtime.onMessage.addListener(onMessage);
@@ -45,6 +56,7 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
 
   const selectedTabs = useMemo(() => selectedBenchmarkTabs(tabs, selected), [selected, tabs]);
   const allSelected = tabs.length > 0 && selectedTabs.length === tabs.length;
+  const cooldownSeconds = Math.max(0, Math.ceil(((run?.settledAt ?? now) + 60_000 - now) / 1000));
   if (!open) return null;
 
   function toggleTab(id: number) {
@@ -79,6 +91,12 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
       <p className="benchmark-copy">Open websites in this window, choose the tabs below, then click Run. This prompt runs once per selected tab, all in parallel. No need to paste it into separate chats.</p>
       <label className="benchmark-label" htmlFor="benchmark-prompt">One prompt for all selected tabs</label>
       <textarea id="benchmark-prompt" className="benchmark-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={4} disabled={busy} />
+      <div className="benchmark-sites" aria-label="Open test websites">
+        <span>Open a test site:</span>
+        {[["YouTube", "https://www.youtube.com/"], ["Hacker News", "https://news.ycombinator.com/"], ["Reddit", "https://www.reddit.com/"]].map(([name, url]) => (
+          <button key={url} type="button" className="text-button" disabled={busy} onClick={() => void chrome.tabs.create({ url, active: false }).then(() => refreshTabs()).catch(() => setError(`Could not open ${name}. Open ${url} in a tab.`))}>{name}</button>
+        ))}
+      </div>
       <div className="benchmark-tabs-header">
         <span role="status">{selectedTabs.length} of {tabs.length} web tabs selected</span>
         {tabs.length > 0 && <button type="button" className="text-button" onClick={() => setSelected(allSelected ? new Set() : null)} disabled={busy}>{allSelected ? "Deselect all" : "Select all"}</button>}
@@ -86,7 +104,6 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
       <div className="benchmark-tabs">
         {tabs.length === 0 && <>
           <p className="benchmark-empty">New Tab and chrome:// pages cannot be tested. Enter a website address in each tab first.</p>
-          <button type="button" className="text-button" onClick={() => void chrome.tabs.create({ url: "https://example.com" }).then(() => refreshTabs()).catch(() => setError("Could not open a sample page. Enter https://example.com in a tab."))}>Open a sample page</button>
         </>}
         {tabs.map((tab) => (
           <label className="benchmark-tab" key={tab.id}>
@@ -97,11 +114,14 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
       </div>
       {run && (
         <div className="benchmark-progress" role="status">
-          <strong>{run.phase === "cooldown" ? "Tasks finished. Cooldown is running." : run.phase === "completed" ? "Benchmark complete." : "Tasks are running in parallel."}</strong>
+          <strong>{run.recordingError ? "Memory recording interrupted." : run.phase === "cooldown" ? `Cooldown: ${cooldownSeconds}s remaining. Leave tabs open.` : run.phase === "completed" ? "Tasks and cooldown finished. Check your terminal for the report." : `${run.tabCount} tasks are running in parallel.`}</strong>
           <span>{completed} completed{failed ? ` · ${failed} failed` : ""}{run.phase === "cooldown" ? " · collecting cooldown" : ""}</span>
+          <span>Responses are saved in Chat history as “Memory test: [page title]”.</span>
+          <small>Run: {run.runId}</small>
         </div>
       )}
       {error && <p className="benchmark-error" role="alert">{error}</p>}
+      {run?.recordingError && <p className="benchmark-error" role="alert">{run.recordingError}</p>}
       <button type="button" className="benchmark-run-button" onClick={() => void runBenchmark()} disabled={busy || selectedTabs.length === 0 || !prompt.trim()}>
         {busy ? "Running benchmark..." : tabs.length === 0 ? "Open a website to start" : selectedTabs.length === 0 ? "Select tabs to start" : `Run ${selectedTabs.length} task${selectedTabs.length === 1 ? "" : "s"} in parallel`}
       </button>

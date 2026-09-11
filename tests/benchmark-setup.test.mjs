@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
+import { createServer } from "node:net";
 import { openBenchmarkExtensions, setupInstructions } from "../scripts/benchmark-setup.mjs";
 
 test("setup explains the complete manual installation and recovery", () => {
@@ -92,6 +93,53 @@ test("terminal displays setup, answers status, and saves on stop", { timeout: 15
     assert.equal(summary.peakIncreaseMiB, null);
   } finally {
     clearTimeout(timer);
+    if (child.exitCode === null) child.kill("SIGTERM");
+  }
+});
+
+test("recorder keeps the three-task run and rejects unrelated cooldown events", { timeout: 15_000 }, async () => {
+  const reservation = createServer();
+  await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
+  const port = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  const directory = mkdtempSync(join(tmpdir(), "dsh-benchmark-run-"));
+  const child = spawn(process.execPath, [resolve("scripts/benchmark-memory.mjs")], {
+    cwd: directory,
+    env: { ...process.env, DSH_BENCHMARK_SKIP_BUILD: "1", DSH_BENCHMARK_NO_LAUNCH: "1", DSH_BENCHMARK_PORT: String(port) },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let output = "";
+  let errors = "";
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  const ready = new Promise((resolve, reject) => {
+    child.stdout.on("data", (data) => {
+      output += data;
+      if (output.includes("Follow the setup steps above.")) resolve();
+    });
+    child.once("error", reject);
+    child.once("exit", () => reject(new Error(errors || "Recorder exited during startup")));
+  });
+  child.stderr.on("data", (data) => { errors += data; });
+  const timeout = setTimeout(() => child.kill("SIGKILL"), 10_000);
+  const post = (event) => fetch(`http://127.0.0.1:${port}/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) });
+  try {
+    await ready;
+    assert.equal((await post({ type: "run_started", runId: "three-tabs", tabCount: 3 })).status, 204);
+    assert.equal((await post({ type: "run_started", runId: "one-tab", tabCount: 1 })).status, 400);
+    assert.equal((await post({ type: "run_settled", runId: "one-tab", tabCount: 1 })).status, 400);
+    assert.equal((await post({ type: "run_settled", runId: "three-tabs", tabCount: 3 })).status, 204);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.equal(child.exitCode, null, "Cooldown must not finish in 1-2 seconds");
+    child.stdin.end("stop\n");
+    assert.equal(await exited, 0, errors);
+    const reportPath = output.match(/Report saved to (.+)/)?.[1];
+    const summary = JSON.parse(readFileSync(join(reportPath, "summary.json"), "utf8"));
+    assert.equal(summary.tabCount, 3);
+    assert.equal(summary.runId, "three-tabs");
+    assert.equal(summary.cooldownComplete, false);
+    assert.equal(summary.retainedMiB, null);
+  } finally {
+    clearTimeout(timeout);
     if (child.exitCode === null) child.kill("SIGTERM");
   }
 });

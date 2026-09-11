@@ -89,7 +89,12 @@ export function removeChat(id: string): Promise<void> {
 }
 
 function enqueueMutation(mutation: () => Promise<void>): Promise<void> {
-  const next = mutationQueue.then(mutation, mutation);
+  // The worker and side panels can save concurrently during a benchmark.
+  const lockedMutation = async (): Promise<void> => {
+    if (globalThis.navigator?.locks) await navigator.locks.request("dsh-browser-chat-history", mutation);
+    else await mutation();
+  };
+  const next = mutationQueue.then(lockedMutation, lockedMutation);
   mutationQueue = next.catch(() => undefined);
   return next;
 }

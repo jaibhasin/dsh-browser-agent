@@ -17,6 +17,9 @@ const samples = [];
 let phase = "baseline";
 let run;
 let cooldownTimer;
+let cooldownProgressTimer;
+let cooldownStartedAt;
+let cooldownComplete = false;
 let sampleTimer;
 let stopped = false;
 let chromeDetected;
@@ -113,7 +116,7 @@ function saveReport(error) {
   const baseline = statsFor("baseline");
   const working = statsFor("working");
   const cooldown = statsFor("cooldown");
-  const summary = { metric: "Summed process RSS in MiB", profileDirectory, dshPid: dshPid ?? null, tabCount: run?.tabCount ?? null, runId: run?.runId ?? null, sampleCount: samples.length, elapsedSeconds: (Date.now() - startedAt) / 1000, phases: { baseline, working, cooldown }, peakIncreaseMiB: baseline.medianMiB !== null && working.peakMiB !== null ? working.peakMiB - baseline.medianMiB : null, retainedMiB: baseline.medianMiB !== null && cooldown.medianMiB !== null ? cooldown.medianMiB - baseline.medianMiB : null, error: error ? String(error) : null };
+  const summary = { metric: "Summed process RSS in MiB", profileDirectory, dshPid: dshPid ?? null, tabCount: run?.tabCount ?? null, runId: run?.runId ?? null, sampleCount: samples.length, elapsedSeconds: (Date.now() - startedAt) / 1000, cooldownComplete, cooldownSeconds: cooldownStartedAt ? (Date.now() - cooldownStartedAt) / 1000 : 0, phases: { baseline, working, cooldown }, peakIncreaseMiB: baseline.medianMiB !== null && working.peakMiB !== null ? working.peakMiB - baseline.medianMiB : null, retainedMiB: cooldownComplete && baseline.medianMiB !== null && cooldown.medianMiB !== null ? cooldown.medianMiB - baseline.medianMiB : null, error: error ? String(error) : null };
   writeFileSync(join(reportDirectory, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`);
   writeFileSync(join(reportDirectory, "report.html"), reportHtml(summary));
   writeFileSync(join(reportDirectory, "summary.md"), [
@@ -156,14 +159,22 @@ function onEvent(event) {
     markExtensionConnected();
     console.log(`  Tabs       ${event.tabCount} web tab${event.tabCount === 1 ? "" : "s"} available`);
   } else if (event.type === "run_started") {
+    if (run || stopped) throw new Error("This recorder already has a run.");
+    if (typeof event.runId !== "string" || !Number.isInteger(event.tabCount) || event.tabCount < 1) throw new Error("Invalid run.");
     run = event;
     phase = "working";
     console.log(`\n  Working    ${event.tabCount} parallel task${event.tabCount === 1 ? "" : "s"}`);
+    console.log(`  Run        ${event.runId}`);
   } else if (event.type === "run_settled") {
+    if (!run || event.runId !== run.runId || event.tabCount !== run.tabCount || phase !== "working") throw new Error("Run does not match the recorder.");
     phase = "cooldown";
+    cooldownStartedAt = Date.now();
     console.log("\n  Cooldown   Tasks finished. Leave tabs open for 60 seconds.");
     clearTimeout(cooldownTimer);
-    cooldownTimer = setTimeout(() => finish(), COOLDOWN_MS);
+    cooldownProgressTimer = setInterval(() => {
+      console.log(`  Cooldown   ${Math.max(0, Math.ceil((COOLDOWN_MS - (Date.now() - cooldownStartedAt)) / 1000))}s remaining`);
+    }, 15_000);
+    cooldownTimer = setTimeout(() => { cooldownComplete = true; finish(); }, COOLDOWN_MS);
   }
 }
 
@@ -194,6 +205,7 @@ function finish(error) {
   stopped = true;
   clearTimeout(sampleTimer);
   clearTimeout(cooldownTimer);
+  clearInterval(cooldownProgressTimer);
   server.close();
   saveReport(error);
   input.close();

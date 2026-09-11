@@ -23,6 +23,7 @@ export type BenchmarkRunState = {
   phase: "running" | "cooldown" | "completed";
   startedAt: number;
   settledAt?: number;
+  recordingError?: string;
   tasks: BenchmarkTaskStatus[];
 };
 

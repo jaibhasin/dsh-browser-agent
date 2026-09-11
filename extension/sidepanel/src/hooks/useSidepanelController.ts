@@ -111,6 +111,8 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   }
 
   function persistSession(sessionId: string, status?: SavedChat["status"]) {
+    // Benchmark sessions are persisted by their background task while it runs.
+    if (sessionId.startsWith("benchmark-") && !activeChatIdBySession.current.has(sessionId)) return;
     if (deletedSessionIds.current.has(sessionId)) return;
     const items = sessionItemsRef.current.get(sessionId) ?? [];
     if (items.length === 0) return;
@@ -187,6 +189,21 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   useEffect(() => {
     messagesRef.current?.lastElementChild?.scrollIntoView({ behavior: streamingAssistant ? "auto" : "smooth" });
   }, [messages, streamingAssistant]);
+
+  useEffect(() => {
+    const onBenchmarkChat = (message: { type?: string; chat?: SavedChat }) => {
+      if (message.type !== "dsh-benchmark-chat-saved" || !message.chat) return;
+      const chat = message.chat;
+      sessionItemsRef.current.set(chat.id, chat.items);
+      sessionLinksRef.current.set(chat.id, chat.links);
+      sessionCreatedAtRef.current.set(chat.id, chat.createdAt);
+      sessionStatusRef.current.set(chat.id, chat.status);
+      syncSavedChats([chat, ...historyRef.current.filter((item) => item.id !== chat.id)]);
+      if (activeSessionIdRef.current === chat.id) setMessages(chat.items);
+    };
+    chrome.runtime.onMessage.addListener(onBenchmarkChat);
+    return () => chrome.runtime.onMessage.removeListener(onBenchmarkChat);
+  }, []);
 
   useEffect(() => {
     void loadChatHistory().then((history) => {

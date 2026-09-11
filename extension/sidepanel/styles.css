@@ -278,6 +278,17 @@ body {
   font-size: 12px;
 }
 
+.benchmark-sites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.benchmark-progress small { overflow-wrap: anywhere; color: var(--text-muted); }
+
 .benchmark-error {
   margin: 0;
   padding: 8px;

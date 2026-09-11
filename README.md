@@ -217,8 +217,12 @@ If Chrome shows a blank tab, enter `chrome://extensions` in that window or type 
 Type `status` to check Chrome, extension, DSH, and memory, or `help` to repeat setup instructions.
 
 Click `Memory test`, choose any eligible web tabs, enter a prompt, and click `Run tasks in parallel`.
+Use the YouTube, Hacker News, and Reddit buttons to open test pages.
 The extension starts one independent DSH session per selected tab and reports when every task settles.
+Prompts and final responses appear in Chat history under `Memory test: [page title]`.
 The command records a baseline, active work, and a 60-second cooldown automatically.
+The panel shows the cooldown countdown, and the terminal prints progress every 15 seconds.
+Run `pnpm benchmark:memory` again before starting another measurement after a report is saved.
 You can stop early with `stop` in the benchmark terminal or Ctrl+C.
 
 Reports are written to an ignored `memory-reports/` directory as `report.html`, `summary.json`, `summary.md`, and `samples.csv`.
