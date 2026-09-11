@@ -1,8 +1,8 @@
-import type { JsonValue } from "../../shared/protocol";
+import type { BrowserRefMetadata, BrowserSnapshotData, JsonValue } from "../../shared/protocol";
 
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
 const SCROLL_MESSAGE = "dsh-browser-scroll";
-type SnapshotResult = { text: string };
+type SnapshotResult = BrowserSnapshotData;
 type BrowserScreenshotResult = { data: string; mediaType: "image/png" };
 type ScrollDirection = "up" | "down" | "left" | "right";
 const CLICK_MESSAGE = "dsh-browser-click";
@@ -17,6 +17,8 @@ type WaitResult = {
   domQuietForMs: number;
   busyElements: number;
   text: string;
+  fingerprint: string;
+  refs: Record<string, BrowserRefMetadata>;
 };
 export type BrowserTab = {
   id: number;
@@ -50,7 +52,7 @@ export async function captureBrowserSnapshot(taskTab?: chrome.tabs.Tab): Promise
   if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
   const result = await chrome.tabs.sendMessage(tab.id, { type: SNAPSHOT_MESSAGE }) as unknown;
-  if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { text?: unknown }).text !== "string") {
+  if (!isSnapshotData(result)) {
     throw new Error("The content script returned an invalid snapshot.");
   }
   return result as SnapshotResult;
@@ -74,7 +76,7 @@ export async function scrollBrowser(direction: ScrollDirection, value: number, t
   if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
   const result = await chrome.tabs.sendMessage(tab.id, { type: SCROLL_MESSAGE, direction, value }) as unknown;
-  if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { text?: unknown }).text !== "string") {
+  if (!isSnapshotData(result)) {
     throw new Error("The content script returned an invalid scroll result.");
   }
   return result as SnapshotResult;
@@ -89,9 +91,9 @@ export async function clickBrowserRef(ref: number, taskTab?: chrome.tabs.Tab): P
   if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { ok?: unknown }).ok !== "boolean") {
     throw new Error("The content script returned an invalid click result.");
   }
-  const click = result as ClickResult;
+  const click = result as ClickResult & { target?: BrowserRefMetadata };
   if (!click.ok) throw new Error(click.error);
-  return { clicked: true };
+  return { clicked: true, ...(click.target ? { target: click.target } : {}) };
 }
 
 /** Fill a text control from the latest snapshot. */
@@ -120,10 +122,17 @@ export async function waitForBrowserSettled(timeoutMs: number, taskTab?: chrome.
     typeof (result as { documentComplete?: unknown }).documentComplete !== "boolean" ||
     typeof (result as { domQuietForMs?: unknown }).domQuietForMs !== "number" ||
     typeof (result as { busyElements?: unknown }).busyElements !== "number" ||
-    typeof (result as { text?: unknown }).text !== "string") {
+    !isSnapshotData(result)) {
     throw new Error("The content script returned an invalid page wait result.");
   }
   return result as WaitResult;
+}
+
+function isSnapshotData(value: unknown): value is BrowserSnapshotData {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const snapshot = value as Partial<BrowserSnapshotData>;
+  return typeof snapshot.text === "string" && typeof snapshot.fingerprint === "string" &&
+    !!snapshot.refs && typeof snapshot.refs === "object" && !Array.isArray(snapshot.refs);
 }
 
 /** Navigate the agent-owned tab to an HTTP(S) URL. */

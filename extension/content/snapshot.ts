@@ -1,4 +1,11 @@
-type SnapshotResult = { text: string };
+type SnapshotResult = { text: string; fingerprint: string; refs: Record<string, RefMetadata> };
+type RefMetadata = {
+  tag: string;
+  role?: string;
+  name?: string;
+  path: string;
+  parentRef?: number;
+};
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
 const SCROLL_MESSAGE = "dsh-browser-scroll";
 const CLICK_MESSAGE = "dsh-browser-click";
@@ -11,8 +18,10 @@ const REFS_KEY = "__dshBrowserSnapshotRefs";
 const contentScriptState = globalThis as typeof globalThis & {
   [LISTENER_INSTALLED_KEY]?: boolean;
   [REFS_KEY]?: Map<number, Element>;
+  __dshBrowserSnapshotRefMetadata?: Map<number, RefMetadata>;
 };
 contentScriptState[REFS_KEY] ??= new Map();
+contentScriptState.__dshBrowserSnapshotRefMetadata ??= new Map();
 if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     if (!message || typeof message !== "object" || !("type" in message)) return;
@@ -92,7 +101,7 @@ function hiddenInComposedTree(element: Element): boolean {
   return getComputedStyle(element).visibility === "hidden";
 }
 
-function clickRef(value: unknown): ClickResult {
+function clickRef(value: unknown): ClickResult & { target?: RefMetadata } {
   if (!Number.isInteger(value) || (value as number) < 1) {
     return { ok: false, error: "Browser ref must be a positive integer." };
   }
@@ -110,7 +119,7 @@ function clickRef(value: unknown): ClickResult {
     return { ok: false, error: `Browser ref [${value}] is disabled.` };
   }
   (element as HTMLElement).click();
-  return { ok: true };
+  return { ok: true, target: contentScriptState.__dshBrowserSnapshotRefMetadata?.get(value as number) };
 }
 
 type TypeResult = { typed: true } | { typed: false; error: string };
@@ -121,6 +130,8 @@ type WaitResult = {
   domQuietForMs: number;
   busyElements: number;
   text: string;
+  fingerprint: string;
+  refs: Record<string, RefMetadata>;
 };
 
 function typeRef(value: unknown, text: unknown): TypeResult {
@@ -191,7 +202,7 @@ function waitForPageSettled(timeoutMs: number): Promise<WaitResult> {
         documentComplete: document.readyState === "complete",
         domQuietForMs: Math.round(now - lastMutationAt),
         busyElements: countVisibleBusyElements(),
-        text: collectSnapshot().text,
+        ...collectSnapshot(),
       });
     };
     const check = () => {
@@ -230,6 +241,7 @@ function collectSnapshot(): SnapshotResult {
   const viewportControls: string[] = [];
   const offscreenControls: string[] = [];
   const refs = new Map<number, Element>();
+  const refMetadata = new Map<number, RefMetadata>();
   let nextRef = 1;
   const roles: Record<string, string> = { a: "link", button: "button", input: "textbox", select: "combobox", textarea: "textbox", main: "main", nav: "navigation", header: "banner", footer: "contentinfo", aside: "complementary", form: "form", table: "table", dialog: "dialog", article: "article", section: "region", p: "paragraph", img: "image", video: "video", h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading", ul: "list", ol: "list", li: "listitem" };
   const normalise = (value: string | null | undefined): string => (value ?? "").replace(/\s+/g, " ").trim();
@@ -262,6 +274,18 @@ function collectSnapshot(): SnapshotResult {
     if (!interactive(element) && !/^h[1-6]$/.test(tag) && tag !== "li" && tag !== "p") return "";
     return normalise(element.textContent).slice(0, 180);
   };
+  const elementPath = (element: Element): string => {
+    const parts: string[] = [];
+    for (let current: Element | null = element; current && current !== document.body; current = composedParent(current)) {
+      const tag = current.tagName.toLowerCase();
+      const role = current.getAttribute("role");
+      const parent = composedParent(current);
+      const siblings = parent ? Array.from(parent.children).filter((child) => child.tagName === current.tagName) : [];
+      const index = siblings.indexOf(current);
+      parts.unshift(`${tag}${role ? `[role=${role}]` : ""}[${Math.max(0, index)}]`);
+    }
+    return parts.join(" > ");
+  };
   const interactive = (element: Element): boolean => {
     const tag = element.tagName.toLowerCase();
     const role = element.getAttribute("role");
@@ -283,15 +307,30 @@ function collectSnapshot(): SnapshotResult {
     const suffix = name ? ` \"${name}\"` : "";
     let depth = 0; let parent = composedParent(element);
     while (parent && parent !== document.body) { depth += 1; parent = composedParent(parent); }
-    nodes.push(`${"  ".repeat(Math.min(6, depth))}<${tag}${role ? ` role=${role}` : ""}>${suffix}`);
+    let ref: number | undefined;
+    let parentRef: number | undefined;
     if (isInteractive) {
       const state = [element.getAttribute("aria-expanded") && `expanded=${element.getAttribute("aria-expanded")}`, (element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true") && "disabled"].filter(Boolean).join(" ");
-      const ref = nextRef++;
+      ref = nextRef++;
       refs.set(ref, element);
-      controls.push(`[${ref}] ${role ?? tag}${suffix}${state ? ` ${state}` : ""}`);
+      for (let parent = composedParent(element); parent; parent = composedParent(parent)) {
+        parentRef = [...refs.entries()].find(([, candidate]) => candidate === parent)?.[0];
+        if (parentRef !== undefined) break;
+      }
+      const metadata: RefMetadata = {
+        tag,
+        ...(role ? { role } : {}),
+        ...(name ? { name } : {}),
+        path: elementPath(element),
+        ...(parentRef === undefined ? {} : { parentRef }),
+      };
+      refMetadata.set(ref, metadata);
+      controls.push(`[${ref}] ${role ?? tag}${suffix}${state ? ` ${state}` : ""} <${tag}${role ? ` role=${role}` : ""}${parentRef === undefined ? "" : ` parentRef=${parentRef}`}>`);
     }
+    nodes.push(`${"  ".repeat(Math.min(6, depth))}<${tag}${role ? ` role=${role}` : ""}${ref === undefined ? "" : ` ref=${ref}`}${parentRef === undefined ? "" : ` parentRef=${parentRef}`}>${suffix}`);
   }
   contentScriptState[REFS_KEY] = refs;
+  contentScriptState.__dshBrowserSnapshotRefMetadata = refMetadata;
   const viewportWidth = Math.round(window.visualViewport?.width ?? document.documentElement.clientWidth);
   const viewportHeight = Math.round(window.visualViewport?.height ?? document.documentElement.clientHeight);
   const text = [
@@ -311,5 +350,19 @@ function collectSnapshot(): SnapshotResult {
     "",
     "Intentionally hidden, transparent, zero-size, and aria-hidden elements are omitted.",
   ].join("\n");
-  return { text: text.length > maxTextLength ? `${text.slice(0, maxTextLength)}\n[truncated]` : text };
+  const snapshotText = text.length > maxTextLength ? `${text.slice(0, maxTextLength)}\n[truncated]` : text;
+  return {
+    text: snapshotText,
+    fingerprint: hashSnapshot(snapshotText),
+    refs: Object.fromEntries([...refMetadata.entries()].map(([ref, metadata]) => [String(ref), metadata])),
+  };
+}
+
+function hashSnapshot(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }

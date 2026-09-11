@@ -19,7 +19,7 @@ try {
     const host = document.querySelector('post-editor');
     host.style.display = 'block';
     const root = host.attachShadow({mode: 'open'});
-    root.innerHTML = '<span id="label">Post title</span><textarea aria-labelledby="label"></textarea><nested-editor></nested-editor><slot></slot>';
+    root.innerHTML = '<span id="label">Post title</span><textarea aria-labelledby="label"></textarea><nested-editor></nested-editor><div role="menuitem"><button>Delete</button></div><slot></slot>';
     const nested = root.querySelector('nested-editor').attachShadow({mode: 'open'});
     nested.innerHTML = '<button>Preview post</button>';
     host.innerHTML = '<button>Slotted control</button>';
@@ -33,6 +33,8 @@ try {
     const ref = name => Number(snapshot.match(new RegExp('\\\\[(\\\\d+)\\\\] [^\\\\n]*"' + name + '"'))?.[1]);
     const titleRef = ref('Post title'), buttonRef = ref('Preview post');
     if (!titleRef || !buttonRef) throw new Error('Missing shadow control refs: ' + snapshot);
+    if ((snapshot.match(/\\[\\d+\\] [^\\n]*"Delete"/g) || []).length !== 2) throw new Error('Nested duplicate controls were not preserved: ' + snapshot);
+    if (!/ref=\\d+ parentRef=\\d+/.test(snapshot)) throw new Error('Parent control relationship was not exposed: ' + snapshot);
     if (!send('dsh-browser-type', {ref: titleRef, text: 'A title'}).typed) throw new Error('Typing failed');
     if (root.querySelector('textarea').value !== 'A title' || !receivedInput) throw new Error('Input did not reach component');
     if (!send('dsh-browser-click', {ref: buttonRef}).ok || !clicked) throw new Error('Click failed');
