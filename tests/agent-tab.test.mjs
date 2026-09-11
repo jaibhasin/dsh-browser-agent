@@ -65,6 +65,11 @@ await api.continueAgentTaskInBackground(amazonChat);
 assert.equal((await api.getAgentTaskTab("shopping-task")).id, 42);
 await api.pauseAgentTaskForTab(77);
 assert.equal((await api.getAgentTabState(amazonChat)).task?.runMode, "background", "background work must not pause on another tab activation");
+await api.markAgentTaskWaitingForInput("shopping-task", "human_approval:approval-1");
+assert.equal((await api.getAgentTabState(amazonChat)).task?.status, "waiting");
+assert.equal((await api.getAgentTabState(amazonChat)).activeTaskCount, 2, "waiting work remains visible as an active session");
+await api.resumeAgentTaskAfterInput(amazonChat, "human_approval:approval-1");
+assert.equal((await api.getAgentTabState(amazonChat)).task?.status, "running");
 
 // A tab can have one owner only.  A new claim removes the previous chat's
 // assignment, while higher layers decide whether to delete its saved history.

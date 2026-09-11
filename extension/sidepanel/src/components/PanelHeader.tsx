@@ -6,6 +6,7 @@ import { connectionLabel } from "../labels";
 type PanelHeaderProps = {
   connectionStatus: string;
   agentTabState: AgentTabState;
+  attentionCount: number;
   setIsHistoryOpen: React.Dispatch<React.SetStateAction<boolean>>;
   isHistoryOpen: boolean;
   startNewSession: () => Promise<void>;
@@ -16,6 +17,7 @@ type PanelHeaderProps = {
 export function PanelHeader({
   connectionStatus,
   agentTabState,
+  attentionCount,
   setIsHistoryOpen,
   isHistoryOpen,
   startNewSession,
@@ -43,6 +45,11 @@ export function PanelHeader({
               title={`${agentTabState.activeTaskCount} active task${agentTabState.activeTaskCount === 1 ? "" : "s"}`}
               aria-hidden="true"
             />
+          )}
+          {attentionCount > 0 && (
+            <span className="attention-count" title={`${attentionCount} session${attentionCount === 1 ? "" : "s"} needs input`}>
+              {attentionCount}
+            </span>
           )}
           <button className="icon-button" type="button" onClick={saveCurrentAsTask} aria-label="Save as a task" title="Save this conversation as a task" disabled={agentTabState.activeTaskCount > 0}>
             <span aria-hidden="true">☆</span>

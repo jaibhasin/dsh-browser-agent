@@ -8,6 +8,7 @@ type ChatHistoryProps = {
   startNewSession: () => Promise<void>;
   isStartingSession: boolean;
   savedChats: SavedChat[];
+  attentionSessionIds: ReadonlySet<string>;
   activeSessionId: string;
   openSavedChat: (chat: SavedChat) => void;
   isSwitchingTab: boolean;
@@ -25,6 +26,7 @@ export function ChatHistory({
   startNewSession,
   isStartingSession,
   savedChats,
+  attentionSessionIds,
   activeSessionId,
   openSavedChat,
   isSwitchingTab,
@@ -59,6 +61,7 @@ export function ChatHistory({
                   >
                     <span className="chat-history-title">{chat.title}</span>
                     <span className="chat-history-meta">
+                      {attentionSessionIds.has(chat.id) && <small className="chat-attention">Needs input</small>}
                       <small className={`chat-status chat-status-${chat.status}`}>{chat.status === "active" ? "Active" : chat.status}</small>
                       <small>{new Date(chat.updatedAt).toLocaleDateString()}</small>
                     </span>

@@ -14,6 +14,7 @@ import { AGENT_TOOL_DEFS, effectiveDenied } from "../tools";
 import { buildTaskRunPrompt, loadSavedTasks, loadTaskSetup, removeSavedTask, removeTaskSetup, saveSavedTask, saveTaskSetup, type SavedTask } from "../saved-tasks";
 import type { TaskDraft } from "../components/TaskDialogs";
 import type { TaskDraftQuestion } from "../../../../shared/protocol";
+import { ATTENTION_SOUND_STORAGE_KEY, consumeAttentionFocus, isAttentionRequest, loadAttentionRequests, type AttentionRequest } from "../../../../shared/attention";
 
 
 // Session, streaming, and tab transitions share refs and stay coordinated here.
@@ -54,6 +55,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const [humanInTheLoopSessions, setHumanInTheLoopSessions] = useState<Set<string>>(() => new Set());
   const [pendingHumanApproval, setPendingHumanApproval] = useState<HumanApprovalRequest>();
   const [pendingUserQuestion, setPendingUserQuestion] = useState<UserQuestionRequest>();
+  const [attentionRequests, setAttentionRequests] = useState<AttentionRequest[]>([]);
   const [userQuestionText, setUserQuestionText] = useState("");
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
   const [dismissedTabId, setDismissedTabId] = useState<number>();
@@ -169,6 +171,14 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     setAgentTabState(state);
   }
 
+  function recordAttentionRequest(attention: AttentionRequest) {
+    setAttentionRequests((current) => [...current.filter((item) => item.id !== attention.id), attention]);
+  }
+
+  function removeAttentionRequest(attentionId: string) {
+    setAttentionRequests((current) => current.filter((item) => item.id !== attentionId));
+  }
+
   async function refreshAgentTabState(sessionId = activeSessionIdRef.current) {
     const response = await chrome.runtime.sendMessage({ type: "dsh-agent-tab-state-request", sessionId }) as { ok?: boolean; state?: AgentTabState };
     if (response?.ok && response.state) applyAgentTabState(response.state);
@@ -187,7 +197,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   }, [messages, streamingAssistant]);
 
   useEffect(() => {
-    void loadChatHistory().then((history) => {
+    void loadChatHistory().then(async (history) => {
       const byId = new Map(historyRef.current.map((chat) => [chat.id, chat]));
       for (const chat of history) {
         const current = byId.get(chat.id);
@@ -203,7 +213,10 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       }
       historyRef.current = merged;
       setSavedChats(merged);
+      setAttentionRequests(await loadAttentionRequests());
       setHistoryReady(true);
+      const focusSessionId = await consumeAttentionFocus();
+      if (focusSessionId && merged.some((chat) => chat.id === focusSessionId)) openAttentionSession(focusSessionId);
     });
   }, []);
 
@@ -246,11 +259,26 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   }, [activeSessionId, agentTabState.task?.status, historyReady, isLoading, messages, sessionCreatedAt, sessionLinks]);
 
   useEffect(() => {
+    const attention = attentionRequests.find((request) => request.sessionId === activeSessionId);
+    if (!attention) {
+      setPendingHumanApproval(undefined);
+      setPendingUserQuestion(undefined);
+    } else if (attention.kind === "human_approval" && attention.approval) {
+      setPendingHumanApproval(attention.approval);
+      setPendingUserQuestion(undefined);
+    } else if (attention.kind === "user_question" && attention.question) {
+      setUserQuestionText("");
+      setPendingUserQuestion(attention.question);
+      setPendingHumanApproval(undefined);
+    }
+  }, [activeSessionId, attentionRequests]);
+
+  useEffect(() => {
     chrome.runtime.sendMessage({ type: "dsh-bridge-status" }, (response) => {
       if (!chrome.runtime.lastError) setConnectionStatus(response?.status === "connected" ? "connected" : response?.status ?? "disconnected");
     });
     void refreshAgentTabState();
-    const onMessage = (message: { type?: string; status?: string; delta?: BridgeChatDelta; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown; question?: unknown }) => {
+    const onMessage = (message: { type?: string; status?: string; delta?: BridgeChatDelta; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown; question?: unknown; attention?: unknown; attentionId?: string }) => {
       if (message.type === "dsh-bridge-status" && message.status) {
         setConnectionStatus(message.status);
       } else if (message.type === "dsh-chat-delta" && message.delta && activeChatIds.current.has(message.delta.id)) {
@@ -260,6 +288,12 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
         if (sessionId) addToolProgress(sessionId, message.progress);
       } else if (message.type === "dsh-agent-tab-state" && message.state && message.sessionId === activeSessionIdRef.current) {
         applyAgentTabState(message.state);
+      } else if (message.type === "dsh-attention-request" && isAttentionRequest(message.attention)) {
+        recordAttentionRequest(message.attention);
+      } else if (message.type === "dsh-attention-cleared" && message.attentionId) {
+        removeAttentionRequest(message.attentionId);
+      } else if (message.type === "dsh-attention-open" && message.sessionId) {
+        openAttentionSession(message.sessionId);
       } else if (message.type === "dsh-human-approval-request" && isHumanApprovalRequest(message.approval) && activeChatIds.current.has(message.approval.chatId)) {
         setPendingHumanApproval(message.approval);
       } else if (message.type === "dsh-user-question-request" && isUserQuestionRequest(message.question) && activeChatIds.current.has(message.question.chatId)) {
@@ -598,16 +632,31 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       });
   }
 
+  function openAttentionSession(sessionId: string) {
+    const chat = historyRef.current.find((candidate) => candidate.id === sessionId);
+    if (!chat) return;
+    if (activeSessionBlocksSwitch()) {
+      setPendingSavedChat(chat);
+      setSessionNotice("Another session is active. Choose how to switch before opening this session.");
+      return;
+    }
+    activateSavedChat(chat);
+  }
+
   function openSavedChat(chat: SavedChat) {
     if (chat.id === activeSessionId) return;
-    const hasForegroundTask = agentTabState.task !== undefined &&
-      agentTabState.task.status !== "cancelled" &&
-      agentTabState.task.runMode === "foreground";
-    if (isLoading || hasForegroundTask) {
+    if (activeSessionBlocksSwitch()) {
       setPendingSavedChat(chat);
       return;
     }
     activateSavedChat(chat);
+  }
+
+  function activeSessionBlocksSwitch(): boolean {
+    if (!isLoading) return false;
+    const task = agentTabState.task;
+    if (!task) return true;
+    return (task.status === "running" || task.status === "paused") && task.runMode === "foreground";
   }
 
   async function saveCurrentAsTask() {
@@ -886,6 +935,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     { id: "new", label: "/new", description: "Delete this chat and start a fresh session in the tab" },
     { id: "actions", label: "/actions", description: "Enable or disable the agent's tools" },
     { id: "human-in-the-loop", label: "/human-in-the-loop", description: "Ask for approval before clicks, typing, and navigation" },
+    { id: "notifications", label: "/notifications", description: "Turn background attention sounds on or off" },
     { id: "theme", label: "/theme", description: "Set the panel theme: system, light, or dark" },
   ];
 
@@ -913,6 +963,15 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       setThemeMenuOpen(false);
       setHumanInTheLoopSessions((current) => new Set(current).add(activeSessionId));
       setSessionNotice("Human-in-the-loop is enabled for this chat. Clicks, typing, and navigation now require your approval.");
+      textareaRef.current?.focus();
+    } else if (commandId === "notifications") {
+      const setting = args[0];
+      if (args.length !== 1 || (setting !== "on" && setting !== "off")) {
+        setSessionNotice("Use /notifications on or /notifications off.");
+      } else {
+        void chrome.storage.local.set({ [ATTENTION_SOUND_STORAGE_KEY]: setting === "on" });
+        setSessionNotice(`Background attention sounds turned ${setting}.`);
+      }
       textareaRef.current?.focus();
     } else if (commandId === "theme") {
       const nextTheme = themePreferenceFromCommand(args);
@@ -982,6 +1041,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     panelHeader: {
       connectionStatus,
       agentTabState,
+      attentionCount: attentionRequests.length,
       setIsHistoryOpen,
       isHistoryOpen,
       startNewSession,
@@ -993,6 +1053,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       startNewSession,
       isStartingSession,
       savedChats,
+      attentionSessionIds: new Set(attentionRequests.map((request) => request.sessionId)),
       activeSessionId,
       openSavedChat,
       isSwitchingTab,
