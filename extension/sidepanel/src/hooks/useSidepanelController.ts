@@ -38,7 +38,6 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const [deletingChatId, setDeletingChatId] = useState<string>();
   const [pendingDeleteChat, setPendingDeleteChat] = useState<SavedChat>();
   const [pendingSavedChat, setPendingSavedChat] = useState<SavedChat>();
-  const [pendingDestinationChat, setPendingDestinationChat] = useState<SavedChat>();
   const [prompt, setPrompt] = useState("");
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [activePaletteIndex, setActivePaletteIndex] = useState(0);
@@ -167,7 +166,6 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   function applyAgentTabState(state: AgentTabState) {
     if (state.currentTab?.id !== currentTabId.current) {
       setDismissedTabId(undefined);
-      setPendingDestinationChat(undefined);
     }
     currentTabId.current = state.currentTab?.id;
     setAgentTabState(state);
@@ -326,9 +324,14 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     historyReady,
     dismissedTabId,
   });
-  const destinationChat = pendingDestinationChat ?? (tabSwitchView.kind === "saved-chat"
-    ? savedChats.find((chat) => chat.id === tabSwitchView.sessionId)
-    : undefined);
+  // A chat already assigned to the visible tab is restored automatically.
+  const destinationSessionId = tabSwitchView.kind === "saved-chat" ? tabSwitchView.sessionId : undefined;
+
+  useEffect(() => {
+    if (!historyReady || isLoading || !destinationSessionId) return;
+    const chat = savedChats.find((candidate) => candidate.id === destinationSessionId);
+    if (chat) activateSavedChat(chat);
+  }, [destinationSessionId, historyReady, isLoading, savedChats]);
 
   /**
    * Folds one bridge progress event into the current activity group.
@@ -552,7 +555,6 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     setSessionCreatedAt(createdAt);
     setMessages([]);
     setSessionLinks([]);
-    setPendingDestinationChat(undefined);
     setPrompt("");
     setDraftImages([]);
     setIsLoading(false);
@@ -594,7 +596,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       setIsLoading(false);
 
       const savedChat = currentTabSavedChat();
-      if (savedChat) setPendingDestinationChat(savedChat);
+      if (savedChat) activateSavedChat(savedChat);
       else await startFreshChatOnCurrentTab();
     } catch (error) {
       setSessionNotice(error instanceof Error ? error.message : "The current chat could not be changed.");
@@ -604,15 +606,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   }
 
   async function startNewOnDestination() {
-    setPendingDestinationChat(undefined);
     await startFreshChatOnCurrentTab();
-  }
-
-  function continueDestinationChat() {
-    if (!destinationChat) return;
-    setPendingDestinationChat(undefined);
-    setIsLoading(false);
-    activateSavedChat(destinationChat);
   }
 
   function activateSavedChat(chat: SavedChat) {
@@ -626,7 +620,6 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     setSessionCreatedAt(chat.createdAt);
     setMessages(chat.items);
     setSessionLinks(chat.links);
-    setPendingDestinationChat(undefined);
     setPrompt("");
     setDraftImages([]);
     setSessionNotice(chat.status === "interrupted" ? "This chat was interrupted. The agent will inspect the page before continuing." : "Saved chat opened.");
@@ -882,7 +875,6 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       // Moving a chat never deletes the chat that previously owned this tab.
       // It remains in history and can recreate its site when reopened.
       setDismissedTabId(undefined);
-      setPendingDestinationChat(undefined);
     } catch (error) {
       setMessages((currentMessages) => [...currentMessages, {
         kind: "message",
@@ -898,7 +890,6 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   function keepCurrentChat() {
     const tabId = agentTabState.currentTab?.id;
     if (tabId !== undefined) setDismissedTabId(tabId);
-    setPendingDestinationChat(undefined);
   }
 
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -1085,15 +1076,12 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     },
     tabSwitchPrompts: {
       tabSwitchView,
-      pendingDestinationChat,
       agentTabState,
       resolveCurrentTask,
       isSwitchingTab,
       moveAgentToCurrentTab,
       keepCurrentChat,
       startNewOnDestination,
-      destinationChat,
-      continueDestinationChat,
       pendingSavedChat,
       setPendingSavedChat,
       continueAndOpenSavedChat,
