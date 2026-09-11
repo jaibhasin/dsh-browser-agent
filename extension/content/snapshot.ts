@@ -280,7 +280,9 @@ function collectSnapshot(): SnapshotResult {
       const tag = current.tagName.toLowerCase();
       const role = current.getAttribute("role");
       const parent = composedParent(current);
-      const siblings = parent ? Array.from(parent.children).filter((child) => child.tagName === current.tagName) : [];
+      const siblings = parent
+        ? (parent instanceof HTMLSlotElement ? parent.assignedElements({ flatten: true }) : Array.from(parent.children)).filter((child) => child.tagName === current.tagName)
+        : [];
       const index = siblings.indexOf(current);
       parts.unshift(`${tag}${role ? `[role=${role}]` : ""}[${Math.max(0, index)}]`);
     }
@@ -359,9 +361,12 @@ function collectSnapshot(): SnapshotResult {
 }
 
 function hashSnapshot(value: string): string {
+  const stableValue = value
+    .replace(/\[\d+\]/g, "[ref]")
+    .replace(/\b(ref|parentRef)=\d+/g, "$1=?");
   let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
+  for (let index = 0; index < stableValue.length; index += 1) {
+    hash ^= stableValue.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16).padStart(8, "0");
