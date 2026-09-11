@@ -1,36 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { selectedBenchmarkTabs, toggleBenchmarkTab } from "../../../../shared/benchmark-selection";
 import type { BenchmarkRunState, BenchmarkTab, BenchmarkTabsResponse, BenchmarkRunResponse } from "../../../../shared/benchmark";
 
 type BenchmarkPanelProps = { open: boolean; onClose: () => void };
 
-const DEFAULT_PROMPT = "Read this page and return its title and three key points. Do not navigate, click, type, or ask questions.";
+const DEFAULT_PROMPT = "Inspect only your assigned tab. Read the current page, then scroll down up to three times, taking a fresh snapshot after each scroll. Stop scrolling if no new content appears. Return the page title, a short summary, five key facts supported by the page, and any information you could not verify. Do not switch tabs, follow links, submit forms, or ask questions. If the page cannot be read, explain why and stop.";
 
 export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
   const [tabs, setTabs] = useState<BenchmarkTab[]>([]);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<number> | null>(null);
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [run, setRun] = useState<BenchmarkRunState>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const initializedSelection = useRef(false);
 
   async function refreshTabs() {
-    const response = await chrome.runtime.sendMessage({ type: "dsh-benchmark-tabs" }) as BenchmarkTabsResponse;
-    if (!response?.ok) { setError(response?.error ?? "Could not list browser tabs."); return; }
-    setTabs(response.tabs);
-    setSelected((current) => {
-      if (!initializedSelection.current) {
-        initializedSelection.current = true;
-        return new Set(response.tabs.map((tab) => tab.id));
-      }
-      return new Set([...current].filter((id) => response.tabs.some((tab) => tab.id === id)));
-    });
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-benchmark-tabs" }) as BenchmarkTabsResponse;
+      if (!response?.ok) { setError(response?.error ?? "Could not list browser tabs."); return; }
+      setTabs(response.tabs);
+    } catch {
+      setError("Could not refresh tabs. Reload the extension and reopen Memory test.");
+    }
   }
 
   useEffect(() => {
     if (!open) return undefined;
     setError("");
-    void chrome.runtime.sendMessage({ type: "dsh-benchmark-panel-opened" });
+    void chrome.runtime.sendMessage({ type: "dsh-benchmark-panel-opened" }).catch(() => undefined);
     void refreshTabs();
     const timer = window.setInterval(() => void refreshTabs(), 2000);
     const onMessage = (message: { type?: string; state?: BenchmarkRunState }) => {
@@ -46,23 +43,25 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
     };
   }, [open]);
 
-  const selectedTabs = useMemo(() => tabs.filter((tab) => selected.has(tab.id)), [selected, tabs]);
+  const selectedTabs = useMemo(() => selectedBenchmarkTabs(tabs, selected), [selected, tabs]);
+  const allSelected = tabs.length > 0 && selectedTabs.length === tabs.length;
   if (!open) return null;
 
   function toggleTab(id: number) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    setSelected((current) => toggleBenchmarkTab(tabs, current, id));
   }
 
   async function runBenchmark() {
     if (!prompt.trim() || selectedTabs.length === 0 || busy) return;
     setError("");
     setBusy(true);
-    const response = await chrome.runtime.sendMessage({ type: "dsh-benchmark-run", prompt, tabIds: selectedTabs.map((tab) => tab.id) }) as BenchmarkRunResponse;
-    if (!response?.ok) { setError(response?.error ?? "Could not start the benchmark."); setBusy(false); }
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-benchmark-run", prompt, tabIds: selectedTabs.map((tab) => tab.id) }) as BenchmarkRunResponse;
+      if (!response?.ok) { setError(response?.error ?? "Could not start the benchmark."); setBusy(false); }
+    } catch {
+      setError("Could not start tasks. Reload the extension and try again.");
+      setBusy(false);
+    }
   }
 
   const completed = run?.tasks.filter((task) => task.state === "completed").length ?? 0;
@@ -77,18 +76,21 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
         </div>
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close memory benchmark">×</button>
       </div>
-      <p className="benchmark-copy">Choose any open pages. The benchmark records Chrome and DSH memory while every selected task runs at the same time.</p>
-      <label className="benchmark-label" htmlFor="benchmark-prompt">Prompt for each tab</label>
+      <p className="benchmark-copy">Open websites in this window, choose the tabs below, then click Run. This prompt runs once per selected tab, all in parallel. No need to paste it into separate chats.</p>
+      <label className="benchmark-label" htmlFor="benchmark-prompt">One prompt for all selected tabs</label>
       <textarea id="benchmark-prompt" className="benchmark-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={4} disabled={busy} />
       <div className="benchmark-tabs-header">
-        <span>{tabs.length} eligible tabs detected</span>
-        <button type="button" className="text-button" onClick={() => setSelected(new Set(tabs.map((tab) => tab.id)))} disabled={busy || tabs.length === 0}>Select all</button>
+        <span role="status">{selectedTabs.length} of {tabs.length} web tabs selected</span>
+        {tabs.length > 0 && <button type="button" className="text-button" onClick={() => setSelected(allSelected ? new Set() : null)} disabled={busy}>{allSelected ? "Deselect all" : "Select all"}</button>}
       </div>
       <div className="benchmark-tabs">
-        {tabs.length === 0 && <p className="benchmark-empty">Open one or more regular web pages in this Chrome window.</p>}
+        {tabs.length === 0 && <>
+          <p className="benchmark-empty">New Tab and chrome:// pages cannot be tested. Enter a website address in each tab first.</p>
+          <button type="button" className="text-button" onClick={() => void chrome.tabs.create({ url: "https://example.com" }).then(() => refreshTabs()).catch(() => setError("Could not open a sample page. Enter https://example.com in a tab."))}>Open a sample page</button>
+        </>}
         {tabs.map((tab) => (
           <label className="benchmark-tab" key={tab.id}>
-            <input type="checkbox" checked={selected.has(tab.id)} onChange={() => toggleTab(tab.id)} disabled={busy} />
+            <input type="checkbox" checked={selected === null || selected.has(tab.id)} onChange={() => toggleTab(tab.id)} disabled={busy} />
             <span><strong>{tab.title || "Untitled page"}</strong><small>{tab.url}</small></span>
           </label>
         ))}
@@ -101,7 +103,7 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
       )}
       {error && <p className="benchmark-error" role="alert">{error}</p>}
       <button type="button" className="benchmark-run-button" onClick={() => void runBenchmark()} disabled={busy || selectedTabs.length === 0 || !prompt.trim()}>
-        {busy ? "Running benchmark..." : `Run ${selectedTabs.length} task${selectedTabs.length === 1 ? "" : "s"} in parallel`}
+        {busy ? "Running benchmark..." : tabs.length === 0 ? "Open a website to start" : selectedTabs.length === 0 ? "Select tabs to start" : `Run ${selectedTabs.length} task${selectedTabs.length === 1 ? "" : "s"} in parallel`}
       </button>
     </section>
   );
