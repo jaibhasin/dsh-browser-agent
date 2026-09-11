@@ -13,6 +13,7 @@
     "test:document-attachments": "node --experimental-strip-types tests/document-attachments.test.mjs",
     "test:document-converter": "pnpm run build:dsh-plugin && node tests/document-converter.test.mjs",
     "test:agent-tab": "node --experimental-strip-types tests/agent-tab.test.mjs",
+    "test:browser-retry-guard": "node --experimental-strip-types tests/browser-retry-guard.test.mjs",
     "test:shadow-dom": "node tests/shadow-dom.test.mjs",
     "test:tab-switch": "node --experimental-strip-types tests/tab-switch-state.test.mjs",
     "test:assistant-stream": "node --experimental-strip-types --test tests/assistant-stream.test.mjs",
@@ -22,7 +23,7 @@
     "setup:dsh-profile": "node scripts/setup-dsh-browser-profile.mjs",
     "preview": "vite preview --config vite.config.js",
     "test:install": "node --test tests/install.test.mjs",
-    "test": "pnpm test:agent-tab && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:theme && pnpm test:markdown-table && pnpm test:saved-tasks && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install && pnpm test:bridge-protocol"
+    "test": "pnpm test:agent-tab && pnpm test:browser-retry-guard && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:theme && pnpm test:markdown-table && pnpm test:saved-tasks && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install && pnpm test:bridge-protocol"
   },
   "dependencies": {
     "react": "^19.1.1",
