@@ -44,6 +44,17 @@ assert.deepEqual(view({
   agentTabId: 42,
   agentTab: amazon,
   currentTabSessionId: "session-gmail",
+  task: { status: "waiting", tabId: 42, runMode: "foreground" },
+}), {
+  kind: "saved-chat",
+  tab: gmail,
+  sessionId: "session-gmail",
+}, "waiting for input must not block switching to another saved chat");
+
+assert.deepEqual(view({
+  agentTabId: 42,
+  agentTab: amazon,
+  currentTabSessionId: "session-gmail",
 }), {
   kind: "saved-chat",
   tab: gmail,

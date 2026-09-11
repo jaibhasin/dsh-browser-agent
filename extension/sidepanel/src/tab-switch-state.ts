@@ -1,7 +1,7 @@
 export type TabSummary = { id?: number; title?: string; url?: string; windowId?: number };
 
 export type AgentTaskState = {
-  status: "running" | "paused" | "cancelled";
+  status: "running" | "paused" | "waiting" | "cancelled";
   tabId: number;
   runMode: "foreground" | "background";
   pendingTabId?: number;
@@ -48,7 +48,7 @@ export function getTabSwitchView({
   const isDifferentAgentTab = state.agentTabId !== undefined && state.agentTabId !== tab.id;
   const foregroundTaskNeedsDecision = isDifferentAgentTab &&
     state.task !== undefined &&
-    state.task.status !== "cancelled" &&
+    (state.task.status === "running" || state.task.status === "paused") &&
     state.task.runMode === "foreground";
   if (foregroundTaskNeedsDecision) return { kind: "active-task", tab };
 
