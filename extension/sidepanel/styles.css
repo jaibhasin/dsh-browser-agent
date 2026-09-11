@@ -248,6 +248,19 @@ textarea {
   box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 3px var(--border);
 }
 
+.attention-count {
+  display: inline-grid;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  place-items: center;
+  color: var(--bg-panel);
+  background: var(--warning);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 /* ---- Icon-only header buttons ---- */
 .icon-button {
   display: grid;
@@ -464,6 +477,11 @@ textarea {
 
 .chat-history li > button .chat-history-meta .chat-status-active {
   color: var(--success);
+}
+
+.chat-history li > button .chat-history-meta .chat-attention {
+  color: var(--warning);
+  font-weight: 700;
 }
 
 .chat-history li > a {
