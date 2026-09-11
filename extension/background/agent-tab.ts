@@ -16,6 +16,15 @@ type StoredAgentTask = {
 type StoredAgentTasks = Record<string, StoredAgentTask>;
 type TaskWaiter = { resolve: () => void; reject: (error: Error) => void };
 const taskWaiters = new Map<string, TaskWaiter[]>();
+let taskWriteQueue = Promise.resolve();
+
+async function withTaskWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = taskWriteQueue;
+  let release!: () => void;
+  taskWriteQueue = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try { return await operation(); } finally { release(); }
+}
 
 export type AgentTabState = {
   agentTabId?: number;
@@ -179,23 +188,27 @@ export async function focusOrRestoreAgentTab(sessionId: string, fallbackUrl?: st
 }
 
 /** Starts or replaces one task lease for this chat. Different chats may run independently. */
-export async function startAgentTask(id: string, sessionId: string, tabId: number): Promise<void> {
-  const tasks = await readStoredAgentTasks();
-  const previous = tasks[sessionId];
-  if (previous && previous.id !== id) settleTaskWaiters(previous.id, new Error("This browser task was replaced by a newer request."));
-  tasks[sessionId] = { id, sessionId, tabId, status: "running", runMode: "foreground" };
-  await writeStoredAgentTasks(tasks);
-  await broadcastAgentTabState(sessionId);
+export async function startAgentTask(id: string, sessionId: string, tabId: number, runMode: "foreground" | "background" = "foreground"): Promise<void> {
+  await withTaskWrite(async () => {
+    const tasks = await readStoredAgentTasks();
+    const previous = tasks[sessionId];
+    if (previous && previous.id !== id) settleTaskWaiters(previous.id, new Error("This browser task was replaced by a newer request."));
+    tasks[sessionId] = { id, sessionId, tabId, status: "running", runMode };
+    await writeStoredAgentTasks(tasks);
+    await broadcastAgentTabState(sessionId);
+  });
 }
 
 export async function endAgentTask(id: string): Promise<void> {
-  const tasks = await readStoredAgentTasks();
-  const task = Object.values(tasks).find((candidate) => candidate.id === id);
-  if (!task) return;
-  settleTaskWaiters(id, new Error("The browser task ended."));
-  delete tasks[task.sessionId];
-  await writeStoredAgentTasks(tasks);
-  await broadcastAgentTabState(task.sessionId);
+  await withTaskWrite(async () => {
+    const tasks = await readStoredAgentTasks();
+    const task = Object.values(tasks).find((candidate) => candidate.id === id);
+    if (!task) return;
+    settleTaskWaiters(id, new Error("The browser task ended."));
+    delete tasks[task.sessionId];
+    await writeStoredAgentTasks(tasks);
+    await broadcastAgentTabState(task.sessionId);
+  });
 }
 
 /** Pauses foreground tasks that were running on the tab the user just left. */

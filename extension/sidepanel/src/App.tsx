@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ThemePreference } from "./theme";
 import { useSidepanelController } from "./hooks/useSidepanelController";
 import { tabLabel } from "./labels";
@@ -9,14 +10,18 @@ import { ChatDialogs } from "./components/ChatDialogs";
 import { ToolPermissions } from "./components/ToolPermissions";
 import { Composer } from "./components/Composer";
 import { TaskDialogs } from "./components/TaskDialogs";
+import { BenchmarkPanel } from "./components/BenchmarkPanel";
 
 function App({ initialThemePreference = "system" }: { initialThemePreference?: ThemePreference }) {
   const panel = useSidepanelController(initialThemePreference);
   const { agentTabState } = panel;
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
 
   return (
     <main className="app-shell">
-      <PanelHeader {...panel.panelHeader} />
+      <PanelHeader {...panel.panelHeader} benchmarkOpen={benchmarkOpen} setBenchmarkOpen={setBenchmarkOpen} />
+
+      <BenchmarkPanel open={benchmarkOpen} onClose={() => setBenchmarkOpen(false)} />
 
       <ChatHistory {...panel.chatHistory} />
 

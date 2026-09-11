@@ -4,6 +4,9 @@
   "description": "A minimal DeepSeek Harness browser agent extension.",
   "private": true,
   "scripts": {
+    "measure:memory": "node scripts/measure-memory.mjs",
+    "benchmark:memory": "node scripts/benchmark-memory.mjs",
+    "test:benchmark": "node --test tests/benchmark-setup.test.mjs",
     "dev": "vite --config vite.config.js",
     "build": "tsc --noEmit && vite build --config vite.config.js",
     "build:dsh-plugin": "tsc --project dsh-plugin/tsconfig.json",
@@ -23,7 +26,7 @@
     "setup:dsh-profile": "node scripts/setup-dsh-browser-profile.mjs",
     "preview": "vite preview --config vite.config.js",
     "test:install": "node --test tests/install.test.mjs",
-    "test": "pnpm test:agent-tab && pnpm test:browser-retry-guard && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:theme && pnpm test:markdown-table && pnpm test:saved-tasks && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install && pnpm test:bridge-protocol"
+    "test": "pnpm test:benchmark && pnpm test:agent-tab && pnpm test:browser-retry-guard && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:theme && pnpm test:markdown-table && pnpm test:saved-tasks && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install && pnpm test:bridge-protocol"
   },
   "dependencies": {
     "react": "^19.1.1",

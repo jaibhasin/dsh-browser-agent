@@ -2,8 +2,89 @@ import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
 import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
 import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentTabState, getAgentTaskTab, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, startAgentTask, endAgentTask } from "./agent-tab";
 import { DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES } from "../../shared/protocol";
+import type { BenchmarkEvent, BenchmarkRunState, BenchmarkTab, BenchmarkTabsResponse, BenchmarkRunResponse } from "../../shared/benchmark";
+import { reportBenchmarkEvent } from "./benchmark-client";
 
 const bridge = new ExtensionBridge();
+const benchmarkRuns = new Map<string, { state: BenchmarkRunState; active: Set<string> }>();
+
+function benchmarkEvent(event: BenchmarkEvent): void {
+  reportBenchmarkEvent(event);
+  void chrome.runtime.sendMessage({ type: "dsh-benchmark-event", event }).catch(() => undefined);
+}
+
+function benchmarkTab(tab: chrome.tabs.Tab): BenchmarkTab | undefined {
+  if (tab.id === undefined || tab.windowId === undefined || !tab.url) return undefined;
+  let protocol = "";
+  try { protocol = new URL(tab.url).protocol; } catch { return undefined; }
+  if (!/^https?:$/.test(protocol)) return undefined;
+  return { id: tab.id, windowId: tab.windowId, ...(tab.title ? { title: tab.title } : {}), url: tab.url };
+}
+
+async function benchmarkTabs(): Promise<BenchmarkTab[]> {
+  const tabs = await chrome.tabs.query({ lastFocusedWindow: true });
+  return tabs.map(benchmarkTab).filter((tab): tab is BenchmarkTab => tab !== undefined);
+}
+
+function broadcastBenchmarkState(state: BenchmarkRunState): void {
+  void chrome.runtime.sendMessage({ type: "dsh-benchmark-state", state }).catch(() => undefined);
+}
+
+async function runBenchmark(runId: string, prompt: string, tabs: BenchmarkTab[]): Promise<void> {
+  const run = benchmarkRuns.get(runId);
+  if (!run) return;
+  const prepared: Array<{ tab: BenchmarkTab; task: BenchmarkRunState["tasks"][number]; sessionId: string; requestId: string }> = [];
+  for (const task of run.state.tasks) {
+    const tab = tabs.find((candidate) => candidate.id === task.tabId);
+    if (!tab) continue;
+    const sessionId = `benchmark-${runId}-${tab.id}`;
+    try {
+      const liveTab = await chrome.tabs.get(tab.id);
+      await claimAgentTab(sessionId, liveTab);
+      await startAgentTask(task.taskId, sessionId, tab.id, "background");
+      task.state = "running";
+      task.startedAt = Date.now();
+      run.active.add(task.taskId);
+      benchmarkEvent({ type: "task_started", runId, taskId: task.taskId, tabId: tab.id, activeTaskCount: run.active.size, timestamp: task.startedAt });
+      broadcastBenchmarkState(run.state);
+      prepared.push({ tab, task, sessionId, requestId: task.taskId });
+    } catch (error) {
+      task.state = "failed";
+      task.error = error instanceof Error ? error.message : "The benchmark task could not be prepared.";
+      task.finishedAt = Date.now();
+      benchmarkEvent({ type: "task_finished", runId, taskId: task.taskId, tabId: tab.id, state: "failed", error: task.error, activeTaskCount: run.active.size, timestamp: task.finishedAt });
+    }
+  }
+
+  const execute = async ({ tab, task, sessionId, requestId }: (typeof prepared)[number]): Promise<void> => {
+    try {
+      await bridge.chat(requestId, prompt, sessionId, false, [], false);
+      task.state = "completed";
+    } catch (error) {
+      task.state = "failed";
+      task.error = error instanceof Error ? error.message : "The benchmark task failed.";
+    } finally {
+      task.finishedAt = Date.now();
+      run.active.delete(task.taskId);
+      await endAgentTask(task.taskId);
+      benchmarkEvent({ type: "task_finished", runId, taskId: task.taskId, tabId: tab.id, state: task.state === "completed" ? "completed" : "failed", ...(task.error ? { error: task.error } : {}), activeTaskCount: run.active.size, timestamp: task.finishedAt });
+      broadcastBenchmarkState(run.state);
+    }
+  };
+
+  await Promise.allSettled(prepared.map((task) => execute(task)));
+  run.state.phase = "cooldown";
+  run.state.settledAt = Date.now();
+  benchmarkEvent({ type: "run_settled", runId, tabCount: tabs.length, timestamp: run.state.settledAt });
+  broadcastBenchmarkState(run.state);
+  setTimeout(() => {
+    const current = benchmarkRuns.get(runId);
+    if (!current) return;
+    current.state.phase = "completed";
+    broadcastBenchmarkState(current.state);
+    benchmarkRuns.delete(runId);
+  }, 60_000);
+}
 bridge.setChatDeltaHandler((delta) => {
   void chrome.runtime.sendMessage({ type: "dsh-chat-delta", delta }).catch(() => undefined);
 });
@@ -65,6 +146,7 @@ bridge.setRequestHandler(async (request) => {
 // MV3 workers can be reloaded without firing onInstalled or onStartup.
 // Starting here ensures opening the side panel always reconnects the bridge.
 void bridge.start();
+benchmarkEvent({ type: "extension_ready", extensionId: chrome.runtime.id, version: chrome.runtime.getManifest().version, timestamp: Date.now() });
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -85,6 +167,41 @@ chrome.windows.onFocusChanged.addListener((windowId) => void handleWindowFocusCh
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (!message || typeof message !== "object" || !("type" in message)) return;
   if (message.type === "dsh-bridge-status") { sendResponse({ status: bridge.getStatus() }); return; }
+  if (message.type === "dsh-benchmark-tabs") {
+    benchmarkEvent({ type: "extension_ready", extensionId: chrome.runtime.id, version: chrome.runtime.getManifest().version, timestamp: Date.now() });
+    void benchmarkTabs().then((tabs): void => sendResponse({ ok: true, tabs } satisfies BenchmarkTabsResponse)).catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Could not list benchmark tabs." } satisfies BenchmarkTabsResponse));
+    return true;
+  }
+  if (message.type === "dsh-benchmark-panel-opened") {
+    void benchmarkTabs().then((tabs) => benchmarkEvent({ type: "panel_opened", tabCount: tabs.length, timestamp: Date.now() }));
+    sendResponse({ ok: true });
+    return;
+  }
+  if (message.type === "dsh-benchmark-run") {
+    const prompt = (message as { prompt?: unknown }).prompt;
+    const tabIds = (message as { tabIds?: unknown }).tabIds;
+    if (typeof prompt !== "string" || !prompt.trim() || !Array.isArray(tabIds) || tabIds.length === 0 || !tabIds.every((id) => Number.isInteger(id))) {
+      sendResponse({ ok: false, error: "A prompt and at least one browser tab are required." } satisfies BenchmarkRunResponse);
+      return;
+    }
+    if (benchmarkRuns.size > 0) {
+      sendResponse({ ok: false, error: "A benchmark is already running." } satisfies BenchmarkRunResponse);
+      return;
+    }
+    void benchmarkTabs().then((available) => {
+      const byId = new Map(available.map((tab) => [tab.id, tab]));
+      const tabs = (tabIds as number[]).map((id) => byId.get(id)).filter((tab): tab is BenchmarkTab => tab !== undefined);
+      if (tabs.length === 0) throw new Error("None of the selected tabs are still available.");
+      const runId = `benchmark-${crypto.randomUUID()}`;
+      const state: BenchmarkRunState = { runId, tabCount: tabs.length, phase: "running", startedAt: Date.now(), tasks: tabs.map((tab) => ({ taskId: `${runId}-${tab.id}`, tabId: tab.id, title: tab.title, state: "queued" })) };
+      benchmarkRuns.set(runId, { state, active: new Set() });
+      benchmarkEvent({ type: "run_started", runId, tabCount: tabs.length, timestamp: state.startedAt });
+      broadcastBenchmarkState(state);
+      void runBenchmark(runId, prompt.trim(), tabs);
+      return runId;
+    }).then((runId) => { if (runId) sendResponse({ ok: true, runId } satisfies BenchmarkRunResponse); }).catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Could not start the benchmark." } satisfies BenchmarkRunResponse));
+    return true;
+  }
   if (message.type === "dsh-agent-tab-state-request") {
     const sessionId = (message as { sessionId?: unknown }).sessionId;
     if (typeof sessionId !== "string" || !sessionId) { sendResponse({ ok: false, error: "Chat session ID is invalid." }); return; }

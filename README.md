@@ -206,6 +206,30 @@ After changing source, stop DSH, rerun the local installer, reload the extension
 The older `pnpm setup:dsh-profile` helper targets the separate `browser-agent` development profile and rewrites its configuration, so it is not the recommended installation path.
 Never commit generated bridge tokens or `extension/.env.local`.
 
+### Benchmark memory during multi-tab work
+
+Run `pnpm benchmark:memory` with DSH running on macOS or Linux.
+The command builds the extension and opens `chrome://extensions` in an isolated Chrome profile.
+Turn on **Developer mode**, click **Load unpacked**, and choose the `extension/dist` folder printed in the terminal.
+If already installed, click **Reload** on the extension card after a rebuild.
+Open dsh Browser Agent from Chrome's Extensions menu to show its side panel.
+If Chrome shows a blank tab, enter `chrome://extensions` in that window or type `extensions` in the terminal to reopen the manager.
+Type `status` to check Chrome, extension, DSH, and memory, or `help` to repeat setup instructions.
+
+Click `Memory test`, choose any eligible web tabs, enter a prompt, and click `Run tasks in parallel`.
+The extension starts one independent DSH session per selected tab and reports when every task settles.
+The command records a baseline, active work, and a 60-second cooldown automatically.
+You can stop early with `stop` in the benchmark terminal or Ctrl+C.
+
+Reports are written to an ignored `memory-reports/` directory as `report.html`, `summary.json`, `summary.md`, and `samples.csv`.
+The HTML report compares Chrome memory, DSH memory, peak increase, and memory retained after cooldown.
+The benchmark counts only the isolated Chrome profile and does not close or inspect your normal Chrome windows.
+
+RSS is an approximate process-memory metric, not JavaScript heap usage or proof of a leak.
+Shared pages can be counted more than once by the operating system.
+
+For low-level manual sampling, `pnpm measure:memory` remains available.
+
 ### Tests
 
 ```sh

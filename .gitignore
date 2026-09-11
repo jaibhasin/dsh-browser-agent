@@ -4,6 +4,7 @@ extension/dist/
 dsh-plugin/dist/
 .DS_Store
 .gstack/
+memory-reports/
 .env
 .env.*
 !.env.example

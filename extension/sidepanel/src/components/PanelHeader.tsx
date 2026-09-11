@@ -11,6 +11,8 @@ type PanelHeaderProps = {
   startNewSession: () => Promise<void>;
   isStartingSession: boolean;
   saveCurrentAsTask: () => void;
+  benchmarkOpen: boolean;
+  setBenchmarkOpen: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
 export function PanelHeader({
@@ -21,6 +23,8 @@ export function PanelHeader({
   startNewSession,
   isStartingSession,
   saveCurrentAsTask,
+  benchmarkOpen,
+  setBenchmarkOpen,
 }: PanelHeaderProps) {
   return (
     <>
@@ -44,6 +48,9 @@ export function PanelHeader({
               aria-hidden="true"
             />
           )}
+          <button className={`text-button header-benchmark-button${benchmarkOpen ? " active" : ""}`} type="button" onClick={() => setBenchmarkOpen((open) => !open)} aria-expanded={benchmarkOpen}>
+            Memory test
+          </button>
           <button className="icon-button" type="button" onClick={saveCurrentAsTask} aria-label="Save as a task" title="Save this conversation as a task" disabled={agentTabState.activeTaskCount > 0}>
             <span aria-hidden="true">☆</span>
           </button>
