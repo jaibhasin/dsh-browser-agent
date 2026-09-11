@@ -22,6 +22,18 @@ export const AGENT_TOOL_DEFS = [
 export type AgentToolName = (typeof AGENT_TOOL_DEFS)[number]["name"];
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export type BrowserRefMetadata = {
+  tag: string;
+  role?: string;
+  name?: string;
+  path: string;
+  parentRef?: number;
+};
+export type BrowserSnapshotData = {
+  text: string;
+  fingerprint: string;
+  refs: Record<string, BrowserRefMetadata>;
+};
 export const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number];
 export const DOCUMENT_EXTENSIONS = [
