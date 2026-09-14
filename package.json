@@ -24,10 +24,11 @@
     "test:theme": "node --experimental-strip-types --test tests/theme.test.mjs",
     "test:markdown-table": "node --experimental-strip-types --test tests/markdown-table.test.mjs",
     "test:saved-tasks": "node --experimental-strip-types --test tests/saved-tasks.test.mjs",
+    "test:task-draft": "node --experimental-strip-types --test tests/task-draft.test.mjs",
     "setup:dsh-profile": "node scripts/setup-dsh-browser-profile.mjs",
     "preview": "vite preview --config vite.config.js",
     "test:install": "node --test tests/install.test.mjs",
-    "test": "pnpm test:benchmark && pnpm test:agent-tab && pnpm test:attention && pnpm test:browser-retry-guard && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:theme && pnpm test:markdown-table && pnpm test:saved-tasks && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install && pnpm test:bridge-protocol"
+    "test": "pnpm test:benchmark && pnpm test:agent-tab && pnpm test:attention && pnpm test:browser-retry-guard && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:theme && pnpm test:markdown-table && pnpm test:saved-tasks && pnpm test:task-draft && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install && pnpm test:bridge-protocol"
   },
   "dependencies": {
     "react": "^19.1.1",

@@ -7,11 +7,12 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { admitPromptContent, type AttachmentStore, type ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
 import type { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import type { BridgePromptContentPart, BrowserSnapshotData, JsonValue, TaskDraftDefinition, TaskDraftQuestion, TaskDraftRequest, TaskDraftResponse, UserQuestion, UserQuestionResponse } from "../../shared/protocol.js";
+import type { BridgePromptContentPart, BrowserSnapshotData, JsonValue, TaskDraftDefinition, TaskDraftQuestion, TaskDraftRequest, UserQuestion, UserQuestionResponse } from "../../shared/protocol.js";
 import { AGENT_TOOL_DEFS, type AgentToolName } from "../../shared/protocol.js";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
 import { convertDocuments } from "../document-converter.js";
 import { BrowserRetryLimitError, BrowserRetryGuard, type BrowserMutation } from "./browser-retry-guard.js";
+import { parseTaskDraftText } from "../task-draft.js";
 
 export const name = "dsh-browser-snapshot";
 export const inject = ["tools", "agents", "agentDefaultModel", "workspaceRegistry", "attachments"];
@@ -152,24 +153,6 @@ interface PendingUserQuestion {
   timeout: ReturnType<typeof setTimeout>;
   signal?: AbortSignal;
   abort?: () => void;
-}
-
-function isTaskDraftDefinition(value: unknown): value is TaskDraftDefinition {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const draft = value as Partial<TaskDraftDefinition>;
-  return typeof draft.name === "string" && typeof draft.instructions === "string" && typeof draft.constraints === "string" &&
-    typeof draft.expectedResult === "string" && Array.isArray(draft.warnings) && draft.warnings.every((item) => typeof item === "string") &&
-    !!draft.startingContext && (draft.startingContext.kind === "current-page" || (draft.startingContext.kind === "url" && typeof draft.startingContext.url === "string")) &&
-    Array.isArray(draft.parameters) && draft.parameters.every((parameter) => parameter && typeof parameter.id === "string" && typeof parameter.label === "string" &&
-      ["text", "number", "date", "choice", "boolean"].includes(parameter.type) && ["fixed", "run", "page"].includes(parameter.mode) && typeof parameter.required === "boolean");
-}
-
-function isTaskDraftQuestion(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const question = value as { id?: unknown; question?: unknown; options?: unknown; allowFreeText?: unknown; parameterId?: unknown };
-  return typeof question.id === "string" && typeof question.question === "string" && Array.isArray(question.options) &&
-    question.options.every((option) => typeof option === "string") && typeof question.allowFreeText === "boolean" &&
-    (question.parameterId === undefined || typeof question.parameterId === "string");
 }
 
 function isBrowserMutation(method: string, params: JsonValue): method is BrowserMutation["method"] {
@@ -340,16 +323,29 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       `Answers already supplied:\n${JSON.stringify(request.answers ?? {})}`,
       "JSON shape: {draft:{name,instructions,startingContext:{kind,url?},parameters:[{id,label,type,mode,value?,defaultValue?,required,options?}],constraints,expectedResult,warnings},questions:[{id,question,options,allowFreeText,parameterId?}]}",
     ].join("\n\n");
-    try {
+    const runDraftTurn = async (message: string) => {
       await handle.agent.whenIdle();
       const before = handle.agent.session.seq;
-      handle.agent.followup(createUserMessage({ content: [{ type: "text", text: prompt }], source: { kind: "user" } }));
+      handle.agent.followup(createUserMessage({ content: [{ type: "text", text: message }], source: { kind: "user" } }));
       await handle.agent.whenIdle();
       const events = handle.agent.session.snapshotEvents(before) as readonly AssistantMessageEvent[];
-      const raw = [...events].reverse().map(extractAssistantText).find((value) => value.trim()) ?? "";
-      const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")) as { draft?: unknown; questions?: unknown };
-      if (!isTaskDraftDefinition(parsed.draft) || !Array.isArray(parsed.questions) || !parsed.questions.every(isTaskDraftQuestion)) throw new Error("The task builder returned an invalid draft.");
-      return { status: parsed.questions.length > 0 ? "needs-input" : "ready", draft: parsed.draft, questions: parsed.questions };
+      return [...events].reverse().map(extractAssistantText).find((value) => value.trim()) ?? "";
+    };
+    try {
+      let raw = await runDraftTurn(prompt);
+      try {
+        const parsed = parseTaskDraftText(raw, request.currentUrl);
+        return { status: parsed.questions.length > 0 ? "needs-input" : "ready", ...parsed };
+      } catch {
+        raw = await runDraftTurn([
+          "Your previous response did not match the required task schema.",
+          "Correct it and return only valid JSON, with no Markdown or explanation.",
+          "Include every required field, use parameter type text/number/date/choice/boolean, use mode fixed/run/page, and use empty arrays when there are no warnings, parameters, or questions.",
+          "JSON shape: {draft:{name,instructions,startingContext:{kind,url?},parameters:[{id,label,type,mode,value?,defaultValue?,required,options?}],constraints,expectedResult,warnings:[]},questions:[{id,question,options,allowFreeText,parameterId?}]}",
+        ].join("\n\n"));
+        const parsed = parseTaskDraftText(raw, request.currentUrl);
+        return { status: parsed.questions.length > 0 ? "needs-input" : "ready", ...parsed };
+      }
     } finally {
       handles.delete(setupSession);
       await handle.dispose();
