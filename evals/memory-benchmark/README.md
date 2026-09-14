@@ -1,0 +1,50 @@
+# What happens to memory while the agent works?
+
+Someone on Reddit asked how much memory the agent uses when it is working in another tab.
+I had been focused on getting tab switching right, and I did not have a measured answer.
+That question stayed with me, so I built this small eval to make the answer easy to see on any machine.
+
+You choose the pages and the number of tabs.
+The agent works on them in parallel while the script records Chrome and DSH memory about once a second.
+
+## Try it
+
+With this repo installed and DSH running, run this from the repo root on macOS or Linux:
+
+```sh
+pnpm benchmark:memory
+```
+
+1. A separate Chrome profile opens for the test, leaving your usual browser alone.
+   In `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and choose the `extension/dist` path printed in the terminal.
+   If it is already loaded, click **Reload**.
+2. Open the extension side panel and click **Memory test**.
+   Use the YouTube, Hacker News, or Reddit buttons to open pages, or bring your own.
+   Blank tabs and `chrome://` pages do not count.
+3. Select your tabs, then click **Run**.
+   The prompt runs once per selected tab, all in parallel.
+   The default prompt asks the agent to read, scroll, and summarize.
+   Change it to something you actually use the agent for if you like.
+4. When the tasks finish, leave the tabs open for the 60-second cooldown.
+   The report saves automatically, and task responses appear in Chat history under `Memory test: [page title]`.
+
+There is no required tab count or set of rounds.
+For another measurement, start the command again.
+Type `status` for a quick check, `extensions` to reopen setup, or `stop` to save early.
+
+## Reading the results
+
+Open `report.html` in the `memory-reports/` folder printed by the terminal.
+You'll also find a short Markdown summary, JSON, and the raw CSV samples.
+
+- **Baseline:** memory recorded before you start the tasks.
+- **Peak increase:** the highest total during work, minus the baseline median.
+- **Retained:** the cooldown median minus the baseline median, available after the full cooldown.
+
+Retained just means memory still in use while those tabs stay open.
+It doesn't, by itself, mean there's a leak.
+These numbers include the test Chrome profile's processes and DSH, so the websites themselves contribute too.
+The measurement is RSS, an approximate measure of process memory that can count shared memory more than once.
+
+If you share a result, include your machine, tab count, pages, and prompt.
+That context helps me understand what you ran and try it myself.

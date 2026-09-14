@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "measure:memory": "node scripts/measure-memory.mjs",
-    "benchmark:memory": "node scripts/benchmark-memory.mjs",
+    "benchmark:memory": "node evals/memory-benchmark/benchmark-memory.mjs",
     "test:benchmark": "node --experimental-strip-types --test tests/benchmark-setup.test.mjs tests/benchmark-selection.test.mjs tests/benchmark-recording.test.mjs",
     "dev": "vite --config vite.config.js",
     "build": "tsc --noEmit && vite build --config vite.config.js",

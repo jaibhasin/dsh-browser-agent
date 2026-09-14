@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { createServer } from "node:net";
-import { openBenchmarkExtensions, setupInstructions } from "../scripts/benchmark-setup.mjs";
+import { openBenchmarkExtensions, setupInstructions } from "../evals/memory-benchmark/benchmark-setup.mjs";
 
 test("setup explains the complete manual installation and recovery", () => {
   const text = setupInstructions("/project with spaces/extension/dist");
@@ -59,7 +59,7 @@ test("missing Chrome returns a recoverable failure", async () => {
 
 test("terminal displays setup, answers status, and saves on stop", { timeout: 15_000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "dsh-benchmark-cli-"));
-  const child = spawn(process.execPath, [resolve("scripts/benchmark-memory.mjs")], {
+  const child = spawn(process.execPath, [resolve("evals/memory-benchmark/benchmark-memory.mjs")], {
     cwd: directory,
     env: { ...process.env, DSH_BENCHMARK_SKIP_BUILD: "1", DSH_BENCHMARK_NO_LAUNCH: "1", DSH_BENCHMARK_PORT: "0" },
     stdio: ["pipe", "pipe", "pipe"],
@@ -103,7 +103,7 @@ test("recorder keeps the three-task run and rejects unrelated cooldown events", 
   const port = reservation.address().port;
   await new Promise((resolve) => reservation.close(resolve));
   const directory = mkdtempSync(join(tmpdir(), "dsh-benchmark-run-"));
-  const child = spawn(process.execPath, [resolve("scripts/benchmark-memory.mjs")], {
+  const child = spawn(process.execPath, [resolve("evals/memory-benchmark/benchmark-memory.mjs")], {
     cwd: directory,
     env: { ...process.env, DSH_BENCHMARK_SKIP_BUILD: "1", DSH_BENCHMARK_NO_LAUNCH: "1", DSH_BENCHMARK_PORT: String(port) },
     stdio: ["pipe", "pipe", "pipe"],
