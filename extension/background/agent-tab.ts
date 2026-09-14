@@ -9,9 +9,10 @@ type StoredAgentTask = {
   id: string;
   sessionId: string;
   tabId: number;
-  status: "running" | "paused" | "cancelled";
+  status: "running" | "paused" | "waiting" | "cancelled";
   runMode: "foreground" | "background";
   pendingTabId?: number;
+  attentionId?: string;
 };
 type StoredAgentTasks = Record<string, StoredAgentTask>;
 type TaskWaiter = { resolve: () => void; reject: (error: Error) => void };
@@ -54,7 +55,7 @@ async function writeStoredAgentTabs(value: StoredAgentTabs): Promise<void> {
 
 function parseTask(candidate: Partial<StoredAgentTask> | undefined): StoredAgentTask | undefined {
   if (typeof candidate?.id !== "string" || typeof candidate.sessionId !== "string" || !Number.isInteger(candidate.tabId)) return undefined;
-  if (candidate.status !== "running" && candidate.status !== "paused" && candidate.status !== "cancelled") return undefined;
+  if (candidate.status !== "running" && candidate.status !== "paused" && candidate.status !== "waiting" && candidate.status !== "cancelled") return undefined;
   return { ...candidate, runMode: candidate.runMode === "background" ? "background" : "foreground" } as StoredAgentTask;
 }
 
@@ -211,6 +212,33 @@ export async function endAgentTask(id: string): Promise<void> {
   });
 }
 
+/** Recovers the session and tab lease for a live chat after worker restart. */
+export async function getAgentTaskForId(id: string): Promise<{ id: string; sessionId: string; tabId: number; status: StoredAgentTask["status"]; runMode: StoredAgentTask["runMode"] } | undefined> {
+  const tasks = await readStoredAgentTasks();
+  const task = Object.values(tasks).find((candidate) => candidate.id === id);
+  return task ? { id: task.id, sessionId: task.sessionId, tabId: task.tabId, status: task.status, runMode: task.runMode } : undefined;
+}
+
+/** Marks a live task as waiting for an approval or user question. */
+export async function markAgentTaskWaitingForInput(id: string, attentionId: string): Promise<void> {
+  const tasks = await readStoredAgentTasks();
+  const task = Object.values(tasks).find((candidate) => candidate.id === id);
+  if (!task || task.status === "cancelled") return;
+  tasks[task.sessionId] = { ...task, status: "waiting", attentionId };
+  await writeStoredAgentTasks(tasks);
+  await broadcastAgentTabState(task.sessionId);
+}
+
+/** Returns a waiting task to active execution after its request is answered. */
+export async function resumeAgentTaskAfterInput(sessionId: string, attentionId: string): Promise<void> {
+  const tasks = await readStoredAgentTasks();
+  const task = tasks[sessionId];
+  if (!task || task.status !== "waiting" || task.attentionId !== attentionId) return;
+  tasks[sessionId] = { ...task, status: "running", attentionId: undefined };
+  await writeStoredAgentTasks(tasks);
+  await broadcastAgentTabState(sessionId);
+}
+
 /** Pauses foreground tasks that were running on the tab the user just left. */
 export async function pauseAgentTaskForTab(currentTabId: number, previousTabId?: number): Promise<void> {
   const tasks = await readStoredAgentTasks();
@@ -277,7 +305,7 @@ export async function resumeAgentTask(sessionId?: string): Promise<void> {
 /** Lets paused tasks continue on their assigned tabs while the user visits other tabs. */
 export async function continueAgentTaskInBackground(sessionId?: string): Promise<void> {
   const tasks = await readStoredAgentTasks();
-  const resumable = Object.values(tasks).filter((task) => task.status !== "cancelled" && (!sessionId || task.sessionId === sessionId));
+  const resumable = Object.values(tasks).filter((task) => (task.status === "paused" || task.status === "running") && (!sessionId || task.sessionId === sessionId));
   if (!resumable.length) return;
   for (const task of resumable) {
     tasks[task.sessionId] = { ...task, status: "running", runMode: "background", pendingTabId: undefined };
@@ -326,7 +354,7 @@ export async function getAgentTabState(sessionId: string, currentTabOverride?: c
     ...(currentTab ? { currentTab: summarizeTab(currentTab) } : {}),
     ...(currentTabSessionId ? { currentTabSessionId } : {}),
     ...(task ? { task: { status: task.status, tabId: task.tabId, runMode: task.runMode, ...(task.pendingTabId !== undefined ? { pendingTabId: task.pendingTabId } : {}) } } : {}),
-    activeTaskCount: Object.values(tasks).filter((candidate) => candidate.status === "running").length,
+    activeTaskCount: Object.values(tasks).filter((candidate) => candidate.status === "running" || candidate.status === "waiting").length,
   };
 }
 
