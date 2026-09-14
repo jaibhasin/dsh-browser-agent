@@ -34,6 +34,13 @@ export function themePreferenceFromMenuCommand(commandId: string): ThemePreferen
   return THEME_MENU_OPTIONS.find((option) => option.id === commandId)?.preference;
 }
 
+export function themeMenuIndex(preference: ThemePreference, prefersLight?: boolean): number {
+  const activeTheme = preference === "system"
+    ? (prefersLight === undefined ? resolveTheme(preference) : resolveTheme(preference, prefersLight))
+    : preference;
+  return Math.max(0, THEME_MENU_OPTIONS.findIndex((option) => option.preference === activeTheme));
+}
+
 export function isThemePreference(value: unknown): value is ThemePreference {
   return typeof value === "string" && VALID_PREFERENCES.has(value as ThemePreference);
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { THEME_MENU_OPTIONS, THEME_STORAGE_KEY, themePreferenceFromCommand, themePreferenceFromMenuCommand, themePreferenceFromStorageChange } from "../extension/sidepanel/src/theme.ts";
+import { THEME_MENU_OPTIONS, THEME_STORAGE_KEY, themeMenuIndex, themePreferenceFromCommand, themePreferenceFromMenuCommand, themePreferenceFromStorageChange } from "../extension/sidepanel/src/theme.ts";
 
 test("ignores storage changes for chat history and other settings", () => {
   assert.equal(themePreferenceFromStorageChange({
@@ -43,4 +43,11 @@ test("provides light and dark options for the /theme menu", () => {
   assert.equal(themePreferenceFromMenuCommand("theme-light"), "light");
   assert.equal(themePreferenceFromMenuCommand("theme-dark"), "dark");
   assert.equal(themePreferenceFromMenuCommand("theme"), undefined);
+});
+
+test("focuses the currently active theme when opening the /theme menu", () => {
+  assert.equal(themeMenuIndex("light"), 0);
+  assert.equal(themeMenuIndex("dark"), 1);
+  assert.equal(themeMenuIndex("system", true), 0);
+  assert.equal(themeMenuIndex("system", false), 1);
 });

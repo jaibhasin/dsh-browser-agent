@@ -9,7 +9,7 @@ import { useToolSettings } from "./useToolSettings";
 import { promptContent, type DraftImage } from "../image-attachments";
 import { isHumanApprovalRequest, isUserQuestionRequest, type CurrentTaskAction, type HumanApprovalRequest, type UserQuestionRequest } from "../requests";
 import { getTabSwitchView, type AgentTabState } from "../tab-switch-state";
-import { isThemePreference, THEME_MENU_OPTIONS, themePreferenceFromCommand, themePreferenceFromMenuCommand, themePreferenceLabel, type ThemePreference } from "../theme";
+import { isThemePreference, THEME_MENU_OPTIONS, themeMenuIndex, themePreferenceFromCommand, themePreferenceFromMenuCommand, themePreferenceLabel, type ThemePreference } from "../theme";
 import { AGENT_TOOL_DEFS, effectiveDenied } from "../tools";
 import { buildTaskRunPrompt, loadSavedTasks, loadTaskSetup, removeSavedTask, removeTaskSetup, saveSavedTask, saveTaskSetup, type SavedTask } from "../saved-tasks";
 import type { TaskDraft } from "../components/TaskDialogs";
@@ -19,7 +19,7 @@ import { ATTENTION_SOUND_STORAGE_KEY, consumeAttentionFocus, isAttentionRequest,
 
 // Session, streaming, and tab transitions share refs and stay coordinated here.
 export function useSidepanelController(initialThemePreference: ThemePreference) {
-  const { changeThemePreference } = useThemePreference(initialThemePreference);
+  const { themePreference, changeThemePreference } = useThemePreference(initialThemePreference);
   const [messages, setMessages] = useState<ConversationItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState(() => newSessionId());
   const [sessionCreatedAt, setSessionCreatedAt] = useState(() => Date.now());
@@ -1017,6 +1017,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
         changeThemePreference(nextTheme);
         setSessionNotice(`Theme set to ${themePreferenceLabel(nextTheme).toLowerCase()}.`);
       } else if (args.length === 0) {
+        setActivePaletteIndex(themeMenuIndex(themePreference));
         setThemeMenuOpen(true);
       } else if (args.length === 1 && !isThemePreference(args[0])) {
         setThemeMenuOpen(false);
