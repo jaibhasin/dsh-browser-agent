@@ -1315,6 +1315,14 @@ h6.markdown-heading { font-size: 14px; }
   box-shadow: 0 4px 16px var(--shadow);
 }
 
+/* Keep the visual composer unchanged while making screenshot drops easier to hit. */
+.composer-drop-zone {
+  position: relative;
+  z-index: 1;
+  margin: -12px 0 -12px;
+  padding: 12px 0;
+}
+
 .composer-busy {
   border-color: var(--accent);
 }

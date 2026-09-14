@@ -85,17 +85,18 @@ export function Composer({
         onExecute={executeSlashCommand}
       />
 
-      <form
-        className={`composer${isAddingImage ? " composer-busy" : ""}`}
-        onSubmit={sendMessage}
+      <div
+        className="composer-drop-zone"
         onDragOver={(event) => {
           if (!isLoading && [...event.dataTransfer.types].includes("Files")) event.preventDefault();
         }}
         onDrop={(event) => {
           event.preventDefault();
-          void addAttachmentFiles([...event.dataTransfer.files]);
+          const imageFiles = [...event.dataTransfer.files].filter((file) => file.type.startsWith("image/"));
+          void addImageFiles(imageFiles);
         }}
       >
+        <form className={`composer${isAddingImage ? " composer-busy" : ""}`} onSubmit={sendMessage}>
         <label className="sr-only" htmlFor="prompt">Message the browser agent</label>
         {draftImages.length > 0 && (
           <div className="image-draft-list" aria-label="Images to attach">
@@ -212,7 +213,8 @@ export function Composer({
             )}
           </button>
         </div>
-      </form>
+        </form>
+      </div>
     </>
   );
 }
