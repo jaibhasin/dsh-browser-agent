@@ -4,7 +4,7 @@ import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTa
 import { ATTENTION_SOUND_STORAGE_KEY, loadAttentionRequests, removeAttentionForSession as removeStoredAttentionForSession, removeAttentionRequest, saveAttentionRequest, setAttentionFocus, type AttentionRequest, type HumanApprovalRequest } from "../../shared/attention";
 import { DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES, type UserQuestion } from "../../shared/protocol";
 import type { BenchmarkEvent, BenchmarkRunState, BenchmarkTab, BenchmarkTabsResponse, BenchmarkRunResponse } from "../../shared/benchmark";
-import { reportBenchmarkEvent, requireBenchmarkEvent } from "./benchmark-client";
+import { benchmarkRecorderAvailable, reportBenchmarkEvent, requireBenchmarkEvent } from "./benchmark-client";
 import { saveChat } from "../sidepanel/src/chat-history";
 import { benchmarkChat } from "../../shared/benchmark-chat";
 
@@ -195,6 +195,10 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   if (message.type === "dsh-benchmark-state-request") {
     sendResponse({ state: lastBenchmarkState });
     return;
+  }
+  if (message.type === "dsh-benchmark-status") {
+    void benchmarkRecorderAvailable().then((available) => sendResponse({ available })).catch(() => sendResponse({ available: false }));
+    return true;
   }
   if (message.type === "dsh-benchmark-tabs") {
     benchmarkEvent({ type: "extension_ready", extensionId: chrome.runtime.id, version: chrome.runtime.getManifest().version, timestamp: Date.now() });

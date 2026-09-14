@@ -7,6 +7,7 @@ type PanelHeaderProps = {
   connectionStatus: string;
   agentTabState: AgentTabState;
   attentionCount: number;
+  benchmarkAvailable: boolean;
   setIsHistoryOpen: React.Dispatch<React.SetStateAction<boolean>>;
   isHistoryOpen: boolean;
   startNewSession: () => Promise<void>;
@@ -20,6 +21,7 @@ export function PanelHeader({
   connectionStatus,
   agentTabState,
   attentionCount,
+  benchmarkAvailable,
   setIsHistoryOpen,
   isHistoryOpen,
   startNewSession,
@@ -50,9 +52,11 @@ export function PanelHeader({
               aria-hidden="true"
             />
           )}
-          <button className={`text-button header-benchmark-button${benchmarkOpen ? " active" : ""}`} type="button" onClick={() => setBenchmarkOpen((open) => !open)} aria-expanded={benchmarkOpen}>
-            Memory test
-          </button>
+          {benchmarkAvailable && (
+            <button className={`text-button header-benchmark-button${benchmarkOpen ? " active" : ""}`} type="button" onClick={() => setBenchmarkOpen((open) => !open)} aria-expanded={benchmarkOpen}>
+              Memory test
+            </button>
+          )}
           {attentionCount > 0 && (
             <span className="attention-count" title={`${attentionCount} session${attentionCount === 1 ? "" : "s"} needs input`}>
               {attentionCount}

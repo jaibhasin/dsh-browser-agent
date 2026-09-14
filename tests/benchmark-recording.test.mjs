@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { requireBenchmarkEvent } from "../extension/background/benchmark-client.ts";
+import { benchmarkRecorderAvailable, requireBenchmarkEvent } from "../extension/background/benchmark-client.ts";
 import { benchmarkChat } from "../shared/benchmark-chat.ts";
 import { saveChat, loadChatHistory } from "../extension/sidepanel/src/chat-history.ts";
 
@@ -17,6 +17,22 @@ test("a run requires acknowledgement and surfaces a stopped or occupied recorder
     await assert.rejects(requireBenchmarkEvent(event), /Start pnpm benchmark:memory/);
     globalThis.fetch = async () => new Response(null, { status: 400 });
     await assert.rejects(requireBenchmarkEvent(event), /Each report needs a new recorder/);
+  } finally { globalThis.fetch = previous; }
+});
+
+test("recorder status is only available while the benchmark server responds", async () => {
+  const previous = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url, options) => {
+      assert.equal(url, "http://127.0.0.1:7332/events");
+      assert.equal(options.method, "OPTIONS");
+      return new Response(null, { status: 204 });
+    };
+    assert.equal(await benchmarkRecorderAvailable(), true);
+    globalThis.fetch = async () => new Response(null, { status: 503 });
+    assert.equal(await benchmarkRecorderAvailable(), false);
+    globalThis.fetch = async () => { throw new Error("ECONNREFUSED"); };
+    assert.equal(await benchmarkRecorderAvailable(), false);
   } finally { globalThis.fetch = previous; }
 });
 

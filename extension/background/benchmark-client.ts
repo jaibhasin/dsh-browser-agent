@@ -2,6 +2,15 @@ import type { BenchmarkEvent } from "../../shared/benchmark";
 
 const BENCHMARK_URL = "http://127.0.0.1:7332/events";
 
+export async function benchmarkRecorderAvailable(): Promise<boolean> {
+  try {
+    const response = await fetch(BENCHMARK_URL, { method: "OPTIONS", signal: AbortSignal.timeout(1500) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The benchmark runner is optional. Failed posts are deliberately ignored so
  * normal extension chats never depend on the measurement command.

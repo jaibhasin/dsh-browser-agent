@@ -56,6 +56,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const [pendingHumanApproval, setPendingHumanApproval] = useState<HumanApprovalRequest>();
   const [pendingUserQuestion, setPendingUserQuestion] = useState<UserQuestionRequest>();
   const [attentionRequests, setAttentionRequests] = useState<AttentionRequest[]>([]);
+  const [benchmarkAvailable, setBenchmarkAvailable] = useState(false);
   const [userQuestionText, setUserQuestionText] = useState("");
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
   const [dismissedTabId, setDismissedTabId] = useState<number>();
@@ -185,6 +186,25 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     const response = await chrome.runtime.sendMessage({ type: "dsh-agent-tab-state-request", sessionId }) as { ok?: boolean; state?: AgentTabState };
     if (response?.ok && response.state) applyAgentTabState(response.state);
   }
+
+  useEffect(() => {
+    let disposed = false;
+    const refreshBenchmarkStatus = () => {
+      void chrome.runtime.sendMessage({ type: "dsh-benchmark-status" })
+        .then((response: { available?: boolean }) => {
+          if (!disposed) setBenchmarkAvailable(response?.available === true);
+        })
+        .catch(() => {
+          if (!disposed) setBenchmarkAvailable(false);
+        });
+    };
+    refreshBenchmarkStatus();
+    const timer = window.setInterval(refreshBenchmarkStatus, 2000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -1059,6 +1079,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       connectionStatus,
       agentTabState,
       attentionCount: attentionRequests.length,
+      benchmarkAvailable,
       setIsHistoryOpen,
       isHistoryOpen,
       startNewSession,
