@@ -442,7 +442,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       const commandParts = text.slice(1).trim().toLowerCase().split(/\s+/).filter(Boolean);
       const cmd = commandParts[0] ?? "";
       const args = commandParts.slice(1);
-      // Accept exact ("/actions") and unambiguous prefix ("/act") matches.
+      // Accept exact ("/tools") and unambiguous prefix ("/tool") matches.
       const candidates = cmd ? slashCommands.filter((c) => c.id.startsWith(cmd)) : [];
       const matched = candidates.find((c) => c.id === cmd) ?? (candidates.length === 1 ? candidates[0] : undefined);
       if (matched) {
@@ -954,7 +954,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
         return;
       }
       // While the palette is open, Enter runs the highlighted command even
-      // if the word is only partially typed (e.g. "/act" -> /actions).
+      // if the word is only partially typed (e.g. "/tool" -> /tools).
       if (paletteVisible && paletteActive) {
         executeSlashCommand(paletteActive.id);
         return;
@@ -970,7 +970,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
 
   const slashCommands: { id: string; label: string; description: string }[] = [
     { id: "new", label: "/new", description: "Delete this chat and start a fresh session in the tab" },
-    { id: "actions", label: "/actions", description: "Enable or disable the agent's tools" },
+    { id: "tools", label: "/tools", description: "Enable or disable the agent's tools" },
     { id: "human-in-the-loop", label: "/human-in-the-loop", description: "Ask for approval before clicks, typing, and navigation" },
     { id: "notifications", label: "/notifications", description: "Turn background attention sounds on or off" },
     { id: "theme", label: "/theme", description: "Set the panel theme: system, light, or dark" },
@@ -991,7 +991,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       setThemeMenuOpen(false);
       setToolsMenuOpen(false);
       void startNewSession();
-    } else if (commandId === "actions") {
+    } else if (commandId === "tools") {
       setThemeMenuOpen(false);
       setActiveToolIndex(0);
       setToolsMenuOpen(true);
