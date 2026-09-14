@@ -968,10 +968,13 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     }
   }
 
+  const humanInTheLoopEnabled = humanInTheLoopSessions.has(activeSessionId);
   const slashCommands: { id: string; label: string; description: string }[] = [
     { id: "new", label: "/new", description: "Delete this chat and start a fresh session in the tab" },
     { id: "tools", label: "/tools", description: "Enable or disable the agent's tools" },
-    { id: "human-in-the-loop", label: "/human-in-the-loop", description: "Ask for approval before clicks, typing, and navigation" },
+    { id: "human-in-the-loop", label: "/human-in-the-loop", description: humanInTheLoopEnabled
+      ? "Enabled · disable approval for clicks, typing, and navigation"
+      : "Disabled · ask for approval before clicks, typing, and navigation" },
     { id: "notifications", label: "/notifications", description: "Turn background attention sounds on or off" },
     { id: "theme", label: "/theme", description: "Set the panel theme: system, light, or dark" },
   ];
@@ -998,8 +1001,16 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       textareaRef.current?.focus();
     } else if (commandId === "human-in-the-loop") {
       setThemeMenuOpen(false);
-      setHumanInTheLoopSessions((current) => new Set(current).add(activeSessionId));
-      setSessionNotice("Human-in-the-loop is enabled for this chat. Clicks, typing, and navigation now require your approval.");
+      const nextEnabled = !humanInTheLoopEnabled;
+      setHumanInTheLoopSessions((current) => {
+        const next = new Set(current);
+        if (nextEnabled) next.add(activeSessionId);
+        else next.delete(activeSessionId);
+        return next;
+      });
+      setSessionNotice(nextEnabled
+        ? "Human-in-the-loop is enabled for this chat. Clicks, typing, and navigation now require your approval."
+        : "Human-in-the-loop is disabled for this chat. Clicks, typing, and navigation no longer require your approval.");
       textareaRef.current?.focus();
     } else if (commandId === "notifications") {
       const setting = args[0];
