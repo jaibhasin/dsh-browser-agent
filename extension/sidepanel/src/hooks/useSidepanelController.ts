@@ -942,7 +942,8 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       event.preventDefault();
       setActivePaletteIndex((current) => {
         const direction = event.key === "ArrowDown" ? 1 : -1;
-        return (current + direction + paletteMatches.length) % paletteMatches.length;
+        const activeIndex = current < paletteMatches.length ? current : 0;
+        return (activeIndex + direction + paletteMatches.length) % paletteMatches.length;
       });
       return;
     }
@@ -971,6 +972,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const humanInTheLoopEnabled = humanInTheLoopSessions.has(activeSessionId);
   const slashCommands: { id: string; label: string; description: string }[] = [
     { id: "new", label: "/new", description: "Delete this chat and start a fresh session in the tab" },
+    { id: "tasks", label: "/tasks", description: "Run one of your saved tasks" },
     { id: "tools", label: "/tools", description: "Enable or disable the agent's tools" },
     { id: "human-in-the-loop", label: "/human-in-the-loop", description: humanInTheLoopEnabled
       ? "Enabled · disable approval for clicks, typing, and navigation"
@@ -980,6 +982,19 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   ];
 
   function executeSlashCommand(commandId: string, args: string[] = []) {
+    if (commandId.startsWith("task:")) {
+      const task = savedTasks.find((candidate) => candidate.id === commandId.slice("task:".length));
+      setPrompt("");
+      setActivePaletteIndex(0);
+      if (task) {
+        runSavedTask(task);
+      } else {
+        setSessionNotice("That saved task is no longer available. Refresh the panel and try again.");
+      }
+      textareaRef.current?.focus();
+      return;
+    }
+
     setPrompt("");
     setActivePaletteIndex(0);
     const menuTheme = themePreferenceFromMenuCommand(commandId);
@@ -998,6 +1013,14 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       setThemeMenuOpen(false);
       setActiveToolIndex(0);
       setToolsMenuOpen(true);
+      textareaRef.current?.focus();
+    } else if (commandId === "tasks") {
+      if (args.length > 0) {
+        setSessionNotice("Choose a saved task from the list, or use /tasks without extra text.");
+      } else {
+        setPrompt("/tasks");
+        setSessionNotice("");
+      }
       textareaRef.current?.focus();
     } else if (commandId === "human-in-the-loop") {
       setThemeMenuOpen(false);
@@ -1077,12 +1100,27 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   }
 
   const trimmedPrompt = prompt.trim();
+  const normalizedPrompt = trimmedPrompt.toLowerCase();
   const showingThemeMenu = themeMenuOpen && trimmedPrompt === "";
+  const taskQuery = normalizedPrompt.startsWith("/tasks ") ? trimmedPrompt.slice("/tasks ".length).trim().toLowerCase() : "";
+  const showingTaskMenu = normalizedPrompt === "/tasks" || normalizedPrompt.startsWith("/tasks ");
+  const taskPaletteMatches = savedTasks
+    .filter((task) => !taskQuery || task.name.toLowerCase().includes(taskQuery))
+    .map((task) => {
+      const runInputCount = task.parameters.filter((parameter) => parameter.mode === "run").length;
+      const inputSummary = runInputCount === 0 ? "No run inputs" : `${runInputCount} run input${runInputCount === 1 ? "" : "s"}`;
+      return {
+        id: `task:${task.id}`,
+        label: task.name,
+        description: `${task.startingContext.kind === "current-page" ? "Current page" : "Saved URL"} · ${inputSummary}`,
+        kind: "task" as const,
+      };
+    });
   const paletteVisible = !toolsMenuOpen && (showingThemeMenu || trimmedPrompt.startsWith("/"));
   const paletteMatches = paletteVisible
     ? showingThemeMenu
       ? THEME_MENU_OPTIONS
-      : slashCommands.filter((c) => c.id.startsWith(trimmedPrompt.slice(1).trim().toLowerCase()))
+      : showingTaskMenu ? taskPaletteMatches : slashCommands.filter((c) => c.id.startsWith(trimmedPrompt.slice(1).trim().toLowerCase()))
     : [];
   const paletteActive = paletteMatches[activePaletteIndex] ?? paletteMatches[0];
 
@@ -1181,6 +1219,10 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       paletteVisible,
       paletteMatches,
       paletteActive,
+      paletteTitle: showingTaskMenu ? "Saved tasks" : undefined,
+      paletteAriaLabel: showingTaskMenu ? "Saved tasks" : undefined,
+      paletteEmptyMessage: showingTaskMenu ? "No saved tasks yet. Save a conversation as a task first." : undefined,
+      taskMenuOpen: showingTaskMenu,
       themeMenuOpen: showingThemeMenu,
       executeSlashCommand,
       isAddingImage,

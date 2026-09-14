@@ -8,8 +8,12 @@ import { SlashCommandPalette } from "./SlashCommandPalette";
 
 type ComposerProps = {
   paletteVisible: boolean;
-  paletteMatches: readonly { id: string; label: string; description: string; }[];
-  paletteActive: { id: string; label: string; description: string; } | undefined;
+  paletteMatches: readonly { id: string; label: string; description: string; kind?: "command" | "task"; }[];
+  paletteActive: { id: string; label: string; description: string; kind?: "command" | "task"; } | undefined;
+  paletteTitle?: string;
+  paletteAriaLabel?: string;
+  paletteEmptyMessage?: string;
+  taskMenuOpen: boolean;
   themeMenuOpen: boolean;
   executeSlashCommand: (commandId: string, args?: string[]) => void;
   isAddingImage: boolean;
@@ -40,6 +44,10 @@ export function Composer({
   paletteVisible,
   paletteMatches,
   paletteActive,
+  paletteTitle,
+  paletteAriaLabel,
+  paletteEmptyMessage,
+  taskMenuOpen,
   themeMenuOpen,
   executeSlashCommand,
   isAddingImage,
@@ -71,8 +79,9 @@ export function Composer({
         visible={paletteVisible}
         commands={paletteMatches}
         activeId={paletteActive?.id}
-        title={themeMenuOpen ? "Choose a theme" : undefined}
-        ariaLabel={themeMenuOpen ? "Theme options" : undefined}
+        title={paletteTitle ?? (themeMenuOpen ? "Choose a theme" : undefined)}
+        ariaLabel={paletteAriaLabel ?? (themeMenuOpen ? "Theme options" : undefined)}
+        emptyMessage={paletteEmptyMessage}
         onExecute={executeSlashCommand}
       />
 
@@ -189,7 +198,7 @@ export function Composer({
           >
             {isAddingImage ? "…" : "＋"}
           </button>
-          <span className="composer-hint">{toolsMenuOpen ? "Choose which tools this chat may use · Esc to close" : themeMenuOpen ? "Arrow keys choose theme · Enter to apply · Esc to cancel" : paletteVisible ? "Enter to run command · Esc to clear" : "Type / for commands · Enter to send · Shift + Enter for a new line"}</span>
+          <span className="composer-hint">{toolsMenuOpen ? "Choose which tools this chat may use · Esc to close" : themeMenuOpen ? "Arrow keys choose theme · Enter to apply · Esc to cancel" : taskMenuOpen ? "Arrow keys choose a task · Enter to run · Esc to clear" : paletteVisible ? "Enter to run command · Esc to clear" : "Type / for commands · Enter to send · Shift + Enter for a new line"}</span>
           <button
             className={`send-button${isLoading ? " send-button-stop" : ""}`}
             type={isLoading ? "button" : "submit"}

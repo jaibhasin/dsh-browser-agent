@@ -15,13 +15,15 @@ export function SlashCommandPalette({
   onExecute,
   title = "Commands",
   ariaLabel = "Slash commands",
+  emptyMessage = "No matching commands.",
 }: {
   visible: boolean;
-  commands: readonly { id: string; label: string; description: string }[];
+  commands: readonly { id: string; label: string; description: string; kind?: "command" | "task" }[];
   activeId?: string;
   onExecute: (id: string) => void;
   title?: string;
   ariaLabel?: string;
+  emptyMessage?: string;
 }) {
   if (!visible) return null;
 
@@ -29,7 +31,7 @@ export function SlashCommandPalette({
     <div className="slash-command-palette" role="listbox" aria-label={ariaLabel}>
       <div className="slash-command-header">{title}</div>
       {commands.length === 0 ? (
-        <p className="slash-command-empty">No matching commands.</p>
+        <p className="slash-command-empty">{emptyMessage}</p>
       ) : (
         <ul className="slash-command-list">
           {commands.map((cmd) => {
@@ -37,12 +39,13 @@ export function SlashCommandPalette({
             return (
               <li
                 key={cmd.id}
-                className={`slash-command-item${active ? " slash-command-item-active" : ""}`}
+                className={`slash-command-item${cmd.kind === "task" ? " slash-command-item-task" : ""}${active ? " slash-command-item-active" : ""}`}
                 role="option"
                 aria-selected={active}
                 onClick={() => onExecute(cmd.id)}
               >
-                <span className="slash-command-label">{cmd.label}</span>
+                <span className="slash-command-label">{cmd.kind === "task" ? "▶" : cmd.label}</span>
+                {cmd.kind === "task" && <span className="slash-command-task-name">{cmd.label}</span>}
                 <span className="slash-command-desc">{cmd.description}</span>
                 {active && <kbd className="slash-command-kbd" aria-hidden="true">↵</kbd>}
               </li>
