@@ -189,7 +189,7 @@ export function Composer({
           >
             {isAddingImage ? "…" : "＋"}
           </button>
-          <span className="composer-hint">{toolsMenuOpen ? "Choose which tools this chat may use · Esc to close" : themeMenuOpen ? "Arrow keys choose theme · Enter to apply · Esc to cancel" : paletteVisible ? "Enter to run command · Esc to clear" : "Enter to send · Shift + Enter for a new line · Type / for commands"}</span>
+          <span className="composer-hint">{toolsMenuOpen ? "Choose which tools this chat may use · Esc to close" : themeMenuOpen ? "Arrow keys choose theme · Enter to apply · Esc to cancel" : paletteVisible ? "Enter to run command · Esc to clear" : "Type / for commands · Enter to send · Shift + Enter for a new line"}</span>
           <button
             className={`send-button${isLoading ? " send-button-stop" : ""}`}
             type={isLoading ? "button" : "submit"}
