@@ -12,7 +12,7 @@ import { AGENT_TOOL_DEFS, type AgentToolName } from "../../shared/protocol.js";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
 import { convertDocuments } from "../document-converter.js";
 import { BrowserRetryLimitError, BrowserRetryGuard, type BrowserMutation } from "./browser-retry-guard.js";
-import { parseTaskDraftText } from "../task-draft.js";
+import { parseTaskDraftWithRetry } from "../task-draft.js";
 
 export const name = "dsh-browser-snapshot";
 export const inject = ["tools", "agents", "agentDefaultModel", "workspaceRegistry", "attachments"];
@@ -332,20 +332,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       return [...events].reverse().map(extractAssistantText).find((value) => value.trim()) ?? "";
     };
     try {
-      let raw = await runDraftTurn(prompt);
-      try {
-        const parsed = parseTaskDraftText(raw, request.currentUrl);
-        return { status: parsed.questions.length > 0 ? "needs-input" : "ready", ...parsed };
-      } catch {
-        raw = await runDraftTurn([
-          "Your previous response did not match the required task schema.",
-          "Correct it and return only valid JSON, with no Markdown or explanation.",
-          "Include every required field, use parameter type text/number/date/choice/boolean, use mode fixed/run/page, and use empty arrays when there are no warnings, parameters, or questions.",
-          "JSON shape: {draft:{name,instructions,startingContext:{kind,url?},parameters:[{id,label,type,mode,value?,defaultValue?,required,options?}],constraints,expectedResult,warnings:[]},questions:[{id,question,options,allowFreeText,parameterId?}]}",
-        ].join("\n\n"));
-        const parsed = parseTaskDraftText(raw, request.currentUrl);
-        return { status: parsed.questions.length > 0 ? "needs-input" : "ready", ...parsed };
-      }
+      const parsed = await parseTaskDraftWithRetry(runDraftTurn, prompt, request.currentUrl);
+      return { status: parsed.questions.length > 0 ? "needs-input" : "ready", ...parsed };
     } finally {
       handles.delete(setupSession);
       await handle.dispose();
