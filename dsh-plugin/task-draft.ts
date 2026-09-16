@@ -2,11 +2,25 @@ import type { TaskDraftDefinition, TaskDraftParameter, TaskDraftQuestion } from 
 
 type RecordValue = Record<string, unknown>;
 
+type TaskDraftTurnEvent = {
+  type?: unknown;
+  data?: unknown;
+};
+
+export const TASK_DRAFT_SCHEMA_PROMPT = `Return JSON with this structure:
+{"draft":{"name":"Task name","instructions":"Reusable instructions","startingContext":{"kind":"current-page"},"parameters":[],"constraints":"Rules as text","expectedResult":"Expected output as text","warnings":[]},"questions":[]}
+startingContext.kind must be "current-page" or "url" (include url for the latter).
+Each parameter has id, label, type (text/number/date/choice/boolean), mode (fixed/run/page), required (boolean), optional value/defaultValue (string), and optional options (string array).
+fixed means constant; run means user-supplied each run; page means discover from the live page. A requested count is fixed or run, never page unless explicitly derived from the page.
+Each question has id, question, options (string array), allowFreeText (boolean), and optional parameterId.
+constraints and expectedResult are strings. warnings and questions are arrays. Omit unused optional fields rather than using null.
+Preserve the user's intent and edits. Do not add extra work or copy past results into reusable instructions.`;
+
 const TASK_DRAFT_CORRECTION_PROMPT = [
   "Your previous response did not match the required task schema.",
   "Correct it and return only valid JSON, with no Markdown or explanation.",
   "Include every required field, use parameter type text/number/date/choice/boolean, use mode fixed/run/page, and use empty arrays when there are no warnings, parameters, or questions.",
-  "JSON shape: {draft:{name,instructions,startingContext:{kind,url?},parameters:[{id,label,type,mode,value?,defaultValue?,required,options?}],constraints,expectedResult,warnings:[]},questions:[{id,question,options,allowFreeText,parameterId?}]}",
+  TASK_DRAFT_SCHEMA_PROMPT,
 ].join("\n\n");
 
 export function parseTaskDraftText(raw: string, currentUrl?: string): { draft: TaskDraftDefinition; questions: TaskDraftQuestion[] } {
@@ -25,11 +39,21 @@ export async function parseTaskDraftWithRetry(
   prompt: string,
   currentUrl?: string,
 ): Promise<{ draft: TaskDraftDefinition; questions: TaskDraftQuestion[] }> {
+  const raw = await runTurn(prompt);
   try {
-    return parseTaskDraftText(await runTurn(prompt), currentUrl);
+    return parseTaskDraftText(raw, currentUrl);
   } catch {
     return parseTaskDraftText(await runTurn(TASK_DRAFT_CORRECTION_PROMPT), currentUrl);
   }
+}
+
+export function getTaskDraftTurnError(events: readonly TaskDraftTurnEvent[]): Error | undefined {
+  const turnEnd = [...events].reverse().find((event) => event.type === "turn/end");
+  if (!isRecord(turnEnd?.data) || !isRecord(turnEnd.data.reason)) return undefined;
+  const reason = turnEnd.data.reason;
+  if (reason?.kind !== "error") return undefined;
+  const message = isRecord(reason.error) && typeof reason.error.message === "string" ? reason.error.message.trim() : "";
+  return new Error(message || "The task builder model request failed.");
 }
 
 function parseJson(raw: string): unknown {
@@ -50,7 +74,9 @@ function parseJson(raw: string): unknown {
 
 function normalizeDraft(value: unknown, currentUrl?: string): TaskDraftDefinition | undefined {
   if (!isRecord(value) || typeof value.name !== "string" || typeof value.instructions !== "string") return undefined;
-  if (!value.name.trim() || !value.instructions.trim() || typeof value.constraints !== "string" || typeof value.expectedResult !== "string") return undefined;
+  const constraints = normalizeText(value.constraints);
+  const expectedResult = normalizeText(value.expectedResult);
+  if (!value.name.trim() || !value.instructions.trim() || constraints === undefined || expectedResult === undefined) return undefined;
   const context = normalizeStartingContext(value.startingContext, currentUrl);
   const parameters = normalizeParameters(value.parameters);
   if (!context || parameters === undefined) return undefined;
@@ -62,8 +88,8 @@ function normalizeDraft(value: unknown, currentUrl?: string): TaskDraftDefinitio
     instructions: value.instructions,
     startingContext: context,
     parameters,
-    constraints: value.constraints,
-    expectedResult: value.expectedResult,
+    constraints,
+    expectedResult,
     warnings,
   };
 }
@@ -130,7 +156,7 @@ function normalizeParameterType(value: unknown): TaskDraftParameter["type"] | un
 
 function normalizeParameterMode(value: unknown): TaskDraftParameter["mode"] | undefined {
   if (value === "fixed" || value === "run" || value === "page") return value;
-  if (value === "runtime" || value === "runtime-input" || value === "input" || value === "variable") return "run";
+  if (value === "runtime" || value === "runtime-input" || value === "input" || value === "variable" || value === "editable") return "run";
   if (value === "page-derived" || value === "page_derived") return "page";
   return undefined;
 }
@@ -138,6 +164,10 @@ function normalizeParameterMode(value: unknown): TaskDraftParameter["mode"] | un
 function normalizeStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return undefined;
   return value;
+}
+
+function normalizeText(value: unknown): string | undefined {
+  return typeof value === "string" ? value : normalizeStringArray(value)?.join("\n");
 }
 
 function normalizeScalarArray(value: unknown): string[] | undefined {

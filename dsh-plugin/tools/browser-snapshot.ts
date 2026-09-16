@@ -1,7 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { installModelSelection, type AgentHandle, type CreateAgentOptions, type ModelSelection } from "@deepseek-ai/dsh-agent";
+import { installModelSelection, type AgentHandle, type AgentOptions, type CreateAgentOptions, type ModelSelection } from "@deepseek-ai/dsh-agent";
 import { brandString } from "@deepseek-ai/dsh-brand";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { admitPromptContent, type AttachmentStore, type ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
@@ -9,10 +9,11 @@ import type { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import type { BridgePromptContentPart, BrowserSnapshotData, JsonValue, TaskDraftDefinition, TaskDraftQuestion, TaskDraftRequest, UserQuestion, UserQuestionResponse } from "../../shared/protocol.js";
 import { AGENT_TOOL_DEFS, type AgentToolName } from "../../shared/protocol.js";
+import { createBrowserAgentOptions, TASK_DRAFT_MAX_TOKENS } from "../agent-options.js";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
 import { convertDocuments } from "../document-converter.js";
 import { BrowserRetryLimitError, BrowserRetryGuard, type BrowserMutation } from "./browser-retry-guard.js";
-import { parseTaskDraftWithRetry } from "../task-draft.js";
+import { getTaskDraftTurnError, parseTaskDraftWithRetry, TASK_DRAFT_SCHEMA_PROMPT } from "../task-draft.js";
 
 export const name = "dsh-browser-snapshot";
 export const inject = ["tools", "agents", "agentDefaultModel", "workspaceRegistry", "attachments"];
@@ -258,7 +259,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     appliedRestrictionKey.set(sessionId, key);
   };
 
-  const createAgent = async (sessionId: SessionId, resume: boolean): Promise<AgentHandle> => {
+  const createAgent = async (sessionId: SessionId, resume: boolean, agentOptions?: Pick<AgentOptions, "maxTokens">): Promise<AgentHandle> => {
     // The profile's persisted model settings are applied by loader siblings.
     // Reading the default before loader settlement captures the built-in route.
     await loader?.await();
@@ -272,7 +273,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     // agent.
     let agentContext: Context | undefined;
     const options = {
-      agentOptions: { provider: selection.provider, model: selection.model },
+      agentOptions: createBrowserAgentOptions(selection.provider, selection.model, agentOptions),
       setup: (agentCtx: Context) => {
         agentContext = agentCtx;
         agentCtx.systemPrompt.section({
@@ -299,17 +300,17 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     }
   };
 
-  const getAgent = async (sessionId: SessionId, resume: boolean): Promise<AgentHandle> => {
+  const getAgent = async (sessionId: SessionId, resume: boolean, agentOptions?: Pick<AgentOptions, "maxTokens">): Promise<AgentHandle> => {
     const existing = handles.get(sessionId);
     if (existing) return existing;
-    const created = await createAgent(sessionId, resume);
+    const created = await createAgent(sessionId, resume, agentOptions);
     handles.set(sessionId, created);
     return created;
   };
 
   const buildTaskDraft = async (request: TaskDraftRequest): Promise<{ status: "needs-input" | "ready"; draft: TaskDraftDefinition; questions: TaskDraftQuestion[] }> => {
     const setupSession = brandString<SessionId>(`task-setup-${request.id}`);
-    const handle = await getAgent(setupSession, false);
+    const handle = await getAgent(setupSession, false, { maxTokens: TASK_DRAFT_MAX_TOKENS });
     toolDeniedBySession.set(setupSession, new Set(KNOWN_AGENT_TOOLS));
     applyToolRestriction(setupSession);
     const prompt = [
@@ -321,7 +322,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       `Current URL: ${request.currentUrl ?? "(not available)"}`,
       `Conversation:\n${request.conversation}`,
       `Answers already supplied:\n${JSON.stringify(request.answers ?? {})}`,
-      "JSON shape: {draft:{name,instructions,startingContext:{kind,url?},parameters:[{id,label,type,mode,value?,defaultValue?,required,options?}],constraints,expectedResult,warnings},questions:[{id,question,options,allowFreeText,parameterId?}]}",
+      TASK_DRAFT_SCHEMA_PROMPT,
     ].join("\n\n");
     const runDraftTurn = async (message: string) => {
       await handle.agent.whenIdle();
@@ -329,6 +330,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       handle.agent.followup(createUserMessage({ content: [{ type: "text", text: message }], source: { kind: "user" } }));
       await handle.agent.whenIdle();
       const events = handle.agent.session.snapshotEvents(before) as readonly AssistantMessageEvent[];
+      const turnError = getTaskDraftTurnError(events);
+      if (turnError) throw turnError;
       return [...events].reverse().map(extractAssistantText).find((value) => value.trim()) ?? "";
     };
     try {
@@ -336,6 +339,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       return { status: parsed.questions.length > 0 ? "needs-input" : "ready", ...parsed };
     } finally {
       handles.delete(setupSession);
+      toolRestrictDisposers.get(setupSession)?.();
+      toolRestrictDisposers.delete(setupSession);
       await handle.dispose();
       toolDeniedBySession.delete(setupSession);
       agentContexts.delete(setupSession);

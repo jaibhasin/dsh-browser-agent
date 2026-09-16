@@ -24,6 +24,7 @@ export function TaskDialogs({ notice, draft, setDraft, saveTask, close, runningT
   return <>
     {draft && <div className="delete-modal-backdrop" role="presentation"><section className="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-draft-title">
       <span className="delete-modal-eyebrow">Save as a task</span><h2 id="task-draft-title">Review reusable task</h2>
+      {draft.warnings?.map((warning, index) => <p className="task-help" key={index}>{warning}</p>)}
       {notice && <p role="status">{notice}</p>}<p className="task-help">Confirm what stays fixed and what should be supplied or read from the page on every run.</p>
       {questions.length > 0 && <fieldset><legend>Clarify the reusable parts</legend>{questions.map((question) => <label key={question.id}>{question.question}{question.options.length > 0 && <select value={answers[question.id] ?? ""} onChange={(e) => setAnswers((current) => ({ ...current, [question.id]: e.target.value }))}><option value="">Choose an answer</option>{question.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>}{question.allowFreeText && <input value={answers[question.id] ?? ""} onChange={(e) => setAnswers((current) => ({ ...current, [question.id]: e.target.value }))} placeholder="Your answer" />}</label>)}</fieldset>}
       <label>Name<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>

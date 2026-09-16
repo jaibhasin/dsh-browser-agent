@@ -26,6 +26,7 @@ export type SavedTask = {
   parameters: TaskParameter[];
   constraints: string;
   expectedResult: string;
+  warnings?: string[];
   deniedTools: AgentToolName[];
   humanInTheLoop: boolean;
   createdAt: number;

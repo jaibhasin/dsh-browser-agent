@@ -698,6 +698,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
 
   async function saveCurrentAsTask() {
     if (isLoading || taskSetupBusy || messages.length === 0) return;
+    setSessionNotice("");
     const conversation = messages.filter((item): item is ChatMessage => item.kind === "message").map((item) => `${item.role}: ${item.text.trim()}`).filter(Boolean).join("\n\n");
     const url = agentTabState.agentTab?.url;
     let savedUrl: string | undefined;
@@ -727,6 +728,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
 
   async function continueTaskSetup() {
     if (!taskDraft || taskSetupBusy) return;
+    setSessionNotice("");
     if (taskDraftQuestions.some((question) => !taskDraftAnswers[question.id]?.trim())) {
       setSessionNotice("Please answer each setup question before continuing.");
       return;
@@ -734,7 +736,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     setTaskSetupBusy(true);
     try {
       const conversation = `${taskSetupConversation.current}\n\nCurrent user-edited draft (preserve edits):\n${JSON.stringify(taskDraft)}\n\nQuestions and answers:\n${JSON.stringify(taskDraftQuestions.map((question) => ({ ...question, answer: taskDraftAnswers[question.id] })))}`;
-      const response = await chrome.runtime.sendMessage({ type: "dsh-task-draft", sourceSessionId: activeSessionId, conversation, answers: taskDraftAnswers }) as { ok?: boolean; draft?: { status: "needs-input" | "ready"; draft: Omit<TaskDraft, "id" | "version" | "revision" | "deniedTools" | "humanInTheLoop">; questions: TaskDraftQuestion[] }; error?: string };
+      const response = await chrome.runtime.sendMessage({ type: "dsh-task-draft", sourceSessionId: activeSessionId, conversation, answers: taskDraftAnswers, ...(taskDraft.startingContext.kind === "url" ? { currentUrl: taskDraft.startingContext.url } : {}) }) as { ok?: boolean; draft?: { status: "needs-input" | "ready"; draft: Omit<TaskDraft, "id" | "version" | "revision" | "deniedTools" | "humanInTheLoop">; questions: TaskDraftQuestion[] }; error?: string };
       if (!response?.ok || !response.draft) throw new Error(response?.error ?? "The task builder could not continue.");
       setTaskDraft({ version: 2, revision: taskDraft.revision, ...response.draft.draft, deniedTools: taskDraft.deniedTools, humanInTheLoop: taskDraft.humanInTheLoop, ...(taskDraft.id ? { id: taskDraft.id } : {}) });
       setTaskDraftQuestions(response.draft.questions);
