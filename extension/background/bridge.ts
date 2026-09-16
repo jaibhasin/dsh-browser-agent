@@ -1,4 +1,5 @@
 import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgePromptContentPart, type BridgeRequest, type JsonValue, type TaskDraftRequest, type TaskDraftResponse, parseBridgeMessage } from "../../shared/protocol";
+import { formatBridgeFailure } from "../../shared/provider-error";
 
 const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
@@ -121,19 +122,19 @@ export class ExtensionBridge {
   private resolveChat(message: BridgeChatResponse): void {
     const pending = this.chatRequests.get(message.id); if (!pending) return;
     this.chatRequests.delete(message.id); clearTimeout(pending.timeout);
-    if (message.error) pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
+    if (message.error) pending.reject(new Error(formatBridgeFailure(message.error.code, message.error.message)));
     else pending.resolve(message.text ?? "");
   }
   private resolveNewSession(message: BridgeNewSessionResponse): void {
     const pending = this.sessionRequests.get(message.id); if (!pending) return;
     this.sessionRequests.delete(message.id); clearTimeout(pending.timeout);
-    if (message.error) pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
+    if (message.error) pending.reject(new Error(formatBridgeFailure(message.error.code, message.error.message)));
     else pending.resolve();
   }
   private resolveTaskDraft(message: TaskDraftResponse): void {
     const pending = this.taskDraftRequests.get(message.id); if (!pending) return;
     this.taskDraftRequests.delete(message.id); clearTimeout(pending.timeout);
-    if (message.status === "error") pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
+    if (message.status === "error") pending.reject(new Error(formatBridgeFailure(message.error.code, message.error.message)));
     else pending.resolve(message);
   }
   private async handleRequest(request: BridgeRequest): Promise<void> {
