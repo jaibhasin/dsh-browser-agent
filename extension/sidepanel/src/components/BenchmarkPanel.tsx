@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { selectedBenchmarkTabs, toggleBenchmarkTab } from "../../../../shared/benchmark-selection";
 import type { BenchmarkRunState, BenchmarkTab, BenchmarkTabsResponse, BenchmarkRunResponse } from "../../../../shared/benchmark";
+import { BENCHMARK_SITES, benchmarkSite, benchmarkSiteMatchesUrl, DEFAULT_BENCHMARK_SITE_ID, type BenchmarkSiteId } from "../../../../shared/benchmark-sites";
 
 type BenchmarkPanelProps = { open: boolean; onClose: () => void };
-
-const DEFAULT_PROMPT = "Inspect only your assigned tab. Read the current page, then scroll down up to three times, taking a fresh snapshot after each scroll. Stop scrolling if no new content appears. Return the page title, a short summary, five key facts supported by the page, and any information you could not verify. Do not switch tabs, follow links, submit forms, or ask questions. If the page cannot be read, explain why and stop.";
 
 export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
   const [tabs, setTabs] = useState<BenchmarkTab[]>([]);
   const [selected, setSelected] = useState<Set<number> | null>(null);
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  const [siteId, setSiteId] = useState<BenchmarkSiteId>(DEFAULT_BENCHMARK_SITE_ID);
+  const [prompt, setPrompt] = useState(() => benchmarkSite(DEFAULT_BENCHMARK_SITE_ID).prompt);
   const [run, setRun] = useState<BenchmarkRunState>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,12 +55,23 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
   }, [open]);
 
   const selectedTabs = useMemo(() => selectedBenchmarkTabs(tabs, selected), [selected, tabs]);
+  const selectedSite = benchmarkSite(siteId);
+  const mismatchedTabs = selectedTabs.filter((tab) => !benchmarkSiteMatchesUrl(selectedSite, tab.url));
   const allSelected = tabs.length > 0 && selectedTabs.length === tabs.length;
   const cooldownSeconds = Math.max(0, Math.ceil(((run?.settledAt ?? now) + 60_000 - now) / 1000));
   if (!open) return null;
 
   function toggleTab(id: number) {
     setSelected((current) => toggleBenchmarkTab(tabs, current, id));
+  }
+
+  function chooseSite(id: BenchmarkSiteId) {
+    setSiteId(id);
+    setPrompt(benchmarkSite(id).prompt);
+  }
+
+  function selectSiteTabs() {
+    setSelected(new Set(tabs.filter((tab) => benchmarkSiteMatchesUrl(selectedSite, tab.url)).map((tab) => tab.id)));
   }
 
   async function runBenchmark() {
@@ -88,18 +99,23 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
         </div>
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close memory benchmark">×</button>
       </div>
-      <p className="benchmark-copy">Open websites in this window, choose the tabs below, then click Run. This prompt runs once per selected tab, all in parallel. No need to paste it into separate chats.</p>
-      <label className="benchmark-label" htmlFor="benchmark-prompt">One prompt for all selected tabs</label>
+      <p className="benchmark-copy">Choose a site task, open matching tabs in this window, select them below, then click Run. The task runs once per selected tab, all in parallel.</p>
+      <label className="benchmark-label" htmlFor="benchmark-site">Task preset</label>
+      <select id="benchmark-site" className="benchmark-site-select" value={siteId} onChange={(event) => chooseSite(event.target.value as BenchmarkSiteId)} disabled={busy}>
+        {BENCHMARK_SITES.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+      </select>
+      <p className="benchmark-site-hint">Preset for {selectedSite.name}. Select only tabs from this site for a clean comparison.</p>
+      <label className="benchmark-label" htmlFor="benchmark-prompt">Prompt for selected tabs</label>
       <textarea id="benchmark-prompt" className="benchmark-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={4} disabled={busy} />
       <div className="benchmark-sites" aria-label="Open test websites">
         <span>Open a test site:</span>
-        {[["YouTube", "https://www.youtube.com/"], ["Hacker News", "https://news.ycombinator.com/"], ["Reddit", "https://www.reddit.com/"]].map(([name, url]) => (
-          <button key={url} type="button" className="text-button" disabled={busy} onClick={() => void chrome.tabs.create({ url, active: false }).then(() => refreshTabs()).catch(() => setError(`Could not open ${name}. Open ${url} in a tab.`))}>{name}</button>
+        {BENCHMARK_SITES.map((site) => (
+          <button key={site.id} type="button" className="text-button" disabled={busy} onClick={() => void chrome.tabs.create({ url: site.url, active: false }).then(() => refreshTabs()).catch(() => setError(`Could not open ${site.name}. Open ${site.url} in a tab.`))}>{site.name}</button>
         ))}
       </div>
       <div className="benchmark-tabs-header">
         <span role="status">{selectedTabs.length} of {tabs.length} web tabs selected</span>
-        {tabs.length > 0 && <button type="button" className="text-button" onClick={() => setSelected(allSelected ? new Set() : null)} disabled={busy}>{allSelected ? "Deselect all" : "Select all"}</button>}
+        {tabs.length > 0 && <span className="benchmark-tab-actions"><button type="button" className="text-button" onClick={selectSiteTabs} disabled={busy}>Select {selectedSite.name} tabs</button><button type="button" className="text-button" onClick={() => setSelected(allSelected ? new Set() : null)} disabled={busy}>{allSelected ? "Deselect all" : "Select all"}</button></span>}
       </div>
       <div className="benchmark-tabs">
         {tabs.length === 0 && <>
@@ -120,9 +136,10 @@ export function BenchmarkPanel({ open, onClose }: BenchmarkPanelProps) {
           <small>Run: {run.runId}</small>
         </div>
       )}
+      {mismatchedTabs.length > 0 && <p className="benchmark-error" role="alert">{mismatchedTabs.length} selected tab{mismatchedTabs.length === 1 ? " is" : "s are"} not from {selectedSite.name}. Select matching tabs or change the preset before running.</p>}
       {error && <p className="benchmark-error" role="alert">{error}</p>}
       {run?.recordingError && <p className="benchmark-error" role="alert">{run.recordingError}</p>}
-      <button type="button" className="benchmark-run-button" onClick={() => void runBenchmark()} disabled={busy || selectedTabs.length === 0 || !prompt.trim()}>
+      <button type="button" className="benchmark-run-button" onClick={() => void runBenchmark()} disabled={busy || selectedTabs.length === 0 || mismatchedTabs.length > 0 || !prompt.trim()}>
         {busy ? "Running benchmark..." : tabs.length === 0 ? "Open a website to start" : selectedTabs.length === 0 ? "Select tabs to start" : `Run ${selectedTabs.length} task${selectedTabs.length === 1 ? "" : "s"} in parallel`}
       </button>
     </section>

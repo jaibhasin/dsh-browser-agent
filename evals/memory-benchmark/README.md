@@ -20,13 +20,16 @@ pnpm benchmark:memory
    In `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and choose the `extension/dist` path printed in the terminal.
    If it is already loaded, click **Reload** in this profile and in any other profile using the agent.
 2. Open the extension side panel and click **Memory test**.
-   Use the YouTube, Hacker News, or Reddit buttons to open pages, or bring your own.
+   Use the Hacker News, Wikipedia, or Python Docs buttons to open the benchmark pages.
    Blank tabs and `chrome://` pages do not count.
-3. Select your tabs, then click **Run**.
+3. Choose the task preset that matches the pages you want to measure.
+   The Hacker News preset produces a ranked developer-relevant news briefing.
+   The Wikipedia preset produces an Apollo 11 mission briefing.
+   The Python Docs preset designs a CSV memory-reporting tool from the official tutorial.
+4. Select matching tabs, then click **Run**.
    The prompt runs once per selected tab, all in parallel.
-   The default prompt asks the agent to read, scroll, and summarize.
-   Change it to something you actually use the agent for if you like.
-4. When the tasks finish, leave the tabs open for the 60-second cooldown.
+   Use the **Select [site] tabs** action to avoid mixing site presets in one run.
+5. When the tasks finish, leave the tabs open for the 60-second cooldown.
    The report saves automatically, and task responses appear in Chat history under `Memory test: [page title]`.
 
 There is no required tab count or set of rounds.

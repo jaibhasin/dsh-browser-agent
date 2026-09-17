@@ -9,8 +9,10 @@ type ChatHistoryProps = {
   isStartingSession: boolean;
   savedChats: SavedChat[];
   attentionSessionIds: ReadonlySet<string>;
+  closedTabSessionIds: ReadonlySet<string>;
   activeSessionId: string;
   openSavedChat: (chat: SavedChat) => void;
+  openSavedChatSite: (chat: SavedChat) => void;
   isSwitchingTab: boolean;
   setPendingDeleteChat: React.Dispatch<React.SetStateAction<SavedChat | undefined>>;
   deletingChatId: string | undefined;
@@ -27,8 +29,10 @@ export function ChatHistory({
   isStartingSession,
   savedChats,
   attentionSessionIds,
+  closedTabSessionIds,
   activeSessionId,
   openSavedChat,
+  openSavedChatSite,
   isSwitchingTab,
   setPendingDeleteChat,
   deletingChatId,
@@ -66,7 +70,17 @@ export function ChatHistory({
                       <small>{new Date(chat.updatedAt).toLocaleDateString()}</small>
                     </span>
                   </button>
-                  {chat.links[0] && <a href={chat.links[0]} target="_blank" rel="noreferrer" title="Open last visited website">Open site</a>}
+                  {chat.links[0] && closedTabSessionIds.has(chat.id) && (
+                    <button
+                      className="chat-open-site-button"
+                      type="button"
+                      onClick={() => openSavedChatSite(chat)}
+                      disabled={isSwitchingTab}
+                      title="Reopen the last visited website"
+                    >
+                      Open site
+                    </button>
+                  )}
                   <button
                     className="chat-delete-button"
                     type="button"

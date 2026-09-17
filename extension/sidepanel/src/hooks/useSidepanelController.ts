@@ -14,7 +14,7 @@ import { AGENT_TOOL_DEFS, effectiveDenied } from "../tools";
 import { buildTaskRunPrompt, loadSavedTasks, loadTaskSetup, removeSavedTask, removeTaskSetup, saveSavedTask, saveTaskSetup, type SavedTask } from "../saved-tasks";
 import type { TaskDraft } from "../components/TaskDialogs";
 import type { TaskDraftQuestion } from "../../../../shared/protocol";
-import { ATTENTION_SOUND_STORAGE_KEY, consumeAttentionFocus, isAttentionRequest, loadAttentionRequests, type AttentionRequest } from "../../../../shared/attention";
+import { ATTENTION_SOUND_STORAGE_KEY, ATTENTION_STORAGE_KEY, consumeAttentionFocus, isAttentionRequest, loadAttentionRequests, type AttentionRequest } from "../../../../shared/attention";
 
 
 // Session, streaming, and tab transitions share refs and stay coordinated here.
@@ -56,6 +56,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const [pendingHumanApproval, setPendingHumanApproval] = useState<HumanApprovalRequest>();
   const [pendingUserQuestion, setPendingUserQuestion] = useState<UserQuestionRequest>();
   const [attentionRequests, setAttentionRequests] = useState<AttentionRequest[]>([]);
+  const [closedTabSessionIds, setClosedTabSessionIds] = useState<Set<string>>(() => new Set());
   const [benchmarkAvailable, setBenchmarkAvailable] = useState(false);
   const [userQuestionText, setUserQuestionText] = useState("");
   const [isSwitchingTab, setIsSwitchingTab] = useState(false);
@@ -75,6 +76,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const sessionStatusRef = useRef(new Map<string, SavedChat["status"]>());
   const sessionTaskRunsRef = useRef(new Map<string, NonNullable<SavedChat["taskRun"]>>());
   const deletedSessionIds = useRef(new Set<string>());
+  const savedChatLivenessRequest = useRef(0);
   const currentTabId = useRef<number | undefined>(undefined);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messageImageDataRef = useRef(new Map<string, DraftImage[]>());
@@ -110,6 +112,25 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
     const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
     historyRef.current = sorted;
     setSavedChats(sorted);
+  }
+
+  async function refreshSavedChatTabLiveness() {
+    const request = ++savedChatLivenessRequest.current;
+    const sessionIds = historyRef.current.map((chat) => chat.id);
+    if (sessionIds.length === 0) {
+      if (request === savedChatLivenessRequest.current) setClosedTabSessionIds(new Set());
+      return;
+    }
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-tab-liveness-request", sessionIds }) as { ok?: boolean; live?: Record<string, boolean> };
+      if (!response?.ok || !response.live) return;
+      if (request === savedChatLivenessRequest.current) {
+        setClosedTabSessionIds(new Set(sessionIds.filter((sessionId) => response.live?.[sessionId] !== true)));
+      }
+    } catch {
+      // Do not offer a restore action until ownership can be verified.
+      if (request === savedChatLivenessRequest.current) setClosedTabSessionIds(new Set());
+    }
   }
 
   function persistSession(sessionId: string, status?: SavedChat["status"]) {
@@ -205,6 +226,19 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    const syncAttentionRequests = () => void loadAttentionRequests().then(setAttentionRequests).catch(() => undefined);
+    const onStorageChanged = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+      if (areaName === "session" && changes[ATTENTION_STORAGE_KEY]) syncAttentionRequests();
+    };
+    chrome.storage.onChanged.addListener(onStorageChanged);
+    return () => chrome.storage.onChanged.removeListener(onStorageChanged);
+  }, []);
+
+  useEffect(() => {
+    if (historyReady) void refreshSavedChatTabLiveness();
+  }, [historyReady, savedChats]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -323,8 +357,9 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       } else if (message.type === "dsh-chat-progress" && message.progress && activeChatIds.current.has(message.progress.id)) {
         const sessionId = activeChatSessions.current.get(message.progress.id);
         if (sessionId) addToolProgress(sessionId, message.progress);
-      } else if (message.type === "dsh-agent-tab-state" && message.state && message.sessionId === activeSessionIdRef.current) {
-        applyAgentTabState(message.state);
+      } else if (message.type === "dsh-agent-tab-state") {
+        if (message.state && message.sessionId === activeSessionIdRef.current) applyAgentTabState(message.state);
+        void refreshSavedChatTabLiveness();
       } else if (message.type === "dsh-attention-request" && isAttentionRequest(message.attention)) {
         recordAttentionRequest(message.attention);
       } else if (message.type === "dsh-attention-cleared" && message.attentionId) {
@@ -687,6 +722,20 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       return;
     }
     activateSavedChat(chat);
+  }
+
+  async function openSavedChatSite(chat: SavedChat) {
+    if (isSwitchingTab) return;
+    setIsSwitchingTab(true);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "dsh-agent-focus-chat", sessionId: chat.id, url: chat.links[0] }) as { ok?: boolean; error?: string };
+      if (!response?.ok) throw new Error(response?.error ?? "The saved chat tab could not be opened.");
+      await refreshSavedChatTabLiveness();
+    } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "The saved chat tab could not be opened.");
+    } finally {
+      setIsSwitchingTab(false);
+    }
   }
 
   function activeSessionBlocksSwitch(): boolean {
@@ -1144,8 +1193,10 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       isStartingSession,
       savedChats,
       attentionSessionIds: new Set(attentionRequests.map((request) => request.sessionId)),
+      closedTabSessionIds,
       activeSessionId,
       openSavedChat,
+      openSavedChatSite,
       isSwitchingTab,
       setPendingDeleteChat,
       deletingChatId,
