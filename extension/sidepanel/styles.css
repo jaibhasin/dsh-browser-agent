@@ -201,10 +201,35 @@ body {
   line-height: 1.45;
 }
 
+.benchmark-tab-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .benchmark-label {
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
+}
+
+.benchmark-site-select {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  font-size: 12px;
+}
+
+.benchmark-site-hint {
+  margin: -5px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .benchmark-prompt {
