@@ -24,7 +24,7 @@ Voice configuration is independent of the chat provider.
 
 - [x] Use one common controller contract for start, stop, cancel, partial transcript, final transcript, and errors.
 - [x] Implement Browser dictation, then Groq and OpenRouter, then Deepgram and ElevenLabs Scribe.
-- [x] Select a sensible default transcription model per provider; keep model selection out of initial setup.
+- [x] Select a sensible default transcription model per provider and expose provider-specific model choices in setup.
 - [x] Verify current API contracts and extension compatibility for each provider before implementation.
 - [x] Support final transcription for all providers and live partial text where supported.
 - [x] Keep credentials and remote requests behind the extension service-worker boundary.

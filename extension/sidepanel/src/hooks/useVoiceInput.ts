@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ensureVoicePermission } from "../voice-permission";
-import { canStartVoice, parseVoiceConfig, type VoiceConfig, type VoiceProvider, type VoiceRuntimeState, type VoiceTranscriptionRequest } from "../../../../shared/voice";
+import { canStartVoice, defaultVoiceModel, parseVoiceConfig, type VoiceConfig, type VoiceProvider, type VoiceRuntimeState, type VoiceTranscriptionRequest } from "../../../../shared/voice";
 
 const MAX_RECORDING_MS = 120_000;
 type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
@@ -187,7 +187,7 @@ export function useVoiceInput({ prompt, setPrompt, activeSessionId, disabled = f
     try { recognition.start(); } catch { finishWithError("Browser dictation could not start. Try again.", generation); }
   }, [finishBrowser, finishWithError]);
 
-  const startCloud = useCallback(async (provider: Exclude<VoiceProvider, "browser">) => {
+  const startCloud = useCallback(async (provider: Exclude<VoiceProvider, "browser">, model: string) => {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setError("This browser cannot record microphone audio for the selected provider.");
       setState("error");
@@ -215,7 +215,7 @@ export function useVoiceInput({ prompt, setPrompt, activeSessionId, disabled = f
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
         chunksRef.current = [];
         if (blob.size === 0) { finishWithError("The recording was empty. Try again.", generation); return; }
-        void transcribeCloud(blob, provider, generation);
+        void transcribeCloud(blob, provider, model, generation);
       };
       browserStopRequestedRef.current = false;
       recorder.start(250);
@@ -236,7 +236,7 @@ export function useVoiceInput({ prompt, setPrompt, activeSessionId, disabled = f
     }
   }, [activeSessionId, finishWithError]);
 
-  const transcribeCloud = useCallback(async (blob: Blob, provider: Exclude<VoiceProvider, "browser">, generation: number) => {
+  const transcribeCloud = useCallback(async (blob: Blob, provider: Exclude<VoiceProvider, "browser">, model: string, generation: number) => {
     if (generation !== generationRef.current) return;
     setState("transcribing");
     setPartialTranscript("Transcribing…");
@@ -248,7 +248,7 @@ export function useVoiceInput({ prompt, setPrompt, activeSessionId, disabled = f
       let binary = "";
       const chunkSize = 0x8000;
       for (let index = 0; index < bytes.length; index += chunkSize) binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
-      const request: VoiceTranscriptionRequest = { provider, audioBase64: btoa(binary), mimeType: blob.type || "audio/webm" };
+      const request: VoiceTranscriptionRequest = { provider, model, audioBase64: btoa(binary), mimeType: blob.type || "audio/webm" };
       const response = await chrome.runtime.sendMessage({ type: "dsh-voice-transcribe", requestId, request }) as { ok?: boolean; text?: string; error?: string };
       if (generation !== generationRef.current || sessionRef.current !== activeSessionId) return;
       if (!response?.ok || typeof response.text !== "string") throw new Error(response?.error ?? "Voice transcription failed.");
@@ -281,7 +281,15 @@ export function useVoiceInput({ prompt, setPrompt, activeSessionId, disabled = f
         return;
       }
       if (config.provider === "browser") startBrowser();
-      else return startCloud(config.provider);
+      else {
+        const model = config.model ?? defaultVoiceModel(config.provider);
+        if (!model) {
+          setError("Choose a transcription model in Voice settings before recording.");
+          setState("error");
+          return;
+        }
+        return startCloud(config.provider, model);
+      }
     }).catch(() => {
       if (generation !== generationRef.current) return;
       setError("Microphone permissions could not be checked. Reload the extension and try again.");
@@ -327,7 +335,7 @@ export function useVoiceInput({ prompt, setPrompt, activeSessionId, disabled = f
     setConfigBusy(true);
     setConfigError("");
     try {
-      if (config?.provider !== next.provider && stateRef.current !== "idle") cancelVoiceInput();
+      if ((config?.provider !== next.provider || config?.model !== next.model) && stateRef.current !== "idle") cancelVoiceInput();
       const response = await chrome.runtime.sendMessage({ type: "dsh-voice-config-set", config: next }) as { ok?: boolean; config?: unknown; error?: string };
       if (!response?.ok) throw new Error(response?.error ?? "Voice settings could not be saved.");
       const saved = parseVoiceConfig(response.config) ?? next;

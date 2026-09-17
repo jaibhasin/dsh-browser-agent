@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canStartVoice, parseVoiceConfig, voiceProviderRequiresKey } from "../shared/voice.ts";
+import { canStartVoice, defaultVoiceModel, parseVoiceConfig, voiceProviderRequiresKey } from "../shared/voice.ts";
 import { ensureVoicePermission } from "../extension/sidepanel/src/voice-permission.ts";
 
 test("voice config accepts browser dictation without a key", () => {
@@ -10,9 +10,20 @@ test("voice config accepts browser dictation without a key", () => {
 
 test("voice config accepts supported cloud providers and keeps their key", () => {
   for (const provider of ["groq", "openrouter", "deepgram", "elevenlabs"]) {
-    assert.deepEqual(parseVoiceConfig({ version: 1, provider, apiKey: "secret" }), { version: 1, provider, apiKey: "secret" });
+    assert.deepEqual(parseVoiceConfig({ version: 1, provider, apiKey: "secret" }), { version: 1, provider, apiKey: "secret", model: defaultVoiceModel(provider) });
     assert.equal(voiceProviderRequiresKey(provider), true);
   }
+});
+
+test("voice config preserves a selected model and rejects malformed models", () => {
+  assert.deepEqual(parseVoiceConfig({ version: 1, provider: "groq", apiKey: "secret", model: "whisper-large-v3" }), {
+    version: 1,
+    provider: "groq",
+    apiKey: "secret",
+    model: "whisper-large-v3",
+  });
+  assert.equal(parseVoiceConfig({ version: 1, provider: "groq", apiKey: "secret", model: "   " }), undefined);
+  assert.equal(parseVoiceConfig({ version: 1, provider: "groq", apiKey: "secret", model: "x".repeat(201) }), undefined);
 });
 
 test("voice config rejects malformed or oversized credentials", () => {

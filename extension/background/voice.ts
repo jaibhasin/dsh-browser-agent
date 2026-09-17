@@ -1,4 +1,4 @@
-import { VOICE_CONFIG_STORAGE_KEY, parseVoiceConfig, type VoiceTranscriptionRequest } from "../../shared/voice";
+import { defaultVoiceModel, VOICE_CONFIG_STORAGE_KEY, parseVoiceConfig, type VoiceTranscriptionRequest } from "../../shared/voice";
 
 const TRANSCRIPTION_TIMEOUT_MS = 60_000;
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
@@ -9,6 +9,8 @@ export async function transcribeVoice(requestId: string, request: VoiceTranscrip
   const stored = await chrome.storage.local.get(VOICE_CONFIG_STORAGE_KEY);
   const config = parseVoiceConfig(stored[VOICE_CONFIG_STORAGE_KEY]);
   if (!config || config.provider !== request.provider || !config.apiKey) throw new Error("Configure a voice provider before recording.");
+  const configuredModel = config.model ?? defaultVoiceModel(request.provider);
+  if (!configuredModel || request.model !== configuredModel) throw new Error("The selected voice model is no longer active. Open /voice-config and save it again.");
 
   const bytes = decodeBase64(request.audioBase64);
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_AUDIO_BYTES) throw new Error("The recording is empty or too large.");
@@ -49,7 +51,7 @@ async function fetchRequest(request: VoiceTranscriptionRequest, apiKey: string, 
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "openai/whisper-1",
+        model: request.model,
         input_audio: { data: request.audioBase64, format: audioFormat(request.mimeType) },
       }),
       signal,
@@ -59,18 +61,18 @@ async function fetchRequest(request: VoiceTranscriptionRequest, apiKey: string, 
   const form = new FormData();
   form.append("file", blob, `dsh-voice.${audioFormat(request.mimeType)}`);
   if (request.provider === "groq") {
-    form.append("model", "whisper-large-v3-turbo");
+    form.append("model", request.model);
     form.append("response_format", "json");
     return fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
       method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal,
     });
   }
   if (request.provider === "deepgram") {
-    return fetch("https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true", {
+    return fetch(`https://api.deepgram.com/v1/listen?model=${encodeURIComponent(request.model)}&smart_format=true`, {
       method: "POST", headers: { Authorization: `Token ${apiKey}`, "Content-Type": request.mimeType || "audio/webm" }, body: blob, signal,
     });
   }
-  form.append("model_id", "scribe_v2");
+  form.append("model_id", request.model);
   return fetch("https://api.elevenlabs.io/v1/speech-to-text", {
     method: "POST", headers: { "xi-api-key": apiKey }, body: form, signal,
   });

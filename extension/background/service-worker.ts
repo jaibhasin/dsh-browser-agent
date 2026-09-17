@@ -696,8 +696,9 @@ function isBase64(value: string): boolean {
 
 function isVoiceTranscriptionRequest(value: unknown): value is VoiceTranscriptionRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const request = value as { provider?: unknown; audioBase64?: unknown; mimeType?: unknown };
+  const request = value as { provider?: unknown; model?: unknown; audioBase64?: unknown; mimeType?: unknown };
   return (request.provider === "groq" || request.provider === "openrouter" || request.provider === "deepgram" || request.provider === "elevenlabs") &&
+    typeof request.model === "string" && request.model.trim().length > 0 && request.model.length <= 200 &&
     typeof request.audioBase64 === "string" && request.audioBase64.length > 0 && request.audioBase64.length <= 16_777_216 && isBase64(request.audioBase64) &&
     typeof request.mimeType === "string" && request.mimeType.length <= 100;
 }
