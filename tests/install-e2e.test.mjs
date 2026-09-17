@@ -57,7 +57,7 @@ test('fresh install, profile startup, update, and recoverable uninstall', { skip
         socket = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { origin: 'chrome-extension://abcdefghijklmnop' } });
         const timer = setTimeout(() => { socket.terminate(); resolve(false); }, 2000);
         socket.on('error', () => { clearTimeout(timer); resolve(false); });
-        socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocolVersion: 1, token: token.trim(), client: 'chrome-extension' })));
+        socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocolVersion: 2, token: token.trim(), client: 'chrome-extension', clientId: '11111111-1111-4111-8111-111111111111' })));
         socket.once('message', raw => { clearTimeout(timer); resolve(JSON.parse(raw).type === 'welcome'); });
       });
       if (!authenticated) await delay(200);

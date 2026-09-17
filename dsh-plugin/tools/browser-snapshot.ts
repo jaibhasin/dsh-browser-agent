@@ -129,7 +129,9 @@ interface ToolResultEvent {
 }
 
 interface ActiveChat {
+  clientId: string;
   id: string;
+  sessionId: SessionId;
   firstEventSeq: number;
   calls: Map<string, string>;
   handle: AgentHandle;
@@ -139,6 +141,7 @@ interface ActiveChat {
 }
 
 interface PendingApproval {
+  clientId: string;
   chatId: string;
   resolve: () => void;
   reject: (error: Error) => void;
@@ -148,6 +151,7 @@ interface PendingApproval {
 }
 
 interface PendingUserQuestion {
+  clientId: string;
   chatId: string;
   resolve: (answer: string) => void;
   reject: (error: Error) => void;
@@ -178,13 +182,16 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   const workspaceRegistry = ctx.get("workspaceRegistry") as WorkspaceRegistry | undefined;
   const attachments = ctx.get("attachments") as AttachmentStore | undefined;
 
-  const handles = new Map<string, AgentHandle>();
+  const handles = new Map<SessionId, AgentHandle>();
   /** A session can have one active turn, while independent sessions run concurrently. */
   const sessionTurns = new Map<string, Promise<void>>();
   const activeChatsById = new Map<string, ActiveChat>();
   const activeChatsBySession = new Map<SessionId, ActiveChat>();
   const pendingApprovals = new Map<string, PendingApproval>();
   const pendingUserQuestions = new Map<string, PendingUserQuestion>();
+  const scopedKey = (clientId: string, id: string): string => `${clientId}:${id}`;
+  const scopedSession = (clientId: string, sessionId: string): SessionId => brandString<SessionId>(`client:${clientId}:${sessionId}`);
+  const ownsSession = (clientId: string, sessionId: string): boolean => sessionId.startsWith(`client:${clientId}:`);
   /** Carries the originating chat through DSH's asynchronous tool execution. */
   const chatContext = new AsyncLocalStorage<ActiveChat>();
   /**
@@ -196,15 +203,51 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   const agentContexts = new Map<SessionId, Context>();
   const appliedRestrictionKey = new Map<SessionId, string>();
   const toolRestrictDisposers = new Map<SessionId, () => void>();
+  const rejectPendingForClient = (clientId: string, message: string): void => {
+    for (const [approvalId, pending] of pendingApprovals) {
+      if (pending.clientId !== clientId) continue;
+      pendingApprovals.delete(approvalId);
+      clearTimeout(pending.timeout);
+      if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
+      pending.reject(new Error(message));
+    }
+    for (const [questionId, pending] of pendingUserQuestions) {
+      if (pending.clientId !== clientId) continue;
+      pendingUserQuestions.delete(questionId);
+      clearTimeout(pending.timeout);
+      if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
+      pending.reject(new Error(message));
+    }
+  };
+  async function disconnectClient(clientId: string, pendingMessage = "The Chrome extension disconnected before the browser task completed.", disposeHandles = false): Promise<void> {
+    for (const chat of activeChatsById.values()) {
+      if (chat.clientId === clientId) chat.handle.agent.cancel({ kind: "user" });
+    }
+    rejectPendingForClient(clientId, pendingMessage);
+    await Promise.all([...sessionTurns.entries()].filter(([sessionId]) => ownsSession(clientId, sessionId)).map(([, turn]) => turn));
+    if (disposeHandles) {
+      const clientHandles = [...handles.entries()].filter(([sessionId]) => ownsSession(clientId, sessionId));
+      await Promise.all(clientHandles.map(([, handle]) => handle.dispose()));
+      for (const [sessionId] of clientHandles) {
+        handles.delete(sessionId);
+        toolRestrictDisposers.get(sessionId)?.();
+        toolRestrictDisposers.delete(sessionId);
+        appliedRestrictionKey.delete(sessionId);
+        agentContexts.delete(sessionId);
+        toolDeniedBySession.delete(sessionId);
+      }
+    }
+  }
   const bridge = new DshBrowserWebSocketBridge({
     token: config.token,
     port: config.port,
-    onExtensionEvent: (event, payload) => {
+    onClientDisconnect: (clientId) => { void disconnectClient(clientId); },
+    onExtensionEvent: (clientId, event, payload) => {
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
       if (event === "cancel_task") {
         const chat = (payload as { id?: unknown }).id;
         if (typeof chat !== "string") return;
-        const activeChat = activeChatsById.get(chat);
+        const activeChat = activeChatsById.get(scopedKey(clientId, chat));
         if (!activeChat) return;
         activeChat.handle.agent.cancel({ kind: "user" });
         return;
@@ -212,9 +255,9 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       if (event === "user_question_response") {
         const response = parseUserQuestionResponse(payload);
         if (!response) return;
-        const pending = pendingUserQuestions.get(response.questionId);
-        if (!pending || pending.chatId !== response.chatId) return;
-        pendingUserQuestions.delete(response.questionId);
+        const pending = pendingUserQuestions.get(scopedKey(clientId, response.questionId));
+        if (!pending || pending.chatId !== response.chatId || pending.clientId !== clientId) return;
+        pendingUserQuestions.delete(scopedKey(clientId, response.questionId));
         clearTimeout(pending.timeout);
         if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
         if (response.cancelled) pending.reject(new Error("The user question was cancelled."));
@@ -225,9 +268,9 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       const approvalId = (payload as { approvalId?: unknown }).approvalId;
       const approved = (payload as { approved?: unknown }).approved;
       if (typeof approvalId !== "string" || typeof approved !== "boolean") return;
-      const pending = pendingApprovals.get(approvalId);
-      if (!pending) return;
-      pendingApprovals.delete(approvalId);
+      const pending = pendingApprovals.get(scopedKey(clientId, approvalId));
+      if (!pending || pending.clientId !== clientId) return;
+      pendingApprovals.delete(scopedKey(clientId, approvalId));
       clearTimeout(pending.timeout);
       if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
       if (approved) pending.resolve();
@@ -308,8 +351,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     return created;
   };
 
-  const buildTaskDraft = async (request: TaskDraftRequest): Promise<{ status: "needs-input" | "ready"; draft: TaskDraftDefinition; questions: TaskDraftQuestion[] }> => {
-    const setupSession = brandString<SessionId>(`task-setup-${request.id}`);
+  const buildTaskDraft = async (clientId: string, request: TaskDraftRequest): Promise<{ status: "needs-input" | "ready"; draft: TaskDraftDefinition; questions: TaskDraftQuestion[] }> => {
+    const setupSession = scopedSession(clientId, `task-setup-${request.id}`);
     const handle = await getAgent(setupSession, false, { maxTokens: TASK_DRAFT_MAX_TOKENS });
     toolDeniedBySession.set(setupSession, new Set(KNOWN_AGENT_TOOLS));
     applyToolRestriction(setupSession);
@@ -364,14 +407,14 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     if (event.type === "assistant/chunk") {
       const chunk = (event as AssistantChunkEvent).data?.chunk;
       if (chunk?.type !== "text-delta" || typeof chunk.text !== "string" || !chunk.text) return;
-      bridge.sendChatDelta({ id: chat.id, text: chunk.text });
+      bridge.sendChatDelta(chat.clientId, { id: chat.id, text: chunk.text });
       return;
     }
     if (event.type === "tool/call") {
       const call = event as ToolCallEvent;
       if (typeof call.data.callId !== "string" || typeof call.data.name !== "string") return;
       chat.calls.set(call.data.callId, call.data.name);
-      bridge.sendChatProgress({
+      bridge.sendChatProgress(chat.clientId, {
         id: chat.id,
         phase: "tool_started",
         callId: call.data.callId,
@@ -385,7 +428,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     const callId = toolCallIdFromResult(result);
     if (!callId) return;
     const tool = chat.calls.get(callId) ?? "tool";
-    bridge.sendChatProgress({
+    bridge.sendChatProgress(chat.clientId, {
       id: chat.id,
       phase: result.data.error ? "tool_failed" : "tool_finished",
       callId,
@@ -396,11 +439,12 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     });
   });
 
-  const onChat = (text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false, content?: BridgePromptContentPart[]) => {
-    const session = brandString<SessionId>(sessionId);
-    const previousTurn = sessionTurns.get(sessionId) ?? Promise.resolve();
+  const onChat = (clientId: string, text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false, content?: BridgePromptContentPart[]) => {
+    const session = scopedSession(clientId, sessionId);
+    const sessionKey = String(session);
+    const previousTurn = sessionTurns.get(sessionKey) ?? Promise.resolve();
     const run = previousTurn.then(async () => {
-      const handle = await getAgent(brandString<SessionId>(sessionId), resume);
+      const handle = await getAgent(session, resume);
       if (Array.isArray(deniedTools)) {
         toolDeniedBySession.set(session, new Set(deniedTools.filter((name) => typeof name === "string")));
         applyToolRestriction(session);
@@ -423,8 +467,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       // user message and the assistant reply will be appended.
       await handle.agent.whenIdle();
       const before = handle.agent.session.seq;
-      const chat: ActiveChat = { id: chatId, firstEventSeq: before, calls: new Map(), handle, humanInTheLoop, retryGuard: new BrowserRetryGuard() };
-      activeChatsById.set(chat.id, chat);
+      const chat: ActiveChat = { clientId, id: chatId, sessionId: session, firstEventSeq: before, calls: new Map(), handle, humanInTheLoop, retryGuard: new BrowserRetryGuard() };
+      activeChatsById.set(scopedKey(clientId, chat.id), chat);
       activeChatsBySession.set(session, chat);
       try {
         return await chatContext.run(chat, async () => {
@@ -450,42 +494,32 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         });
       } finally {
         for (const [approvalId, pending] of pendingApprovals) {
-          if (pending.chatId !== chat.id) continue;
+          if (pending.clientId !== chat.clientId || pending.chatId !== chat.id) continue;
           pendingApprovals.delete(approvalId);
           clearTimeout(pending.timeout);
           if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
           pending.reject(new Error("The browser task ended before approval was received."));
         }
         for (const [questionId, pending] of pendingUserQuestions) {
-          if (pending.chatId !== chat.id) continue;
+          if (pending.clientId !== chat.clientId || pending.chatId !== chat.id) continue;
           pendingUserQuestions.delete(questionId);
           clearTimeout(pending.timeout);
           if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
           pending.reject(new Error("The browser task ended before an answer was received."));
         }
-        if (activeChatsById.get(chat.id) === chat) activeChatsById.delete(chat.id);
+        if (activeChatsById.get(scopedKey(chat.clientId, chat.id)) === chat) activeChatsById.delete(scopedKey(chat.clientId, chat.id));
         if (activeChatsBySession.get(session) === chat) activeChatsBySession.delete(session);
       }
     });
     const settled = run.then(() => undefined, () => undefined);
-    sessionTurns.set(sessionId, settled);
+    sessionTurns.set(sessionKey, settled);
     void settled.finally(() => {
-      if (sessionTurns.get(sessionId) === settled) sessionTurns.delete(sessionId);
+      if (sessionTurns.get(sessionKey) === settled) sessionTurns.delete(sessionKey);
     });
     return run;
   };
-  const onNewSession = async () => {
-    // Legacy wire command. It must never interleave disposal with running
-    // turns, but it no longer serializes unrelated chats during normal use.
-    for (const chat of activeChatsById.values()) chat.handle.agent.cancel({ kind: "user" });
-    await Promise.all([...sessionTurns.values()]);
-    await Promise.all([...handles.values()].map((handle) => handle.dispose()));
-    handles.clear();
-    for (const dispose of toolRestrictDisposers.values()) dispose();
-    toolRestrictDisposers.clear();
-    appliedRestrictionKey.clear();
-    agentContexts.clear();
-    toolDeniedBySession.clear();
+  const onNewSession = async (clientId: string) => {
+    await disconnectClient(clientId, "The browser session was reset before the task completed.", true);
   };
   bridge.setChatHandler(onChat);
   bridge.setTaskDraftHandler(buildTaskDraft);
@@ -504,7 +538,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         throw error;
       }
     }
-    const result = await bridge.request(method, params, signal, chat.id);
+    const result = await bridge.request(chat.clientId, method, params, signal, chat.id);
     const snapshot = parseBrowserSnapshotData(result);
     if (snapshot) chat.retryGuard.updateSnapshot(snapshot);
     return result;
@@ -516,18 +550,18 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     const approvalId = randomUUID();
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        pendingApprovals.delete(approvalId);
+        pendingApprovals.delete(scopedKey(chat.clientId, approvalId));
         if (signal && abort) signal.removeEventListener("abort", abort);
         reject(new Error("Human approval timed out."));
       }, 120_000);
       const abort = () => {
-        pendingApprovals.delete(approvalId);
+        pendingApprovals.delete(scopedKey(chat.clientId, approvalId));
         clearTimeout(timeout);
         reject(new Error("Human approval was cancelled."));
       };
-      pendingApprovals.set(approvalId, { chatId: chat.id, resolve, reject, timeout, signal, abort });
+      pendingApprovals.set(scopedKey(chat.clientId, approvalId), { clientId: chat.clientId, chatId: chat.id, resolve, reject, timeout, signal, abort });
       signal?.addEventListener("abort", abort, { once: true });
-      bridge.sendEvent("human_approval_requested", { approvalId, chatId: chat.id, tool, detail });
+      bridge.sendEvent(chat.clientId, "human_approval_requested", { approvalId, chatId: chat.id, tool, detail });
     });
   };
   const requestUserQuestion = async (question: string, options: string[], allowFreeText: boolean, signal?: AbortSignal): Promise<string> => {
@@ -537,16 +571,17 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
     const questionId = randomUUID();
     return await new Promise<string>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        pendingUserQuestions.delete(questionId);
+        pendingUserQuestions.delete(scopedKey(chat.clientId, questionId));
         if (signal && abort) signal.removeEventListener("abort", abort);
         reject(new Error("The user question timed out."));
       }, 120_000);
       const abort = () => {
-        pendingUserQuestions.delete(questionId);
+        pendingUserQuestions.delete(scopedKey(chat.clientId, questionId));
         clearTimeout(timeout);
         reject(new Error("The user question was cancelled."));
       };
-      pendingUserQuestions.set(questionId, {
+      pendingUserQuestions.set(scopedKey(chat.clientId, questionId), {
+        clientId: chat.clientId,
         chatId: chat.id,
         resolve,
         reject,
@@ -555,7 +590,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         abort,
       });
       signal?.addEventListener("abort", abort, { once: true });
-      bridge.sendEvent("user_question_requested", { questionId, chatId: chat.id, question, options, allowFreeText } satisfies UserQuestion);
+      bridge.sendEvent(chat.clientId, "user_question_requested", { questionId, chatId: chat.id, question, options, allowFreeText } satisfies UserQuestion);
     });
   };
   await bridge.start();

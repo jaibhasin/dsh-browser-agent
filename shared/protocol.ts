@@ -1,5 +1,5 @@
 /** The wire format shared by the Chrome extension and local DSH plugin. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /**
  * The agent tools the plugin registers, with friendly names the side panel
@@ -59,7 +59,7 @@ export type BridgePromptContentPart =
   | { type: "text"; text: string }
   | { type: "image"; mediaType: ImageMediaType; data: string; name?: string }
   | { type: "document"; name: string; mediaType?: string; data: string };
-export type BridgeHello = { type: "hello"; protocolVersion: typeof PROTOCOL_VERSION; token: string; client: "chrome-extension" };
+export type BridgeHello = { type: "hello"; protocolVersion: typeof PROTOCOL_VERSION; token: string; client: "chrome-extension"; clientId: string };
 export type BridgeWelcome = { type: "welcome"; protocolVersion: typeof PROTOCOL_VERSION };
 export type BridgeRequest = { type: "request"; id: string; method: string; params: JsonValue; taskId?: string };
 export type BridgeResponse = { type: "response"; id: string; result?: JsonValue; error?: { code: string; message: string } };
@@ -125,6 +125,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function isJsonValue(value: unknown): value is JsonValue {
   if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return true;
   if (Array.isArray(value)) return value.every(isJsonValue);
@@ -136,7 +140,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
   if (!isRecord(value) || typeof value.type !== "string") return undefined;
   switch (value.type) {
     case "hello":
-      return value.protocolVersion === PROTOCOL_VERSION && typeof value.token === "string" && value.client === "chrome-extension" ? value as BridgeHello : undefined;
+      return value.protocolVersion === PROTOCOL_VERSION && typeof value.token === "string" && value.client === "chrome-extension" && isUuid(value.clientId) ? value as BridgeHello : undefined;
     case "welcome":
       return value.protocolVersion === PROTOCOL_VERSION ? value as BridgeWelcome : undefined;
     case "request":

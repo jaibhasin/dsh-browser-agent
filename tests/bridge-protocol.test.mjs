@@ -22,10 +22,11 @@ test("rejects bridge chat messages without session state", () => {
 });
 
 test("accepts only the current protocol version and extension client", () => {
-  const base = { type: "hello", protocolVersion: PROTOCOL_VERSION, token: "a".repeat(64), client: "chrome-extension" };
+  const base = { type: "hello", protocolVersion: PROTOCOL_VERSION, token: "a".repeat(64), client: "chrome-extension", clientId: "11111111-1111-4111-8111-111111111111" };
   assert.equal(parseBridgeMessage(base)?.type, "hello");
   assert.equal(parseBridgeMessage({ ...base, protocolVersion: PROTOCOL_VERSION + 1 }), undefined);
   assert.equal(parseBridgeMessage({ ...base, client: "test-client" }), undefined);
+  assert.equal(parseBridgeMessage({ ...base, clientId: "not-a-uuid" }), undefined);
 });
 
 test("accepts a typed task draft request and response", () => {

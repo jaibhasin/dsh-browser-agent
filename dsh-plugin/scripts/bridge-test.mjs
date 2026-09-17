@@ -24,7 +24,7 @@ function finish(code, message) {
 
 ws.on("open", () => {
   console.log("# open, sending hello");
-  ws.send(JSON.stringify({ type: "hello", protocolVersion: 1, token: TOKEN, client: "chrome-extension" }));
+  ws.send(JSON.stringify({ type: "hello", protocolVersion: 2, token: TOKEN, client: "chrome-extension", clientId: "11111111-1111-4111-8111-111111111111" }));
 });
 ws.on("message", (data) => {
   const msg = JSON.parse(data.toString());

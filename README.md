@@ -130,6 +130,7 @@ Finally, remove **dsh Browser Agent** from `chrome://extensions` to delete the e
 | Chrome cannot find the extension | Select the exact folder printed by the installer, including the final `extension` directory. |
 | The side panel is disconnected | Start DSH with the installer-provided command and keep the terminal open. |
 | Port `7331` or `3080` is already in use | Stop the other DSH instance, then start this one again. |
+| Multiple Chrome profiles alternate between Live and Offline | Restart DSH and click **Reload** on the extension card in each profile so every profile uses the multi-profile bridge protocol. |
 | Changes do not appear after an update | Restart DSH and click **Reload** on the extension card. |
 | A screenshot cannot be taken | Make the chat's assigned tab visible and try again. |
 | A tool fails on `chrome://` pages | Try a normal website; Chrome restricts access to internal pages. |

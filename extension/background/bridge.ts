@@ -5,6 +5,7 @@ const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
 const RECONNECT_MAX_MS = 30_000;
 const CONNECTION_WAIT_TIMEOUT_MS = 5_000;
+const CLIENT_ID_STORAGE_KEY = "dshBridgeClientId";
 export type BridgeConfiguration = { url: string; token: string };
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "error";
 type RequestHandler = (request: BridgeRequest) => Promise<JsonValue> | JsonValue;
@@ -16,6 +17,8 @@ export class ExtensionBridge {
   private socket?: WebSocket;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private reconnectDelayMs = 1_000;
+  private clientId?: string;
+  private clientIdPromise?: Promise<string>;
   private status: BridgeStatus = "disconnected";
   private requestHandler?: RequestHandler;
   private chatDeltaHandler?: ChatDeltaHandler;
@@ -28,7 +31,7 @@ export class ExtensionBridge {
   async start(): Promise<void> {
     const config = await this.getConfiguration();
     if (!config.token) return this.setStatus("disconnected");
-    this.connect(config);
+    this.connect(config, await this.getClientId());
   }
   async configure(config: BridgeConfiguration): Promise<void> {
     const url = new URL(config.url);
@@ -84,33 +87,46 @@ export class ExtensionBridge {
     const config = stored.dshBridge as Partial<BridgeConfiguration> | undefined;
     return { url: config?.url ?? DEFAULT_URL, token: config?.token ?? BUILD_TOKEN };
   }
-  private connect(config: BridgeConfiguration): void {
+  private async getClientId(): Promise<string> {
+    if (this.clientId) return this.clientId;
+    this.clientIdPromise ??= (async () => {
+      const stored = await chrome.storage.local.get(CLIENT_ID_STORAGE_KEY);
+      const storedId = stored[CLIENT_ID_STORAGE_KEY];
+      if (typeof storedId === "string" && storedId.length > 0) return storedId;
+      const created = crypto.randomUUID();
+      await chrome.storage.local.set({ [CLIENT_ID_STORAGE_KEY]: created });
+      return created;
+    })();
+    this.clientId = await this.clientIdPromise;
+    return this.clientId;
+  }
+  private connect(config: BridgeConfiguration, clientId: string): void {
     if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) return;
     this.setStatus("connecting");
     const socket = new WebSocket(config.url);
     this.socket = socket;
-    socket.addEventListener("open", () => this.send({ type: "hello", protocolVersion: PROTOCOL_VERSION, token: config.token, client: "chrome-extension" }));
-    socket.addEventListener("message", (event) => this.handleMessage(event.data));
-    socket.addEventListener("error", () => this.setStatus("error"));
+    socket.addEventListener("open", () => this.send({ type: "hello", protocolVersion: PROTOCOL_VERSION, token: config.token, client: "chrome-extension", clientId }));
+    socket.addEventListener("message", (event) => this.handleMessage(socket, event.data));
+    socket.addEventListener("error", () => { if (this.socket === socket) this.setStatus("error"); });
     socket.addEventListener("close", () => {
-      if (this.socket === socket) this.socket = undefined;
+      if (this.socket !== socket) return;
+      this.socket = undefined;
       if (this.status === "connected" || this.status === "connecting") this.setStatus("disconnected");
-      for (const [id, pending] of this.taskDraftRequests) {
-        this.taskDraftRequests.delete(id);
-        clearTimeout(pending.timeout);
-        pending.reject(new Error("The DSH bridge disconnected during task setup."));
-      }
+      this.rejectPending(this.chatRequests, "The DSH bridge disconnected during chat.");
+      this.rejectPending(this.sessionRequests, "The DSH bridge disconnected during session setup.");
+      this.rejectPending(this.taskDraftRequests, "The DSH bridge disconnected during task setup.");
       this.scheduleReconnect();
     });
   }
-  private handleMessage(data: unknown): void {
+  private handleMessage(socket: WebSocket, data: unknown): void {
+    if (this.socket !== socket) return;
     if (typeof data !== "string") return;
     try {
       const message = parseBridgeMessage(JSON.parse(data));
       if (!message) return;
       if (message.type === "welcome") { this.reconnectDelayMs = 1_000; this.setStatus("connected"); }
       else if (message.type === "ping") this.send({ type: "pong" });
-      else if (message.type === "request") void this.handleRequest(message);
+      else if (message.type === "request") void this.handleRequest(socket, message);
       else if (message.type === "chat_delta") this.chatDeltaHandler?.(message);
       else if (message.type === "chat_progress") this.chatProgressHandler?.(message);
       else if (message.type === "event") this.eventHandler?.(message.event, message.payload);
@@ -137,15 +153,15 @@ export class ExtensionBridge {
     if (message.status === "error") pending.reject(new Error(formatBridgeFailure(message.error.code, message.error.message)));
     else pending.resolve(message);
   }
-  private async handleRequest(request: BridgeRequest): Promise<void> {
+  private async handleRequest(socket: WebSocket, request: BridgeRequest): Promise<void> {
     try {
       if (!this.requestHandler) throw new Error("No browser request handler has been registered.");
-      this.send({ type: "response", id: request.id, result: await this.requestHandler(request) });
+      this.send({ type: "response", id: request.id, result: await this.requestHandler(request) }, socket);
     } catch (error) {
-      this.send({ type: "response", id: request.id, error: { code: "EXTENSION_REQUEST_FAILED", message: error instanceof Error ? error.message : "Request failed." } });
+      this.send({ type: "response", id: request.id, error: { code: "EXTENSION_REQUEST_FAILED", message: error instanceof Error ? error.message : "Request failed." } }, socket);
     }
   }
-  private send(message: BridgeMessage): void { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message)); }
+  private send(message: BridgeMessage, socket = this.socket): void { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
     const delay = this.reconnectDelayMs;
@@ -155,7 +171,17 @@ export class ExtensionBridge {
   private disconnect(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
+    this.rejectPending(this.chatRequests, "The DSH bridge was disconnected.");
+    this.rejectPending(this.sessionRequests, "The DSH bridge was disconnected.");
+    this.rejectPending(this.taskDraftRequests, "The DSH bridge was disconnected.");
     this.socket?.close(); this.socket = undefined; this.setStatus("disconnected");
+  }
+  private rejectPending<T extends { timeout: ReturnType<typeof setTimeout>; reject: (error: Error) => void }>(pendingMap: Map<string, T>, message: string): void {
+    for (const [id, pending] of pendingMap) {
+      pendingMap.delete(id);
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(message));
+    }
   }
   private setStatus(status: BridgeStatus): void {
     this.status = status;

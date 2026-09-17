@@ -6,7 +6,8 @@
   "main": "./dist/dsh-plugin/index.js",
   "types": "./dist/dsh-plugin/index.d.ts",
   "scripts": {
-    "test:bridge": "node scripts/bridge-test.mjs"
+    "test:bridge": "node scripts/bridge-test.mjs",
+    "test:multi-client-bridge": "pnpm exec tsc --project tsconfig.json && node scripts/multi-client-bridge-test.mjs"
   },
   "dsh": {
     "bundle": {

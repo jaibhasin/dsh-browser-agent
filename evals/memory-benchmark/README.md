@@ -16,8 +16,9 @@ pnpm benchmark:memory
 ```
 
 1. A separate Chrome profile opens for the test, leaving your usual browser alone.
+   It can remain open alongside your normal Chrome profiles because the bridge identifies and routes each profile separately.
    In `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and choose the `extension/dist` path printed in the terminal.
-   If it is already loaded, click **Reload**.
+   If it is already loaded, click **Reload** in this profile and in any other profile using the agent.
 2. Open the extension side panel and click **Memory test**.
    Use the YouTube, Hacker News, or Reddit buttons to open pages, or bring your own.
    Blank tabs and `chrome://` pages do not count.
