@@ -24,6 +24,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         sidepanel: resolve(extensionRoot, "sidepanel/index.html"),
+        microphone: resolve(extensionRoot, "sidepanel/microphone.html"),
         background: resolve(extensionRoot, "background/service-worker.ts"),
         contentSnapshot: resolve(extensionRoot, "content/snapshot.ts"),
       },

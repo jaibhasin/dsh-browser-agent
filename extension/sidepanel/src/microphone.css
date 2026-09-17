@@ -1,0 +1,9 @@
+:root { color-scheme: dark light; font: 16px/1.6 system-ui, sans-serif; }
+body { margin: 0; padding: 24px; background: light-dark(#f5f6fa, #080a0f); color: light-dark(#1c2333, #e4e8ef); }
+main { max-width: 520px; margin: 12vh auto; padding: 28px; border: 1px solid light-dark(#ccd2df, #334155); border-radius: 16px; }
+h1 { margin: 0 0 16px; font-size: 24px; }
+button { padding: 10px 16px; margin: 8px 8px 8px 0; border: 1px solid #7774ef; border-radius: 8px; font: inherit; cursor: pointer; }
+#allow { background: #625ee9; color: white; }
+button:disabled { opacity: .65; cursor: default; }
+button:focus-visible { outline: 3px solid #aaa7ff; outline-offset: 3px; }
+#status { overflow-wrap: anywhere; }

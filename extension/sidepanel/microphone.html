@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Microphone access - dsh Browser Agent</title>
+  </head>
+  <body>
+    <main>
+      <h1>Allow microphone access</h1>
+      <p>dsh Browser Agent needs permission to record your voice. Click below, then choose Allow in Chrome's prompt.</p>
+      <button id="allow" type="button">Allow microphone</button>
+      <button id="settings" type="button">Open microphone settings</button>
+      <p id="status" role="status" aria-live="polite">This check does not save or upload audio.</p>
+    </main>
+    <script type="module" src="./src/microphone.ts"></script>
+  </body>
+</html>

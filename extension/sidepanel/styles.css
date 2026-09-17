@@ -1389,6 +1389,97 @@ h6.markdown-heading { font-size: 14px; }
   opacity: 0.55;
 }
 
+.voice-button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.voice-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.voice-button-active {
+  color: #fff;
+  background: var(--error);
+  border-color: var(--error);
+  animation: voice-pulse 1.6s ease-in-out infinite;
+}
+
+.voice-button-error {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.voice-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.voice-mic-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(244 63 94 / 0%); }
+  50% { box-shadow: 0 0 0 4px rgb(244 63 94 / 18%); }
+}
+
+.voice-inline-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  margin-top: 5px;
+  padding: 4px 7px;
+  color: var(--text-muted);
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 10px;
+}
+
+.voice-inline-status > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-inline-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+
+.voice-inline-error { color: var(--error); border-color: rgb(244 63 94 / 30%); }
+.voice-inline-error .voice-inline-dot { background: var(--error); }
+
+.voice-inline-status button {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0;
+  color: var(--accent-hover);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  font-size: 10px;
+}
+
 .image-draft-list,
 .image-message-list {
   display: flex;
@@ -1626,6 +1717,129 @@ textarea:focus-visible {
   height: 14px;
   fill: currentColor;
 }
+
+.voice-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  padding: 16px;
+  place-items: center;
+  background: rgb(3 7 18 / 58%);
+}
+
+.voice-modal {
+  width: min(100%, 350px);
+  padding: 16px;
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px var(--shadow-strong);
+}
+
+.voice-modal-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.voice-modal-eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--accent-hover);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.voice-modal h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.voice-modal-close {
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.voice-modal-close:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-hover); }
+
+.voice-field {
+  display: grid;
+  gap: 5px;
+  margin-top: 11px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.voice-field select,
+.voice-field input {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit;
+}
+
+.voice-field select:focus-visible,
+.voice-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.voice-help,
+.voice-privacy,
+.voice-warning,
+.voice-error {
+  margin: 8px 0 0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.voice-help,
+.voice-privacy { color: var(--text-muted); }
+.voice-warning { color: var(--warning, #fbbf24); }
+.voice-error { color: var(--error); }
+
+.voice-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.voice-modal-actions button {
+  min-height: 30px;
+  padding: 5px 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: var(--surface-control);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.voice-modal-actions button:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-hover); }
+.voice-modal-actions .voice-primary { color: var(--bg-page); background: var(--accent); border-color: var(--accent); }
+.voice-modal-actions .voice-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.voice-modal-actions button:disabled { cursor: not-allowed; opacity: 0.5; }
 
 /* =========================================================
    Tab-switch / choice prompts

@@ -7,6 +7,8 @@ import type { BenchmarkEvent, BenchmarkRunState, BenchmarkTab, BenchmarkTabsResp
 import { benchmarkRecorderAvailable, reportBenchmarkEvent, requireBenchmarkEvent } from "./benchmark-client";
 import { saveChat } from "../sidepanel/src/chat-history";
 import { benchmarkChat } from "../../shared/benchmark-chat";
+import { VOICE_CONFIG_STORAGE_KEY, parseVoiceConfig, type VoiceTranscriptionRequest } from "../../shared/voice";
+import { cancelVoiceTranscription, transcribeVoice } from "./voice";
 
 const bridge = new ExtensionBridge();
 const ATTENTION_NOTIFICATION_PREFIX = "dsh-attention-";
@@ -192,6 +194,37 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (!message || typeof message !== "object" || !("type" in message)) return;
   if (message.type === "dsh-bridge-status") { sendResponse({ status: bridge.getStatus() }); return; }
+  if (message.type === "dsh-voice-config-get") {
+    void chrome.storage.local.get(VOICE_CONFIG_STORAGE_KEY)
+      .then((stored) => sendResponse({ ok: true, config: parseVoiceConfig(stored[VOICE_CONFIG_STORAGE_KEY]) }))
+      .catch(() => sendResponse({ ok: false, error: "Voice settings are unavailable." }));
+    return true;
+  }
+  if (message.type === "dsh-voice-config-set") {
+    const config = parseVoiceConfig((message as { config?: unknown }).config);
+    if (!config) { sendResponse({ ok: false, error: "Voice settings are invalid." }); return; }
+    void chrome.storage.local.set({ [VOICE_CONFIG_STORAGE_KEY]: config })
+      .then(() => sendResponse({ ok: true, config }))
+      .catch(() => sendResponse({ ok: false, error: "Voice settings could not be saved." }));
+    return true;
+  }
+  if (message.type === "dsh-voice-transcribe") {
+    const requestId = (message as { requestId?: unknown }).requestId;
+    const request = (message as { request?: unknown }).request;
+    if (typeof requestId !== "string" || !requestId || !isVoiceTranscriptionRequest(request)) {
+      sendResponse({ ok: false, error: "The voice recording is invalid." });
+      return;
+    }
+    void transcribeVoice(requestId, request)
+      .then((text) => sendResponse({ ok: true, text }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Voice transcription failed." }));
+    return true;
+  }
+  if (message.type === "dsh-voice-transcribe-cancel") {
+    const requestId = (message as { requestId?: unknown }).requestId;
+    sendResponse({ ok: typeof requestId === "string" && cancelVoiceTranscription(requestId) });
+    return;
+  }
   if (message.type === "dsh-benchmark-state-request") {
     sendResponse({ state: lastBenchmarkState });
     return;
@@ -659,6 +692,14 @@ function isBridgePromptContentPart(value: unknown): boolean {
 
 function isBase64(value: string): boolean {
   return value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value);
+}
+
+function isVoiceTranscriptionRequest(value: unknown): value is VoiceTranscriptionRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const request = value as { provider?: unknown; audioBase64?: unknown; mimeType?: unknown };
+  return (request.provider === "groq" || request.provider === "openrouter" || request.provider === "deepgram" || request.provider === "elevenlabs") &&
+    typeof request.audioBase64 === "string" && request.audioBase64.length > 0 && request.audioBase64.length <= 16_777_216 && isBase64(request.audioBase64) &&
+    typeof request.mimeType === "string" && request.mimeType.length <= 100;
 }
 
 function parseHttpUrl(value: string): URL {

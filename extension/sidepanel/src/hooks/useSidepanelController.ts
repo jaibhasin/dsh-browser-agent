@@ -15,6 +15,7 @@ import { buildTaskRunPrompt, loadSavedTasks, loadTaskSetup, removeSavedTask, rem
 import type { TaskDraft } from "../components/TaskDialogs";
 import type { TaskDraftQuestion } from "../../../../shared/protocol";
 import { ATTENTION_SOUND_STORAGE_KEY, ATTENTION_STORAGE_KEY, consumeAttentionFocus, isAttentionRequest, loadAttentionRequests, type AttentionRequest } from "../../../../shared/attention";
+import { useVoiceInput } from "./useVoiceInput";
 
 
 // Session, streaming, and tab transitions share refs and stay coordinated here.
@@ -45,6 +46,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [activeToolIndex, setActiveToolIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const voice = useVoiceInput({ prompt, setPrompt, activeSessionId, disabled: isLoading });
   const [streamingAssistant, setStreamingAssistant] = useState<StreamingAssistant>();
   const [isStopping, setIsStopping] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
@@ -1030,6 +1032,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       : "Disabled · ask for approval before clicks, typing, and navigation" },
     { id: "notifications", label: "/notifications", description: "Turn background attention sounds on or off" },
     { id: "theme", label: "/theme", description: "Set the panel theme: system, light, or dark" },
+    { id: "voice-config", label: "/voice-config", description: "Choose or change the voice transcription provider" },
   ];
 
   function executeSlashCommand(commandId: string, args: string[] = []) {
@@ -1111,6 +1114,11 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
         setThemeMenuOpen(false);
         setSessionNotice("Use /theme system, /theme light, or /theme dark.");
       }
+      textareaRef.current?.focus();
+    } else if (commandId === "voice-config") {
+      setThemeMenuOpen(false);
+      setToolsMenuOpen(false);
+      voice.openSetup();
       textareaRef.current?.focus();
     }
   }
@@ -1300,6 +1308,21 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       stopMessage,
       isStopping,
       connectionStatus,
+      voiceProvider: voice.config?.provider,
+      voiceState: voice.state,
+      voiceError: voice.error,
+      voicePartialTranscript: voice.partialTranscript,
+      voiceElapsedMs: voice.elapsedMs,
+      voiceStart: voice.start,
+      voiceStop: voice.stop,
+      voiceOpenSetup: voice.openSetup,
+      voiceSetupOpen: voice.setupOpen,
+      setVoiceSetupOpen: voice.setSetupOpen,
+      voiceConfig: voice.config,
+      voiceConfigBusy: voice.configBusy,
+      voiceConfigError: voice.configError,
+      browserVoiceSupported: voice.browserRecognitionAvailable,
+      saveVoiceConfig: voice.saveConfig,
     },
     saveCurrentAsTask,
     agentTabState,

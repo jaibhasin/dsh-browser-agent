@@ -11,6 +11,7 @@ import { ToolPermissions } from "./components/ToolPermissions";
 import { Composer } from "./components/Composer";
 import { TaskDialogs } from "./components/TaskDialogs";
 import { BenchmarkPanel } from "./components/BenchmarkPanel";
+import { VoiceSettings } from "./components/VoiceSettings";
 
 function App({ initialThemePreference = "system" }: { initialThemePreference?: ThemePreference }) {
   const panel = useSidepanelController(initialThemePreference);
@@ -40,6 +41,16 @@ function App({ initialThemePreference = "system" }: { initialThemePreference?: T
       <TaskDialogs {...panel.taskDialogs} />
 
       <ToolPermissions {...panel.toolPermissions} />
+
+      <VoiceSettings
+        open={panel.composer.voiceSetupOpen ?? false}
+        config={panel.composer.voiceConfig}
+        busy={panel.composer.voiceConfigBusy ?? false}
+        error={panel.composer.voiceConfigError ?? ""}
+        browserSupported={panel.composer.browserVoiceSupported ?? false}
+        onClose={() => panel.composer.setVoiceSetupOpen?.(false)}
+        onSave={panel.composer.saveVoiceConfig ?? (async () => undefined)}
+      />
 
       <Composer {...panel.composer} />
 
