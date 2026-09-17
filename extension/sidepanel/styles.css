@@ -490,7 +490,7 @@ textarea {
 }
 
 .chat-history-header button,
-.chat-history li > a {
+.chat-history li > button.chat-open-site-button {
   color: var(--accent-hover);
   font-size: 10px;
   font-weight: 600;
@@ -660,21 +660,27 @@ textarea {
   font-weight: 700;
 }
 
-.chat-history li > a {
+.chat-history li > button.chat-open-site-button {
   flex: 0 0 auto;
   padding: 4px 7px;
   color: var(--accent-hover);
   background: var(--accent-soft);
   border: 1px solid var(--accent-border);
   border-radius: 6px;
+  cursor: pointer;
   font-size: 10px;
   text-decoration: none;
   transition: background 120ms ease, border-color 120ms ease;
 }
 
-.chat-history li > a:hover {
+.chat-history li > button.chat-open-site-button:hover:not(:disabled) {
   background: var(--accent-soft);
   border-color: var(--accent-border);
+}
+
+.chat-history li > button.chat-open-site-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .saved-tasks { border-top: 1px solid var(--border); }

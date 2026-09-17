@@ -1,6 +1,6 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
 import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
-import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentTabState, getAgentTaskForId, getAgentTaskTab, markAgentTaskWaitingForInput, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, resumeAgentTaskAfterInput, startAgentTask, endAgentTask } from "./agent-tab";
+import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentTabLiveness, getAgentTabState, getAgentTaskForId, getAgentTaskTab, markAgentTaskWaitingForInput, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, resumeAgentTaskAfterInput, startAgentTask, endAgentTask } from "./agent-tab";
 import { ATTENTION_SOUND_STORAGE_KEY, loadAttentionRequests, removeAttentionForSession as removeStoredAttentionForSession, removeAttentionRequest, saveAttentionRequest, setAttentionFocus, type AttentionRequest, type HumanApprovalRequest } from "../../shared/attention";
 import { DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES, type UserQuestion } from "../../shared/protocol";
 import type { BenchmarkEvent, BenchmarkRunState, BenchmarkTab, BenchmarkTabsResponse, BenchmarkRunResponse } from "../../shared/benchmark";
@@ -243,6 +243,17 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     void getAgentTabState(sessionId)
       .then((state) => sendResponse({ ok: true, state }))
       .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Agent tab state is unavailable." }));
+    return true;
+  }
+  if (message.type === "dsh-agent-tab-liveness-request") {
+    const sessionIds = (message as { sessionIds?: unknown }).sessionIds;
+    if (!Array.isArray(sessionIds) || sessionIds.length > 100 || !sessionIds.every((sessionId) => typeof sessionId === "string" && sessionId)) {
+      sendResponse({ ok: false, error: "Chat session IDs are invalid." });
+      return;
+    }
+    void getAgentTabLiveness(sessionIds)
+      .then((live) => sendResponse({ ok: true, live }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Saved chat tab state is unavailable." }));
     return true;
   }
   if (message.type === "dsh-attention-state-request") {
