@@ -188,6 +188,23 @@ export async function focusOrRestoreAgentTab(sessionId: string, fallbackUrl?: st
   return (await claimAgentTab(sessionId, tab)).tab;
 }
 
+/** Reports whether each saved chat still owns a live browser tab. */
+export async function getAgentTabLiveness(sessionIds: readonly string[]): Promise<Record<string, boolean>> {
+  const tabs = await readStoredAgentTabs();
+  const uniqueSessionIds = [...new Set(sessionIds)];
+  const tabLiveness = new Map<number, boolean>();
+  await Promise.all(uniqueSessionIds.map(async (sessionId) => {
+    const tabId = tabs[sessionId]?.tabId;
+    if (tabId === undefined || tabLiveness.has(tabId)) return;
+    const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+    tabLiveness.set(tabId, tab !== undefined);
+  }));
+  return Object.fromEntries(uniqueSessionIds.map((sessionId) => {
+    const tabId = tabs[sessionId]?.tabId;
+    return [sessionId, tabId !== undefined && tabLiveness.get(tabId) === true];
+  }));
+}
+
 /** Starts or replaces one task lease for this chat. Different chats may run independently. */
 export async function startAgentTask(id: string, sessionId: string, tabId: number, runMode: "foreground" | "background" = "foreground"): Promise<void> {
   await withTaskWrite(async () => {

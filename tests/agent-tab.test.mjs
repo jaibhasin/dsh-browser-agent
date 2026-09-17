@@ -44,6 +44,15 @@ assert.equal((await api.ensureAgentTab(amazonChat)).id, 42);
 assert.equal(local.dshAgentTabs[amazonChat].tabId, 42, "tab ownership must be persisted beyond a service worker lifetime");
 assert.equal(tabs.get(42).groupId, 100);
 
+assert.deepEqual(await api.getAgentTabLiveness([amazonChat, gmailChat]), {
+  [amazonChat]: true,
+  [gmailChat]: false,
+}, "a saved chat with a live assigned tab must not offer to recreate its website");
+const closedAmazonTab = tabs.get(42);
+tabs.delete(42);
+assert.deepEqual(await api.getAgentTabLiveness([amazonChat]), { [amazonChat]: false }, "a closed assigned tab must be eligible for restoration");
+tabs.set(42, closedAmazonTab);
+
 assert.deepEqual(await api.getAgentTabState(amazonChat, tabs.get(77)), {
   agentTabId: 42,
   agentTab: { id: 42, windowId: 1, title: "Amazon", url: "https://amazon.example" },
