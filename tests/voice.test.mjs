@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { canStartVoice, defaultVoiceModel, parseVoiceConfig, voiceProviderRequiresKey } from "../shared/voice.ts";
+import { formatVoiceProviderError } from "../shared/voice-provider-error.ts";
 import { ensureVoicePermission } from "../extension/sidepanel/src/voice-permission.ts";
 
 test("voice config accepts browser dictation without a key", () => {
@@ -38,6 +39,20 @@ test("voice input can be retried after a recoverable error", () => {
   assert.equal(canStartVoice("error"), true);
   assert.equal(canStartVoice("listening"), false);
   assert.equal(canStartVoice("transcribing"), false);
+});
+
+test("OpenRouter credit errors remain actionable when the provider nests its message", () => {
+  assert.equal(
+    formatVoiceProviderError("openrouter", 402, { error: { message: "Insufficient credits" } }),
+    "OpenRouter needs credits for transcription. Add credits or choose another provider.",
+  );
+});
+
+test("provider model errors point back to model selection", () => {
+  assert.equal(
+    formatVoiceProviderError("openrouter", 400, { error: { message: "No endpoints found for model" } }),
+    "The selected voice model is unavailable. Choose another model in Voice settings.",
+  );
 });
 
 test("microphone permission is requested in an extension tab, never in the side panel", async () => {

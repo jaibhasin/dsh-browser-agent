@@ -67,57 +67,11 @@ export const VOICE_PROVIDER_LABELS: Record<VoiceProvider, string> = {
   elevenlabs: "ElevenLabs Scribe",
 };
 
-export type VoiceProviderPresentation = {
-  optionLabel: string;
-  costLabel: string;
-  setupLabel: string;
-  fitLabel: string;
-  apiKeyUrl?: string;
-};
-
-export const VOICE_PROVIDER_PRESENTATION: Record<VoiceProvider, VoiceProviderPresentation> = {
-  browser: {
-    optionLabel: "Browser dictation (Free · no API key)",
-    costLabel: "Free",
-    setupLabel: "No API key",
-    fitLabel: "Quickest setup",
-  },
-  groq: {
-    optionLabel: "Groq (Free tier · API key)",
-    costLabel: "Free tier",
-    setupLabel: "API key needed",
-    fitLabel: "Fast cloud option",
-    apiKeyUrl: "https://console.groq.com/keys",
-  },
-  openrouter: {
-    optionLabel: "OpenRouter (Credits · API key)",
-    costLabel: "Credits required",
-    setupLabel: "API key needed",
-    fitLabel: "Most model choice",
-    apiKeyUrl: "https://openrouter.ai/settings/keys",
-  },
-  deepgram: {
-    optionLabel: "Deepgram (Free credits · API key)",
-    costLabel: "Free credits",
-    setupLabel: "API key needed",
-    fitLabel: "Fast and accurate",
-    apiKeyUrl: "https://console.deepgram.com/",
-  },
-  elevenlabs: {
-    optionLabel: "ElevenLabs Scribe (Free tier · API key)",
-    costLabel: "Free tier",
-    setupLabel: "API key needed",
-    fitLabel: "Strong multilingual",
-    apiKeyUrl: "https://elevenlabs.io/app/developers/api-keys",
-  },
-};
-
-export const VOICE_PROVIDER_HELP: Record<VoiceProvider, string> = {
-  browser: "Uses Chrome's speech recognition when your browser supports it. Audio handling depends on Chrome.",
-  groq: "Fast Whisper transcription from Groq. Your audio is sent to Groq using your key.",
-  openrouter: "Use OpenRouter's audio transcription endpoint and its available speech models.",
-  deepgram: "Deepgram Nova speech recognition with fast transcription.",
-  elevenlabs: "ElevenLabs Scribe speech recognition with broad language support.",
+export const VOICE_PROVIDER_API_KEY_URLS: Partial<Record<VoiceProvider, string>> = {
+  groq: "https://console.groq.com/keys",
+  openrouter: "https://openrouter.ai/settings/keys",
+  deepgram: "https://console.deepgram.com/",
+  elevenlabs: "https://elevenlabs.io/app/developers/api-keys",
 };
 
 export function isVoiceProvider(value: unknown): value is VoiceProvider {

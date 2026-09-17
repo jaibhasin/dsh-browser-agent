@@ -1,4 +1,5 @@
 import { defaultVoiceModel, VOICE_CONFIG_STORAGE_KEY, parseVoiceConfig, type VoiceTranscriptionRequest } from "../../shared/voice";
+import { formatVoiceProviderError } from "../../shared/voice-provider-error";
 
 const TRANSCRIPTION_TIMEOUT_MS = 60_000;
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
@@ -19,7 +20,7 @@ export async function transcribeVoice(requestId: string, request: VoiceTranscrip
   const timeout = setTimeout(() => controller.abort(), TRANSCRIPTION_TIMEOUT_MS);
   try {
     const response = await fetchRequest(request, config.apiKey, bytes, controller.signal);
-    if (!response.ok) throw new Error(await providerError(response));
+    if (!response.ok) throw new Error(await voiceProviderError(request.provider, response));
     const payload = await response.json() as { text?: unknown; results?: { channels?: Array<{ alternatives?: Array<{ transcript?: unknown }> }> } };
     const text = request.provider === "deepgram"
       ? payload.results?.channels?.[0]?.alternatives?.[0]?.transcript
@@ -78,18 +79,12 @@ async function fetchRequest(request: VoiceTranscriptionRequest, apiKey: string, 
   });
 }
 
-async function providerError(response: Response): Promise<string> {
-  let detail = "The voice provider rejected the recording.";
+async function voiceProviderError(provider: VoiceTranscriptionRequest["provider"], response: Response): Promise<string> {
+  let payload: unknown;
   try {
-    const payload = await response.json() as { error?: unknown; message?: unknown; detail?: unknown };
-    const candidate = [payload.error, payload.message, payload.detail].find((value): value is string => typeof value === "string");
-    if (candidate) detail = candidate;
+    payload = await response.json();
   } catch { /* Keep a stable message when the provider does not return JSON. */ }
-  const lower = detail.toLowerCase();
-  if (response.status === 401 || response.status === 403 || lower.includes("invalid api") || lower.includes("unauthorized")) return "The voice API key was rejected. Check it in /voice-config.";
-  if (response.status === 429 || lower.includes("quota") || lower.includes("rate limit") || lower.includes("limit exceeded")) return "The voice provider limit was reached. Try again later or choose another provider.";
-  if (response.status >= 500) return "The voice provider is temporarily unavailable. Try again later.";
-  return "The voice provider could not transcribe this recording.";
+  return formatVoiceProviderError(provider, response.status, payload);
 }
 
 function audioFormat(mimeType: string): string {
