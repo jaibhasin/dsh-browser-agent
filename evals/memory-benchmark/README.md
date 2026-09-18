@@ -25,16 +25,16 @@ On Linux, you'll also need `lsof` so the script can find DSH.
    In `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and choose the `extension/dist` path printed in the terminal.
    If it is already loaded, click **Reload** in this profile and in any other profile using the agent.
 2. Open the extension side panel and click **Memory test**.
-   Use the Hacker News, Wikipedia, or Python Docs buttons to open the benchmark pages.
    Blank tabs and `chrome://` pages do not count.
-3. Choose the task preset that matches the pages you want to measure.
+3. Choose or edit the task prompt for each site you want to measure.
    The Hacker News preset produces a ranked developer-relevant news briefing.
    The Wikipedia preset produces an Apollo 11 mission briefing.
    The Python Docs preset designs a CSV memory-reporting tool from the official tutorial.
-4. Select matching tabs, then click **Run**.
-   The prompt runs once per selected tab, all in parallel.
-   Use the **Select [site] tabs** action to avoid mixing site presets in one run.
-5. When the tasks finish, leave the tabs open for the 60-second cooldown.
+4. Enter a tab count beside any site and click its **Create tabs** button.
+   You can create different quantities for each site, and repeat this for multiple sites.
+5. Select the supported tabs you want to include, then click **Run all agents in parallel**.
+   Each selected tab receives the prompt for its matching site, so Hacker News, Wikipedia, and Python Docs tabs can run together.
+6. When the tasks finish, leave the tabs open for the 60-second cooldown.
    The report saves automatically, and task responses appear in Chat history under `Memory test: [page title]`.
 
 There is no required tab count or set of rounds.

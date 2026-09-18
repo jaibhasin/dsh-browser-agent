@@ -54,3 +54,7 @@ export function benchmarkSiteMatchesUrl(site: BenchmarkSite, url?: string): bool
     return false;
   }
 }
+
+export function benchmarkSiteForUrl(url?: string): BenchmarkSite | undefined {
+  return BENCHMARK_SITES.find((site) => benchmarkSiteMatchesUrl(site, url));
+}

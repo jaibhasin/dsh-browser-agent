@@ -36,4 +36,5 @@ export type BenchmarkEvent =
   | { type: "run_settled"; runId: string; tabCount: number; timestamp: number };
 
 export type BenchmarkTabsResponse = { ok: true; tabs: BenchmarkTab[] } | { ok: false; error: string };
+export type BenchmarkRunTask = { tabId: number; prompt: string };
 export type BenchmarkRunResponse = { ok: true; runId: string } | { ok: false; error: string };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BENCHMARK_SITES, benchmarkSiteMatchesUrl } from "../shared/benchmark-sites.ts";
+import { BENCHMARK_SITES, benchmarkSiteForUrl, benchmarkSiteMatchesUrl } from "../shared/benchmark-sites.ts";
 
 test("memory benchmark exposes only the three supported sites", () => {
   assert.deepEqual(BENCHMARK_SITES.map((site) => site.name), ["Hacker News", "Wikipedia", "Python Docs"]);
@@ -29,4 +29,11 @@ test("site matching uses the page hostname", () => {
   assert.equal(benchmarkSiteMatchesUrl(pythonDocs, "https://docs.python.org/3/tutorial/controlflow.html"), true);
   assert.equal(benchmarkSiteMatchesUrl(hackerNews, "https://example.com/"), false);
   assert.equal(benchmarkSiteMatchesUrl(wikipedia, undefined), false);
+});
+
+test("mixed benchmark tabs resolve to their site-specific presets", () => {
+  assert.equal(benchmarkSiteForUrl("https://news.ycombinator.com/news")?.id, "hacker-news");
+  assert.equal(benchmarkSiteForUrl("https://en.wikipedia.org/wiki/Apollo_11")?.id, "wikipedia-apollo-11");
+  assert.equal(benchmarkSiteForUrl("https://docs.python.org/3/tutorial/controlflow.html")?.id, "python-docs");
+  assert.equal(benchmarkSiteForUrl("https://example.com/"), undefined);
 });
