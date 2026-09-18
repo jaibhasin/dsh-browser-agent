@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, appendFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { renderReportDirectory } from '../evals/memory-benchmark/memory-chart.mjs';
 
 const help = `Usage: pnpm measure:memory [--duration seconds] [--interval seconds] [--port 7331] [--dsh-pid PID] [--chrome-pid PID] [--out directory]
 
@@ -73,8 +74,10 @@ function main() {
     clearTimeout(timer);
     input.close();
     process.stdin.pause();
-    const summary = { metric: 'Summed process RSS in MiB; shared memory may be counted more than once.', scope: 'Chrome process tree(s) and DSH listener process tree. No per-tab attribution.', dshPid, chromeRoots, samples: count, elapsedSeconds: (Date.now() - started) / 1000, initialTotalMiB: initial, peakTotalMiB: peak, finalTotalMiB: last, finalMinusInitialMiB: last === undefined ? null : last - initial, phases: Object.fromEntries([...phases].map(([name, value]) => [name, { samples: value.count, averageTotalMiB: value.sum / value.count, peakTotalMiB: value.peak, finalTotalMiB: value.last }])), error: error?.message ?? null };
+    const summary = { metric: 'Summed process RSS in MiB; shared memory may be counted more than once.', scope: 'Chrome process tree(s) and DSH listener process tree. No per-tab attribution.', startedAt: started, dshPid, chromeRoots, samples: count, elapsedSeconds: (Date.now() - started) / 1000, initialTotalMiB: initial, peakTotalMiB: peak, finalTotalMiB: last, finalMinusInitialMiB: last === undefined ? null : last - initial, phases: Object.fromEntries([...phases].map(([name, value]) => [name, { samples: value.count, averageTotalMiB: value.sum / value.count, peakTotalMiB: value.peak, finalTotalMiB: value.last }])), error: error?.message ?? null };
     writeFileSync(resolve(directory, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
+    try { renderReportDirectory(directory); console.log(`Charts: ${resolve(directory, 'memory-chart.png')}`); }
+    catch (chartError) { console.error(`Charts could not be generated. Retry with pnpm report:memory "${directory}". ${chartError instanceof Error ? chartError.message : String(chartError)}`); }
     console.log(`\nSaved ${count} samples to ${directory}\nPeak total RSS: ${peak.toFixed(1)} MiB`);
     if (error) { console.error(error.message); process.exitCode = 1; }
   }

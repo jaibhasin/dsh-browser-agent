@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { openBenchmarkExtensions, setupInstructions } from "./benchmark-setup.mjs";
+import { writeMemoryCharts } from "./memory-chart.mjs";
+import { recordTaskEvent } from "./task-recording.mjs";
 
 const PORT = Number(process.env.DSH_BENCHMARK_PORT ?? 7332);
 const SAMPLE_INTERVAL_MS = 1000;
@@ -14,6 +16,7 @@ const reportDirectory = resolve(`memory-reports/${new Date().toISOString().repla
 const extensionDirectory = resolve("extension/dist");
 
 const samples = [];
+const tasks = new Map();
 let phase = "baseline";
 let run;
 let cooldownTimer;
@@ -117,6 +120,7 @@ function saveReport(error) {
   const working = statsFor("working");
   const cooldown = statsFor("cooldown");
   const summary = { metric: "Summed process RSS in MiB", profileDirectory, dshPid: dshPid ?? null, tabCount: run?.tabCount ?? null, runId: run?.runId ?? null, sampleCount: samples.length, elapsedSeconds: (Date.now() - startedAt) / 1000, cooldownComplete, cooldownSeconds: cooldownStartedAt ? (Date.now() - cooldownStartedAt) / 1000 : 0, phases: { baseline, working, cooldown }, peakIncreaseMiB: baseline.medianMiB !== null && working.peakMiB !== null ? working.peakMiB - baseline.medianMiB : null, retainedMiB: cooldownComplete && baseline.medianMiB !== null && cooldown.medianMiB !== null ? cooldown.medianMiB - baseline.medianMiB : null, error: error ? String(error) : null };
+  Object.assign(summary, { startedAt, runStartedAt: run?.timestamp ?? null, tasks: [...tasks.values()] });
   writeFileSync(join(reportDirectory, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`);
   writeFileSync(join(reportDirectory, "report.html"), reportHtml(summary));
   writeFileSync(join(reportDirectory, "summary.md"), [
@@ -135,6 +139,12 @@ function saveReport(error) {
   console.log(`\nReport saved to ${reportDirectory}`);
   console.log(`Peak increase: ${summary.peakIncreaseMiB === null ? "unavailable" : `${summary.peakIncreaseMiB.toFixed(1)} MiB`}`);
   console.log(`Retained after cooldown: ${summary.retainedMiB === null ? "unavailable" : `${summary.retainedMiB.toFixed(1)} MiB`}`);
+  try {
+    writeMemoryCharts(reportDirectory, summary, samples);
+    console.log(`Chart: ${join(reportDirectory, "memory-chart.png")}`);
+  } catch (chartError) {
+    console.error(`Chart generation failed; raw reports are saved. Retry with pnpm report:memory "${reportDirectory}". ${chartError.message}`);
+  }
 }
 
 async function launchChrome() {
@@ -162,11 +172,15 @@ function onEvent(event) {
     if (run || stopped) throw new Error("This recorder already has a run.");
     if (typeof event.runId !== "string" || !Number.isInteger(event.tabCount) || event.tabCount < 1) throw new Error("Invalid run.");
     run = event;
+    recordTaskEvent(tasks, event);
     phase = "working";
     console.log(`\n  Working    ${event.tabCount} parallel task${event.tabCount === 1 ? "" : "s"}`);
     console.log(`  Run        ${event.runId}`);
+  } else if (event.type === "task_started" || event.type === "task_finished") {
+    if (run && event.runId === run.runId) recordTaskEvent(tasks, event);
   } else if (event.type === "run_settled") {
     if (!run || event.runId !== run.runId || event.tabCount !== run.tabCount || phase !== "working") throw new Error("Run does not match the recorder.");
+    recordTaskEvent(tasks, event);
     phase = "cooldown";
     cooldownStartedAt = Date.now();
     console.log("\n  Cooldown   Tasks finished. Leave tabs open for 60 seconds.");
@@ -188,7 +202,7 @@ const server = createServer((request, response) => {
   if (request.method !== "POST" || request.url !== "/events") { response.writeHead(404); response.end(); return; }
   let body = "";
   request.setEncoding("utf8");
-  request.on("data", (chunk) => { body += chunk; if (body.length > 100_000) request.destroy(); });
+  request.on("data", (chunk) => { body += chunk; if (body.length > 2_000_000) request.destroy(); });
   request.on("end", () => {
     try { onEvent(JSON.parse(body)); response.writeHead(204, { "access-control-allow-origin": origin ?? "*" }); response.end(); }
     catch { response.writeHead(400); response.end(); }

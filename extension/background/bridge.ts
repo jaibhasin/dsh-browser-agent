@@ -5,6 +5,8 @@ const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
 const RECONNECT_MAX_MS = 30_000;
 const CONNECTION_WAIT_TIMEOUT_MS = 5_000;
+const DEFAULT_CHAT_TIMEOUT_MS = 120_000;
+const MAX_CHAT_TIMEOUT_MS = 10 * 60_000;
 const CLIENT_ID_STORAGE_KEY = "dshBridgeClientId";
 export type BridgeConfiguration = { url: string; token: string };
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -57,11 +59,12 @@ export class ExtensionBridge {
   setChatProgressHandler(handler: ChatProgressHandler): void { this.chatProgressHandler = handler; }
   setEventHandler(handler: EventHandler): void { this.eventHandler = handler; }
   sendEvent(event: string, payload: JsonValue): void { this.send({ type: "event", event, payload }); }
-  async chat(id: string, text: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false, content?: BridgePromptContentPart[]): Promise<string> {
+  async chat(id: string, text: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop = false, content?: BridgePromptContentPart[], timeoutMs = DEFAULT_CHAT_TIMEOUT_MS): Promise<string> {
     await this.waitUntilConnected();
     if (!id || this.chatRequests.has(id)) return Promise.reject(new Error("The chat request ID is invalid or already in use."));
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > MAX_CHAT_TIMEOUT_MS) return Promise.reject(new Error("The chat timeout is invalid."));
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => { this.chatRequests.delete(id); reject(new Error("DSH chat timed out.")); }, 120_000);
+      const timeout = setTimeout(() => { this.chatRequests.delete(id); reject(new Error(`DSH chat timed out after ${Math.round(timeoutMs / 1_000)} seconds.`)); }, timeoutMs);
       this.chatRequests.set(id, { resolve, reject, timeout });
       this.send({ type: "chat", id, text, sessionId, resume, ...(content ? { content } : {}), deniedTools: deniedTools ?? [], humanInTheLoop });
     });

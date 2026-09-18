@@ -7,11 +7,13 @@ import type { BenchmarkEvent, BenchmarkRunState, BenchmarkRunTask, BenchmarkTab,
 import { benchmarkRecorderAvailable, reportBenchmarkEvent, requireBenchmarkEvent } from "./benchmark-client";
 import { saveChat } from "../sidepanel/src/chat-history";
 import { benchmarkChat } from "../../shared/benchmark-chat";
+import { benchmarkSiteForUrl } from "../../shared/benchmark-sites";
 import { VOICE_CONFIG_STORAGE_KEY, parseVoiceConfig, type VoiceTranscriptionRequest } from "../../shared/voice";
 import { cancelVoiceTranscription, transcribeVoice } from "./voice";
 
 const bridge = new ExtensionBridge();
 const ATTENTION_NOTIFICATION_PREFIX = "dsh-attention-";
+const BENCHMARK_CHAT_TIMEOUT_MS = 5 * 60_000;
 const activeChatContexts = new Map<string, { sessionId: string; tabId: number }>();
 const benchmarkRuns = new Map<string, { state: BenchmarkRunState; active: Set<string> }>();
 let benchmarkStarting = false;
@@ -60,11 +62,6 @@ async function runBenchmark(runId: string, requestedTasks: Array<{ tab: Benchmar
       await claimAgentTab(sessionId, liveTab);
       await startAgentTask(task.taskId, sessionId, tab.id, "background");
       await saveBenchmarkChat(sessionId, prompt, tab, run.state.startedAt);
-      task.state = "running";
-      task.startedAt = Date.now();
-      run.active.add(task.taskId);
-      benchmarkEvent({ type: "task_started", runId, taskId: task.taskId, tabId: tab.id, activeTaskCount: run.active.size, timestamp: task.startedAt });
-      broadcastBenchmarkState(run.state);
       prepared.push({ tab, task, sessionId, requestId: task.taskId, prompt });
     } catch (error) {
       task.state = "failed";
@@ -76,13 +73,19 @@ async function runBenchmark(runId: string, requestedTasks: Array<{ tab: Benchmar
   }
 
   const execute = async ({ tab, task, sessionId, requestId, prompt }: (typeof prepared)[number]): Promise<void> => {
+    task.state = "running";
+    task.startedAt = Date.now();
+    run.active.add(task.taskId);
+    benchmarkEvent({ type: "task_started", runId, taskId: task.taskId, tabId: tab.id, activeTaskCount: run.active.size, timestamp: task.startedAt });
+    broadcastBenchmarkState(run.state);
     try {
-      const answer = await bridge.chat(requestId, prompt, sessionId, false, [], false);
+      const answer = await bridge.chat(requestId, prompt, sessionId, false, [], false, undefined, BENCHMARK_CHAT_TIMEOUT_MS);
       await saveBenchmarkChat(sessionId, prompt, tab, run.state.startedAt, answer || "Task finished without a text response.");
       task.state = "completed";
     } catch (error) {
       task.state = "failed";
       task.error = error instanceof Error ? error.message : "The benchmark task failed.";
+      bridge.sendEvent("cancel_task", { id: task.taskId });
       await saveBenchmarkChat(sessionId, prompt, tab, run.state.startedAt, task.error, true).catch(() => undefined);
     } finally {
       task.finishedAt = Date.now();
@@ -95,7 +98,7 @@ async function runBenchmark(runId: string, requestedTasks: Array<{ tab: Benchmar
 
   await Promise.allSettled(prepared.map((task) => execute(task)));
   try {
-    await requireBenchmarkEvent({ type: "run_settled", runId, tabCount: requestedTasks.length, timestamp: Date.now() });
+    await requireBenchmarkEvent({ type: "run_settled", runId, tabCount: requestedTasks.length, timestamp: Date.now(), tasks: run.state.tasks });
   } catch {
     run.state.phase = "completed";
     run.state.recordingError = "Tasks finished, but the recorder disconnected. Chats are saved. Restart pnpm benchmark:memory to measure a new run.";
@@ -298,7 +301,8 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       const runId = `benchmark-${crypto.randomUUID()}`;
       const state: BenchmarkRunState = { runId, tabCount: tasks.length, phase: "running", startedAt: Date.now(), tasks: tasks.map(({ tab }) => ({ taskId: `${runId}-${tab.id}`, tabId: tab.id, title: tab.title, state: "queued" })) };
       await bridge.waitUntilConnected();
-      await requireBenchmarkEvent({ type: "run_started", runId, tabCount: tasks.length, timestamp: state.startedAt });
+      state.startedAt = Date.now();
+      await requireBenchmarkEvent({ type: "run_started", runId, tabCount: tasks.length, timestamp: state.startedAt, tasks: tasks.map(({ tab, prompt }) => ({ taskId: `${runId}-${tab.id}`, tabId: tab.id, site: benchmarkSiteForUrl(tab.url)?.name ?? "Other site", url: tab.url, prompt })) });
       benchmarkRuns.set(runId, { state, active: new Set() });
       broadcastBenchmarkState(state);
       void runBenchmark(runId, tasks);

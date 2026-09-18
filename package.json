@@ -6,7 +6,8 @@
   "scripts": {
     "measure:memory": "node scripts/measure-memory.mjs",
     "benchmark:memory": "node evals/memory-benchmark/benchmark-memory.mjs",
-    "test:benchmark": "node --experimental-strip-types --test tests/benchmark-setup.test.mjs tests/benchmark-selection.test.mjs tests/benchmark-recording.test.mjs tests/benchmark-sites.test.mjs",
+    "report:memory": "node scripts/render-memory-report.mjs",
+    "test:benchmark": "node --experimental-strip-types --test tests/benchmark-setup.test.mjs tests/benchmark-selection.test.mjs tests/benchmark-recording.test.mjs tests/benchmark-sites.test.mjs tests/memory-report.test.mjs",
     "dev": "vite --config vite.config.js",
     "build": "pnpm run build:dsh-plugin && tsc --noEmit && vite build --config vite.config.js",
     "build:dsh-plugin": "tsc --project dsh-plugin/tsconfig.json",
@@ -41,6 +42,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-attachment": "0.1.2-rc.1",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/chrome": "^0.0.270",
     "@types/node": "^24.10.1",
     "@types/react": "^19.1.10",

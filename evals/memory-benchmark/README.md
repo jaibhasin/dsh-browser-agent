@@ -34,6 +34,7 @@ On Linux, you'll also need `lsof` so the script can find DSH.
    You can create different quantities for each site, and repeat this for multiple sites.
 5. Select the supported tabs you want to include, then click **Run all agents in parallel**.
    Each selected tab receives the prompt for its matching site, so Hacker News, Wikipedia, and Python Docs tabs can run together.
+   Benchmark tasks can run for up to five minutes each because multi-step browser work may take longer than a normal chat.
 6. When the tasks finish, leave the tabs open for the 60-second cooldown.
    The report saves automatically, and task responses appear in Chat history under `Memory test: [page title]`.
 
@@ -48,7 +49,13 @@ The test profile is reused between runs, so you won't need to load the extension
 ## Reading the results
 
 Open `report.html` in the `memory-reports/` folder printed by the terminal.
+The same folder also contains `memory-chart.png` and `task-timeline.png`, which are useful for sharing a run.
 You'll also find a short Markdown summary, JSON, and the raw CSV samples.
+
+The overview chart shows Chrome and DSH memory over time, the baseline/working/cooldown phases, and a card for each site.
+The task timeline groups every tab under its original site and shows when it started, finished, or failed.
+Open `report.html` when you want to inspect the exact prompts and task errors.
+For an older report, regenerate these files with `pnpm report:memory memory-reports/<timestamp>`.
 
 - **Baseline:** memory recorded before you start the tasks.
 - **Peak increase:** the highest total during work, minus the baseline median.
