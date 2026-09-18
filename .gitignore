@@ -14,3 +14,5 @@ memory-reports/
 **/.bridge-token
 *.pem
 *.key
+SAVE_AS_TASK.md
+VOICE_INPUT_PLAN.md

@@ -1,48 +1,57 @@
 # dsh Browser Agent [![dshfind](https://dshfind.com/api/badge/jaibhasin/dsh-browser-agent)](https://dshfind.com/en/plugins/jaibhasin/dsh-browser-agent?ref=badge)
 
-An AI agent in Chrome's side panel, right beside the page you're on.
-Ask it to explain something you're reading, fill out a form, or help you find your way around a website.
-You can watch its steps in the chat and keep browsing while it works.
 
-It works with the tabs you already have open, including sites where you're signed in.
-[DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runs on your computer and connects it to the AI model you choose.
+
+
+
+  
+  
+
+
+A plugin for [Deepseek Harness](https://www.deepseek.com/harness/en/) which lets you control your chrome tabs simultaneously and parallelly.
+
 
 ![dsh Browser Agent merging a pull request in its own repository](assets/dsh-browser-agent-merge-pr.gif)
 
-## Quick installation
+It can read, write, navigate, take DOM snapshot,  screenshot, ask questions in between, scroll etc.
 
-Prerequisites: [Chrome](https://www.google.com/chrome/), [Node.js 22.19+ or 24+](https://nodejs.org/), and an API key.
-Reopen your terminal after installing Node.js.
+It can work with any LLM of your choice.
 
-**1. Run the installer.** It sets up DSH and prepares the Chrome extension.
+## Quick install
 
-macOS / Linux (desktop):
+Standard **dsh plugin**  command won't work here. As it include both dsh bridge and browser extension.
+
+This one line command installs the full project 
+
+macOS / Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jaibhasin/dsh-browser-agent/main/scripts/install.sh | bash
 ```
 
-Windows (PowerShell 5.1+):
+Windows (PowerShell):
 
 ```powershell
-$script = Join-Path $env:TEMP 'dsh-browser-install.ps1'
-Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/jaibhasin/dsh-browser-agent/main/scripts/install.ps1 -OutFile $script
-powershell -NoProfile -ExecutionPolicy Bypass -File $script
+$script = Join-Path $env:TEMP 'dsh-browser-install.ps1'; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/jaibhasin/dsh-browser-agent/main/scripts/install.ps1' -OutFile $script; powershell -NoProfile -ExecutionPolicy Bypass -File $script
 ```
 
-Wait for **Setup complete!** and keep the terminal open for the folder path and start command.
+When the setup completes it prints the extension folder and start command you'll need next.
 
-**2. Load the extension.** Open `chrome://extensions`, enable **Developer mode**, and click **Load unpacked**.
-Select the extension folder printed by the installer.
-If it's hidden, paste the path using Cmd+Shift+G on macOS, Ctrl+L on Linux, or the address bar on Windows.
+Go to `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and select the folder the installer printed.
 
-**3. Start chatting.** Run the `node ".../start.mjs"` command printed by the installer and keep that terminal open.
-Open the web address DSH prints, add your API key, and choose a model.
-In Chrome, click **Extensions > dsh Browser Agent**, then try **“Summarize this page.”** on a website.
+Run the `node ".../start.mjs"` command from the installer and keep that terminal open.
 
-Use the same start command next time; press Ctrl+C to stop the agent.
+
+Open the web address DSH prints, add your API key, and pick a model.
+
+
+Then click **Extensions > dsh Browser Agent** in Chrome and start chatting.
+
+Use the same start command next time; Ctrl+C stops the agent.
 
 ## Agent tools
+
+List of tools the **agent** has access to by default
 
 | Tool | What it does |
 | --- | --- |
@@ -56,21 +65,17 @@ Use the same start command next time; press Ctrl+C to stop the agent.
 | `browser_click` | Clicks a button, link, or other element by its reference number. |
 | `browser_type` | Types into a field by its reference number. |
 
-Use the side panel's tool controls to disable individual agent tools for a chat.
-To take a screenshot, the agent's tab needs to be visible, even if you've allowed it to work in the background.
+Type `/tools` in the extension to turn individual tools on or off.
 
 ## Tabs and chat sessions
 
 ### Each chat belongs to a tab
 
-When you send the first message, the chat attaches to the tab you're viewing.
-A blue **Agent** tab group shows you which tab it controls.
-Each tab can have one chat, and the agent keeps working on that tab until you choose to move it.
+Each chat session can be attached to one tab and each tab can have one chat session open at a time.
 
-Chats are saved locally with their messages, tool activity, and recent website links.
-Open a saved chat and Chrome takes you back to its tab.
-If you've closed the tab, the extension opens a new one at its last saved website when possible.
-Unsaved page state, such as a half-filled form, isn't restored.
+You can move the chat from one tab to another and also keep the chat active in background
+
+Closed tabs can be reopened by clicking on their chats through chat history
 
 ### When you switch tabs during work
 
@@ -78,14 +83,17 @@ Switch to another tab while the agent is working, and you'll get these choices:
 
 | Choice | What happens |
 | --- | --- |
-| **Continue in background** | Work continues on the original assigned tab while you browse elsewhere. |
-| **Pause current chat** | Work stops and the chat stays saved for later. |
-| **Quit current chat** | Work stops and the chat is deleted from the extension's history. |
-| **Move current chat here** | The current chat moves to the newly selected tab. |
+| **Continue in background** | Agent continues on the original  tab while you browse elsewhere. |
+| **Pause current chat** | Agent stops and the chat stays saved. |
+| **Quit current chat** | Agent stops and the chat is deleted from the extension's history. |
+| **Move current chat here** | Agent's session moves to the newly selected tab. |
 
-If the tab you switch to already has a chat, you can pick up that conversation or start fresh.
-Starting fresh replaces that tab's old chat in your history.
-If you open another saved chat while the agent is busy, you'll also get a chance to keep the current task running, pause it, or quit it.
+If you switch to a tab that already has a chat session you can continue with it or start a new one
+
+If you open another saved chat while the agent is busy, you'll also get a chance to keep the current agent running, pause it, or quit it.
+
+When a background agent needs to ask a question or an approval, a Chrome notification lets you jump back to it.
+Use `/notifications` to turn the notification sound on or off.
 
 ## What you can do
 
@@ -98,6 +106,20 @@ If you open another saved chat while the agent is busy, you'll also get a chance
 Image attachments can be PNG, JPEG, WebP, or GIF.
 For documents, you can attach Word, PDF, CSV, Excel, PowerPoint, OpenDocument, RTF, EPUB, Markdown, and plain text files.
 Documents are converted locally before their text is sent to your model provider.
+
+### Save something you'll do again
+
+If a conversation gets you through a task you'll repeat, choose **Save as a task** in the chat header.
+The agent drafts reusable instructions from the conversation for you to review and edit before saving.
+Next time, type `/tasks`, pick the task, and fill in any details it needs for that run.
+You can also find and edit your saved tasks in chat history.
+
+### Say it instead of typing it
+
+Click the microphone beside the message box to set up voice input.
+Use browser dictation without another API key, or choose Groq, OpenRouter, Deepgram, or ElevenLabs with your own key and transcription model.
+Your words go into the message box, so you can check or edit them before sending.
+To change your setup later, type `/voice-config`.
 
 ## Updates and uninstall
 
@@ -155,23 +177,20 @@ Its dependencies are locked to tested versions to avoid mixing incompatible rele
 
 ## Privacy and control
 
-The agent uses your signed-in tabs, so a click, text entry, or form submission can affect your actual accounts.
-**Approval prompts are on by default for clicks, typing, and navigation.**
-Use `/human-in-the-loop` to turn them on again if you are continuing an older chat created before this setting was introduced.
-You can disable individual browser tools in the chat's tool controls.
+The agent works on your real, signed-in tabs, so its actions affect your actual accounts.
+That's why approval prompts are on by default for clicks, typing, and navigation.
+Use `/human-in-the-loop` to turn them off or back on for the current chat.
 
-The connection between Chrome and DSH stays on your computer.
-It uses a private token created during installation, and the bridge checks that connections identify themselves as coming from a Chrome extension.
-Keep your installed extension, DSH settings, and backups private because they contain that token or other personal data.
+The connection between Chrome and DSH stays on your computer and uses a private token.
+Your chats and saved tasks are stored in Chrome, and DSH keeps its own local data too.
+Your chosen AI provider receives your messages and the page content the agent reads, along with any screenshots or attached images it uses.
+Documents are converted to text locally before that text is sent to the provider; scanned PDFs aren't uploaded or processed with OCR.
 
-Your chats are saved in Chrome on your device, and DSH also keeps local data.
-The AI still needs data to work with: messages and the page content it uses go to your chosen model provider.
-Screenshots and attached images may be sent there too, and can include sensitive information.
-Document attachments are converted to text locally by the DSH plugin, then that text is sent to the provider.
-The extension doesn't extract text from scanned PDFs using OCR or upload those PDFs.
+For voice input, recordings go to the transcription provider you choose, and its API key is saved in the extension's local settings.
+Browser dictation uses Chrome's speech recognition instead.
+Keep your extension data, DSH settings, and installation backups private: they can contain credentials and personal information.
 
-The installer downloads the code from this repository's `main` branch.
-Only run installation commands from a source you trust.
+The installer pulls from this repo's `main` branch, so only run it from sources you trust.
 
 ## Development
 
@@ -213,7 +232,10 @@ Never commit generated bridge tokens or `extension/.env.local`.
 pnpm test
 ```
 
-This runs tab ownership, tab-switch state, installer ownership, recoverable uninstall, and DSH dependency consistency checks.
+This checks browser session behavior, saved tasks, voice configuration, attachments, provider errors, memory benchmarks, and the installer, among other things.
+It doesn't replace trying the extension in Chrome with a real model.
+
+For the guided multi-tab memory benchmark, see the [benchmark instructions](evals/memory-benchmark/README.md).
 
 Run the full installer lifecycle test with internet access:
 

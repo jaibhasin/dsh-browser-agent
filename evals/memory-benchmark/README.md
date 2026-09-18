@@ -9,14 +9,19 @@ The agent works on them in parallel while the script records Chrome and DSH memo
 
 ## Try it
 
-With this repo installed and DSH running, run this from the repo root on macOS or Linux:
+Start with the [development setup](../../README.md#development), and keep DSH running with a model configured.
+Then run this from the repo root on macOS or Linux:
 
 ```sh
 pnpm benchmark:memory
 ```
 
+The command builds the extension before opening Chrome.
+Keep the terminal open while you run the test.
+On Linux, you'll also need `lsof` so the script can find DSH.
+
 1. A separate Chrome profile opens for the test, leaving your usual browser alone.
-   It can remain open alongside your normal Chrome profiles because the bridge identifies and routes each profile separately.
+   You can keep your normal Chrome profiles open too, but let their agent tasks finish first so they don't add to DSH's memory use during the measurement.
    In `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and choose the `extension/dist` path printed in the terminal.
    If it is already loaded, click **Reload** in this profile and in any other profile using the agent.
 2. Open the extension side panel and click **Memory test**.
@@ -36,6 +41,10 @@ There is no required tab count or set of rounds.
 For another measurement, start the command again.
 Type `status` for a quick check, `extensions` to reopen setup, or `stop` to save early.
 
+If **Memory test** is missing, check that the command is still running, then reopen the side panel.
+The button only appears while the benchmark recorder is available.
+The test profile is reused between runs, so you won't need to load the extension from scratch each time.
+
 ## Reading the results
 
 Open `report.html` in the `memory-reports/` folder printed by the terminal.
@@ -48,6 +57,7 @@ You'll also find a short Markdown summary, JSON, and the raw CSV samples.
 Retained just means memory still in use while those tabs stay open.
 It doesn't, by itself, mean there's a leak.
 These numbers include the test Chrome profile's processes and DSH, so the websites themselves contribute too.
+They don't tell you how much memory a single tab or the extension alone uses.
 The measurement is RSS, an approximate measure of process memory that can count shared memory more than once.
 
 If you share a result, include your machine, tab count, pages, and prompt.
