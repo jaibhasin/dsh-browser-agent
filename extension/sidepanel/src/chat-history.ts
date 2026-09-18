@@ -40,6 +40,7 @@ export type SavedChat = {
 };
 
 type StoredHistory = { version: 1; chats: SavedChat[] };
+type SharedHistoryResponse = { initialized: boolean; chats: unknown[] };
 
 // Storage is shared by every mounted side panel in a Chrome profile.
 // Serialize local mutations so an older async read cannot overwrite a newer save
@@ -60,6 +61,19 @@ function isSavedChat(value: unknown): value is SavedChat {
 }
 
 export async function loadChatHistory(): Promise<SavedChat[]> {
+  const local = await loadLocalChatHistory();
+  const shared = await loadSharedChatHistory();
+  if (!shared) return local;
+  if (!shared.initialized) {
+    if (local.length > 0) await saveSharedChatHistory(local);
+    return local;
+  }
+  const chats = shared.chats.filter(isSavedChat).sort((a, b) => b.updatedAt - a.updatedAt);
+  await saveLocalChatHistory(chats);
+  return chats;
+}
+
+async function loadLocalChatHistory(): Promise<SavedChat[]> {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   const history = stored[STORAGE_KEY] as Partial<StoredHistory> | undefined;
   if (history?.version !== 1 || !Array.isArray(history.chats)) return [];
@@ -76,7 +90,7 @@ export function saveChat(chat: SavedChat): Promise<void> {
     const next = [chat, ...chats.filter((candidate) => candidate.id !== chat.id)]
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, MAX_SESSIONS);
-    await chrome.storage.local.set({ [STORAGE_KEY]: { version: 1, chats: next } satisfies StoredHistory });
+    await persistChatHistory(next);
   });
 }
 
@@ -84,8 +98,38 @@ export function removeChat(id: string): Promise<void> {
   deletedChatIds.add(id);
   return enqueueMutation(async () => {
     const chats = (await loadChatHistory()).filter((chat) => chat.id !== id);
-    await chrome.storage.local.set({ [STORAGE_KEY]: { version: 1, chats } satisfies StoredHistory });
+    await persistChatHistory(chats);
   });
+}
+
+async function saveLocalChatHistory(chats: SavedChat[]): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEY]: { version: 1, chats } satisfies StoredHistory });
+}
+
+async function loadSharedChatHistory(): Promise<SharedHistoryResponse | undefined> {
+  if (!globalThis.chrome?.runtime?.sendMessage) return undefined;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "dsh-saved-chats-load" }) as { ok?: boolean; initialized?: unknown; chats?: unknown } | undefined;
+    if (response?.ok !== true || typeof response.initialized !== "boolean" || !Array.isArray(response.chats)) return undefined;
+    return { initialized: response.initialized, chats: response.chats };
+  } catch {
+    return undefined;
+  }
+}
+
+async function saveSharedChatHistory(chats: SavedChat[]): Promise<boolean> {
+  if (!globalThis.chrome?.runtime?.sendMessage) return false;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "dsh-saved-chats-save", chats }) as { ok?: boolean } | undefined;
+    return response?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+async function persistChatHistory(chats: SavedChat[]): Promise<void> {
+  await saveLocalChatHistory(chats);
+  await saveSharedChatHistory(chats);
 }
 
 function enqueueMutation(mutation: () => Promise<void>): Promise<void> {

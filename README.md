@@ -182,7 +182,7 @@ That's why approval prompts are on by default for clicks, typing, and navigation
 Use `/human-in-the-loop` to turn them off or back on for the current chat.
 
 The connection between Chrome and DSH stays on your computer and uses a private token.
-Your chats and saved tasks are stored in Chrome, and DSH keeps its own local data too.
+Your chats and saved tasks are stored in the local DSH browser-agent data directory, so they are shared across Chrome profiles using the same DSH installation and survive extension rebuilds.
 Your chosen AI provider receives your messages and the page content the agent reads, along with any screenshots or attached images it uses.
 Documents are converted to text locally before that text is sent to the provider; scanned PDFs aren't uploaded or processed with OCR.
 
@@ -213,7 +213,6 @@ pnpm install --frozen-lockfile
 ### Build and run
 
 ```sh
-pnpm build:dsh-plugin
 pnpm build
 ```
 

@@ -55,3 +55,16 @@ test("accepts a typed task draft request and response", () => {
   });
   assert.equal(response?.type, "task_draft_response");
 });
+
+test("accepts shared saved-task load and save messages", () => {
+  assert.equal(parseBridgeMessage({ type: "saved_tasks", id: "tasks-1", operation: "load" })?.type, "saved_tasks");
+  assert.equal(parseBridgeMessage({ type: "saved_tasks", id: "tasks-2", operation: "save", tasks: [{ id: "task-1" }] })?.type, "saved_tasks");
+  assert.equal(parseBridgeMessage({ type: "saved_tasks_response", id: "tasks-2", initialized: true, tasks: [{ id: "task-1" }] })?.type, "saved_tasks_response");
+  assert.equal(parseBridgeMessage({ type: "saved_tasks", id: "tasks-3", operation: "save", tasks: [undefined] }), undefined);
+});
+
+test("accepts shared saved-chat load and save messages", () => {
+  assert.equal(parseBridgeMessage({ type: "saved_chats", id: "chats-1", operation: "load" })?.type, "saved_chats");
+  assert.equal(parseBridgeMessage({ type: "saved_chats", id: "chats-2", operation: "save", chats: [{ id: "chat-1" }] })?.type, "saved_chats");
+  assert.equal(parseBridgeMessage({ type: "saved_chats_response", id: "chats-2", initialized: true, chats: [{ id: "chat-1" }] })?.type, "saved_chats_response");
+});

@@ -12,6 +12,7 @@ import { AGENT_TOOL_DEFS, type AgentToolName } from "../../shared/protocol.js";
 import { createBrowserAgentOptions, TASK_DRAFT_MAX_TOKENS } from "../agent-options.js";
 import { BROWSER_AGENT_INSTRUCTIONS } from "../browser-agent-instructions.js";
 import { DshBrowserWebSocketBridge } from "../websocket/server.js";
+import { defaultSavedChatStorePath, SavedTaskStore } from "../saved-task-store.js";
 import { convertDocuments } from "../document-converter.js";
 import { BrowserRetryLimitError, BrowserRetryGuard, type BrowserMutation } from "./browser-retry-guard.js";
 import { getTaskDraftTurnError, parseTaskDraftWithRetry, TASK_DRAFT_SCHEMA_PROMPT } from "../task-draft.js";
@@ -177,6 +178,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   const agentContexts = new Map<SessionId, Context>();
   const appliedRestrictionKey = new Map<SessionId, string>();
   const toolRestrictDisposers = new Map<SessionId, () => void>();
+  const savedTaskStore = new SavedTaskStore();
+  const savedChatStore = new SavedTaskStore(defaultSavedChatStorePath());
   const rejectPendingForClient = (clientId: string, message: string): void => {
     for (const [approvalId, pending] of pendingApprovals) {
       if (pending.clientId !== clientId) continue;
@@ -215,6 +218,24 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   const bridge = new DshBrowserWebSocketBridge({
     token: config.token,
     port: config.port,
+    onSavedTasks: async (_clientId, request) => {
+      if (request.operation === "load") {
+        const result = await savedTaskStore.load();
+        return { initialized: result.initialized, tasks: result.tasks as JsonValue[] };
+      }
+      const tasks = request.tasks ?? [];
+      await savedTaskStore.save(tasks);
+      return { initialized: true, tasks };
+    },
+    onSavedChats: async (_clientId, request) => {
+      if (request.operation === "load") {
+        const result = await savedChatStore.load();
+        return { initialized: result.initialized, chats: result.tasks as JsonValue[] };
+      }
+      const chats = request.chats ?? [];
+      await savedChatStore.save(chats);
+      return { initialized: true, chats };
+    },
     onClientDisconnect: (clientId) => { void disconnectClient(clientId); },
     onExtensionEvent: (clientId, event, payload) => {
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;

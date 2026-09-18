@@ -347,13 +347,35 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   }, [activeSessionId, attentionRequests]);
 
   useEffect(() => {
-    chrome.runtime.sendMessage({ type: "dsh-bridge-status" }, (response) => {
-      if (!chrome.runtime.lastError) setConnectionStatus(response?.status === "connected" ? "connected" : response?.status ?? "disconnected");
+    const refreshSavedTasks = () => void loadSavedTasks().then(setSavedTasks);
+    const refreshSavedChats = () => void loadChatHistory().then((history) => {
+      for (const chat of history) {
+        sessionItemsRef.current.set(chat.id, chat.items);
+        sessionLinksRef.current.set(chat.id, chat.links);
+        sessionCreatedAtRef.current.set(chat.id, chat.createdAt);
+        sessionStatusRef.current.set(chat.id, chat.status);
+        if (chat.taskRun) sessionTaskRunsRef.current.set(chat.id, chat.taskRun);
+      }
+      syncSavedChats(history);
     });
+  chrome.runtime.sendMessage({ type: "dsh-bridge-status" }, (response) => {
+    if (chrome.runtime.lastError) return;
+
+    const status = response?.status === "connected" ? "connected" : response?.status ?? "disconnected";
+    setConnectionStatus(status);
+    if (status === "connected") {
+      // The connection event may have fired before this panel opened.
+      // Refresh now so this profile hydrates the shared tasks and chats.
+      refreshSavedTasks();
+      refreshSavedChats();
+    }
+  });
     void refreshAgentTabState();
     const onMessage = (message: { type?: string; status?: string; delta?: BridgeChatDelta; progress?: BridgeChatProgress; state?: AgentTabState; sessionId?: string; approval?: unknown; question?: unknown; attention?: unknown; attentionId?: string }) => {
       if (message.type === "dsh-bridge-status" && message.status) {
         setConnectionStatus(message.status);
+        if (message.status === "connected") refreshSavedTasks();
+        if (message.status === "connected") refreshSavedChats();
       } else if (message.type === "dsh-chat-delta" && message.delta && activeChatIds.current.has(message.delta.id)) {
         appendAssistantDelta(message.delta);
       } else if (message.type === "dsh-chat-progress" && message.progress && activeChatIds.current.has(message.progress.id)) {

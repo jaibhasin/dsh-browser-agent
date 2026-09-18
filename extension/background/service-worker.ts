@@ -2,7 +2,7 @@ import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
 import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
 import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentTabLiveness, getAgentTabState, getAgentTaskForId, getAgentTaskTab, markAgentTaskWaitingForInput, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, resumeAgentTaskAfterInput, startAgentTask, endAgentTask } from "./agent-tab";
 import { ATTENTION_SOUND_STORAGE_KEY, loadAttentionRequests, removeAttentionForSession as removeStoredAttentionForSession, removeAttentionRequest, saveAttentionRequest, setAttentionFocus, type AttentionRequest, type HumanApprovalRequest } from "../../shared/attention";
-import { DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES, type UserQuestion } from "../../shared/protocol";
+import { DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES, type JsonValue, type UserQuestion } from "../../shared/protocol";
 import type { BenchmarkEvent, BenchmarkRunState, BenchmarkTab, BenchmarkTabsResponse, BenchmarkRunResponse } from "../../shared/benchmark";
 import { benchmarkRecorderAvailable, reportBenchmarkEvent, requireBenchmarkEvent } from "./benchmark-client";
 import { saveChat } from "../sidepanel/src/chat-history";
@@ -194,6 +194,34 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (!message || typeof message !== "object" || !("type" in message)) return;
   if (message.type === "dsh-bridge-status") { sendResponse({ status: bridge.getStatus() }); return; }
+  if (message.type === "dsh-saved-tasks-load") {
+    void bridge.loadSavedTasks()
+      .then((result) => sendResponse({ ok: true, initialized: result.initialized, tasks: result.tasks }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Saved task storage is unavailable." }));
+    return true;
+  }
+  if (message.type === "dsh-saved-tasks-save") {
+    const tasks = (message as { tasks?: unknown }).tasks;
+    if (!Array.isArray(tasks)) { sendResponse({ ok: false, error: "Saved tasks are invalid." }); return; }
+    void bridge.saveSavedTasks(tasks as JsonValue[])
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Saved tasks could not be saved." }));
+    return true;
+  }
+  if (message.type === "dsh-saved-chats-load") {
+    void bridge.loadSavedChats()
+      .then((result) => sendResponse({ ok: true, initialized: result.initialized, chats: result.chats }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Saved chat storage is unavailable." }));
+    return true;
+  }
+  if (message.type === "dsh-saved-chats-save") {
+    const chats = (message as { chats?: unknown }).chats;
+    if (!Array.isArray(chats)) { sendResponse({ ok: false, error: "Saved chats are invalid." }); return; }
+    void bridge.saveSavedChats(chats as JsonValue[])
+      .then(() => sendResponse({ ok: true }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Saved chats could not be saved." }));
+    return true;
+  }
   if (message.type === "dsh-voice-config-get") {
     void chrome.storage.local.get(VOICE_CONFIG_STORAGE_KEY)
       .then((stored) => sendResponse({ ok: true, config: parseVoiceConfig(stored[VOICE_CONFIG_STORAGE_KEY]) }))

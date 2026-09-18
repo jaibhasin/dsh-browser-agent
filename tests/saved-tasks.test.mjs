@@ -4,12 +4,24 @@ let lockQueue = Promise.resolve();
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { request(_name, operation) { const next = lockQueue.then(operation); lockQueue = next.catch(() => {}); return next; } } } });
 
 const storage = new Map();
+let sharedStore;
 globalThis.chrome = {
   storage: {
     local: {
       async get(key) { return { [key]: storage.get(key) }; },
       async set(values) { for (const [key, value] of Object.entries(values)) storage.set(key, value); },
       async remove(key) { storage.delete(key); },
+    },
+  },
+  runtime: {
+    async sendMessage(message) {
+      if (!sharedStore) return undefined;
+      if (message.type === "dsh-saved-tasks-load") return { ok: true, ...sharedStore };
+      if (message.type === "dsh-saved-tasks-save") {
+        sharedStore = { initialized: true, tasks: message.tasks };
+        return { ok: true };
+      }
+      return undefined;
     },
   },
 };
@@ -47,6 +59,19 @@ test("serializes task writes and restores unfinished setup", async () => {
   const setup = { sourceSessionId: "session-1", conversation: "Review this", questions: [], answers: {}, updatedAt: 3 };
   await saveTaskSetup(setup);
   assert.deepEqual(await loadTaskSetup(), setup);
+});
+
+test("hydrates tasks from the shared DSH store after a profile-local cache is cleared", async () => {
+  storage.clear();
+  sharedStore = { initialized: false, tasks: [] };
+  const task = { ...legacy, version: 2, revision: 1, name: "Shared task" };
+  await saveSavedTask(task);
+  assert.equal(sharedStore.tasks[0].name, "Shared task");
+
+  storage.clear();
+  assert.deepEqual(await loadSavedTasks(), [task]);
+  assert.equal(storage.get("dshBrowserSavedTasksV1").tasks[0].name, "Shared task");
+  sharedStore = undefined;
 });
 
 test("rejects stale edits across separate panel module instances", async () => {

@@ -119,7 +119,11 @@ export type BridgeChatProgress = {
   output?: string;
   error?: string;
 };
-export type BridgeMessage = BridgeHello | BridgeWelcome | BridgeRequest | BridgeResponse | BridgeEvent | BridgePing | BridgePong | BridgeChat | BridgeChatResponse | BridgeChatDelta | BridgeNewSession | BridgeNewSessionResponse | TaskDraftRequest | TaskDraftResponse | BridgeChatProgress;
+export type BridgeSavedTasks = { type: "saved_tasks"; id: string; operation: "load" | "save"; tasks?: JsonValue[] };
+export type BridgeSavedTasksResponse = { type: "saved_tasks_response"; id: string; initialized: boolean; tasks: JsonValue[]; error?: { code: string; message: string } };
+export type BridgeSavedChats = { type: "saved_chats"; id: string; operation: "load" | "save"; chats?: JsonValue[] };
+export type BridgeSavedChatsResponse = { type: "saved_chats_response"; id: string; initialized: boolean; chats: JsonValue[]; error?: { code: string; message: string } };
+export type BridgeMessage = BridgeHello | BridgeWelcome | BridgeRequest | BridgeResponse | BridgeEvent | BridgePing | BridgePong | BridgeChat | BridgeChatResponse | BridgeChatDelta | BridgeNewSession | BridgeNewSessionResponse | TaskDraftRequest | TaskDraftResponse | BridgeChatProgress | BridgeSavedTasks | BridgeSavedTasksResponse | BridgeSavedChats | BridgeSavedChatsResponse;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -173,6 +177,26 @@ export function parseBridgeMessage(value: unknown): BridgeMessage | undefined {
         (value.output === undefined || typeof value.output === "string") &&
         (value.error === undefined || typeof value.error === "string")
         ? value as BridgeChatProgress
+        : undefined;
+    case "saved_tasks":
+      return typeof value.id === "string" && (value.operation === "load" || value.operation === "save") &&
+        (value.tasks === undefined || (Array.isArray(value.tasks) && value.tasks.every(isJsonValue)))
+        ? value as BridgeSavedTasks
+        : undefined;
+    case "saved_tasks_response":
+      return typeof value.id === "string" && typeof value.initialized === "boolean" && Array.isArray(value.tasks) && value.tasks.every(isJsonValue) &&
+        (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string"))
+        ? value as BridgeSavedTasksResponse
+        : undefined;
+    case "saved_chats":
+      return typeof value.id === "string" && (value.operation === "load" || value.operation === "save") &&
+        (value.chats === undefined || (Array.isArray(value.chats) && value.chats.every(isJsonValue)))
+        ? value as BridgeSavedChats
+        : undefined;
+    case "saved_chats_response":
+      return typeof value.id === "string" && typeof value.initialized === "boolean" && Array.isArray(value.chats) && value.chats.every(isJsonValue) &&
+        (value.error === undefined || (isRecord(value.error) && typeof value.error.code === "string" && typeof value.error.message === "string"))
+        ? value as BridgeSavedChatsResponse
         : undefined;
     case "event":
       return typeof value.event === "string" && isJsonValue(value.payload) ? value as BridgeEvent : undefined;

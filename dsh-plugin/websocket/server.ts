@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
-import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeMessage, type BridgePromptContentPart, type BridgeResponse, type JsonValue, type TaskDraftRequest, type TaskDraftResponse, parseBridgeMessage } from "../../shared/protocol.js";
+import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeMessage, type BridgePromptContentPart, type BridgeResponse, type BridgeSavedChats, type BridgeSavedChatsResponse, type BridgeSavedTasks, type BridgeSavedTasksResponse, type JsonValue, type TaskDraftRequest, type TaskDraftResponse, parseBridgeMessage } from "../../shared/protocol.js";
 
 export type DshBrowserBridgeOptions = {
   token: string;
@@ -12,6 +12,8 @@ export type DshBrowserBridgeOptions = {
   onChat?: (clientId: string, text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop?: boolean, content?: BridgePromptContentPart[]) => Promise<string>;
   onNewSession?: (clientId: string) => Promise<void>;
   onTaskDraft?: (clientId: string, request: TaskDraftRequest) => Promise<Omit<TaskDraftResponse, "type" | "id">>;
+  onSavedTasks?: (clientId: string, request: BridgeSavedTasks) => Promise<Pick<BridgeSavedTasksResponse, "initialized" | "tasks">>;
+  onSavedChats?: (clientId: string, request: BridgeSavedChats) => Promise<Pick<BridgeSavedChatsResponse, "initialized" | "chats">>;
 };
 type ConnectedClient = { clientId: string; socket: WebSocket };
 type PendingRequest = { clientId: string; resolve: (value: JsonValue) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout>; cleanup: () => void };
@@ -62,6 +64,8 @@ export class DshBrowserWebSocketBridge {
   setChatHandler(handler: (clientId: string, text: string, chatId: string, sessionId: string, resume: boolean, deniedTools?: string[], humanInTheLoop?: boolean, content?: BridgePromptContentPart[]) => Promise<string>): void { this.options.onChat = handler; }
   setNewSessionHandler(handler: (clientId: string) => Promise<void>): void { this.options.onNewSession = handler; }
   setTaskDraftHandler(handler: (clientId: string, request: TaskDraftRequest) => Promise<Omit<TaskDraftResponse, "type" | "id">>): void { this.options.onTaskDraft = handler; }
+  setSavedTasksHandler(handler: (clientId: string, request: BridgeSavedTasks) => Promise<Pick<BridgeSavedTasksResponse, "initialized" | "tasks">>): void { this.options.onSavedTasks = handler; }
+  setSavedChatsHandler(handler: (clientId: string, request: BridgeSavedChats) => Promise<Pick<BridgeSavedChatsResponse, "initialized" | "chats">>): void { this.options.onSavedChats = handler; }
   sendChatDelta(clientId: string, delta: Omit<BridgeChatDelta, "type">): void {
     const socket = this.clients.get(clientId)?.socket;
     if (socket) this.send(socket, { type: "chat_delta", ...delta });
@@ -167,6 +171,22 @@ export class DshBrowserWebSocketBridge {
         this.send(socket, { type: "task_draft_response", id: message.id, ...(await this.options.onTaskDraft(clientId, message)) } as TaskDraftResponse);
       } catch (error) {
         this.send(socket, { type: "task_draft_response", id: message.id, status: "error", error: { code: "DSH_TASK_DRAFT_FAILED", message: error instanceof Error ? error.message : "Task setup failed." } });
+      }
+    }
+    if (message.type === "saved_tasks") {
+      try {
+        if (!this.options.onSavedTasks) throw new Error("Saved task storage is not configured.");
+        this.send(socket, { type: "saved_tasks_response", id: message.id, ...(await this.options.onSavedTasks(clientId, message)) });
+      } catch (error) {
+        this.send(socket, { type: "saved_tasks_response", id: message.id, initialized: false, tasks: [], error: { code: "DSH_SAVED_TASKS_FAILED", message: error instanceof Error ? error.message : "Saved task storage failed." } });
+      }
+    }
+    if (message.type === "saved_chats") {
+      try {
+        if (!this.options.onSavedChats) throw new Error("Saved chat storage is not configured.");
+        this.send(socket, { type: "saved_chats_response", id: message.id, ...(await this.options.onSavedChats(clientId, message)) });
+      } catch (error) {
+        this.send(socket, { type: "saved_chats_response", id: message.id, initialized: false, chats: [], error: { code: "DSH_SAVED_CHATS_FAILED", message: error instanceof Error ? error.message : "Saved chat storage failed." } });
       }
     }
   }

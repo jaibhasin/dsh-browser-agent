@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgePromptContentPart, type BridgeRequest, type JsonValue, type TaskDraftRequest, type TaskDraftResponse, parseBridgeMessage } from "../../shared/protocol";
+import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type BridgeChatResponse, type BridgeMessage, type BridgeNewSessionResponse, type BridgePromptContentPart, type BridgeRequest, type BridgeSavedChatsResponse, type BridgeSavedTasksResponse, type JsonValue, type TaskDraftRequest, type TaskDraftResponse, parseBridgeMessage } from "../../shared/protocol";
 import { formatBridgeFailure } from "../../shared/provider-error";
 
 const DEFAULT_URL = "ws://127.0.0.1:7331";
@@ -27,6 +27,8 @@ export class ExtensionBridge {
   private chatRequests = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
   private sessionRequests = new Map<string, { resolve: () => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
   private taskDraftRequests = new Map<string, { resolve: (response: TaskDraftResponse) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
+  private savedTasksRequests = new Map<string, { resolve: (response: BridgeSavedTasksResponse) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
+  private savedChatsRequests = new Map<string, { resolve: (response: BridgeSavedChatsResponse) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
 
   async start(): Promise<void> {
     const config = await this.getConfiguration();
@@ -82,6 +84,36 @@ export class ExtensionBridge {
       this.send({ type: "task_draft", id, ...request });
     });
   }
+  async loadSavedTasks(): Promise<BridgeSavedTasksResponse> {
+    return this.requestSavedTasks("load");
+  }
+  async saveSavedTasks(tasks: JsonValue[]): Promise<void> {
+    await this.requestSavedTasks("save", tasks);
+  }
+  private async requestSavedTasks(operation: "load" | "save", tasks?: JsonValue[]): Promise<BridgeSavedTasksResponse> {
+    await this.waitUntilConnected();
+    const id = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { this.savedTasksRequests.delete(id); reject(new Error("Saved task storage timed out.")); }, 30_000);
+      this.savedTasksRequests.set(id, { resolve, reject, timeout });
+      this.send({ type: "saved_tasks", id, operation, ...(tasks ? { tasks } : {}) });
+    });
+  }
+  async loadSavedChats(): Promise<BridgeSavedChatsResponse> {
+    return this.requestSavedChats("load");
+  }
+  async saveSavedChats(chats: JsonValue[]): Promise<void> {
+    await this.requestSavedChats("save", chats);
+  }
+  private async requestSavedChats(operation: "load" | "save", chats?: JsonValue[]): Promise<BridgeSavedChatsResponse> {
+    await this.waitUntilConnected();
+    const id = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { this.savedChatsRequests.delete(id); reject(new Error("Saved chat storage timed out.")); }, 30_000);
+      this.savedChatsRequests.set(id, { resolve, reject, timeout });
+      this.send({ type: "saved_chats", id, operation, ...(chats ? { chats } : {}) });
+    });
+  }
   private async getConfiguration(): Promise<BridgeConfiguration> {
     const stored = await chrome.storage.local.get("dshBridge");
     const config = stored.dshBridge as Partial<BridgeConfiguration> | undefined;
@@ -115,6 +147,8 @@ export class ExtensionBridge {
       this.rejectPending(this.chatRequests, "The DSH bridge disconnected during chat.");
       this.rejectPending(this.sessionRequests, "The DSH bridge disconnected during session setup.");
       this.rejectPending(this.taskDraftRequests, "The DSH bridge disconnected during task setup.");
+      this.rejectPending(this.savedTasksRequests, "The DSH bridge disconnected during saved task storage.");
+      this.rejectPending(this.savedChatsRequests, "The DSH bridge disconnected during saved chat storage.");
       this.scheduleReconnect();
     });
   }
@@ -133,6 +167,8 @@ export class ExtensionBridge {
       else if (message.type === "chat_response") this.resolveChat(message);
       else if (message.type === "new_session_response") this.resolveNewSession(message);
       else if (message.type === "task_draft_response") this.resolveTaskDraft(message);
+      else if (message.type === "saved_tasks_response") this.resolveSavedTasks(message);
+      else if (message.type === "saved_chats_response") this.resolveSavedChats(message);
     } catch { /* Invalid peer data never reaches browser automation code. */ }
   }
   private resolveChat(message: BridgeChatResponse): void {
@@ -151,6 +187,18 @@ export class ExtensionBridge {
     const pending = this.taskDraftRequests.get(message.id); if (!pending) return;
     this.taskDraftRequests.delete(message.id); clearTimeout(pending.timeout);
     if (message.status === "error") pending.reject(new Error(formatBridgeFailure(message.error.code, message.error.message)));
+    else pending.resolve(message);
+  }
+  private resolveSavedTasks(message: BridgeSavedTasksResponse): void {
+    const pending = this.savedTasksRequests.get(message.id); if (!pending) return;
+    this.savedTasksRequests.delete(message.id); clearTimeout(pending.timeout);
+    if (message.error) pending.reject(new Error(message.error.message));
+    else pending.resolve(message);
+  }
+  private resolveSavedChats(message: BridgeSavedChatsResponse): void {
+    const pending = this.savedChatsRequests.get(message.id); if (!pending) return;
+    this.savedChatsRequests.delete(message.id); clearTimeout(pending.timeout);
+    if (message.error) pending.reject(new Error(message.error.message));
     else pending.resolve(message);
   }
   private async handleRequest(socket: WebSocket, request: BridgeRequest): Promise<void> {
@@ -174,6 +222,8 @@ export class ExtensionBridge {
     this.rejectPending(this.chatRequests, "The DSH bridge was disconnected.");
     this.rejectPending(this.sessionRequests, "The DSH bridge was disconnected.");
     this.rejectPending(this.taskDraftRequests, "The DSH bridge was disconnected.");
+    this.rejectPending(this.savedTasksRequests, "The DSH bridge was disconnected.");
+    this.rejectPending(this.savedChatsRequests, "The DSH bridge was disconnected.");
     this.socket?.close(); this.socket = undefined; this.setStatus("disconnected");
   }
   private rejectPending<T extends { timeout: ReturnType<typeof setTimeout>; reject: (error: Error) => void }>(pendingMap: Map<string, T>, message: string): void {

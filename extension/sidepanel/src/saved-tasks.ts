@@ -42,6 +42,7 @@ export type TaskSetupRecord = {
 };
 
 type StoredTasks = { version: 2; tasks: SavedTask[] };
+type SharedTasksResponse = { initialized: boolean; tasks: unknown[] };
 let mutationQueue: Promise<void> = Promise.resolve();
 
 function isTask(value: unknown): value is SavedTask {
@@ -58,12 +59,16 @@ function isTask(value: unknown): value is SavedTask {
 }
 
 export async function loadSavedTasks(): Promise<SavedTask[]> {
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
-  const data = stored[STORAGE_KEY] as Partial<StoredTasks> | undefined;
-  if (!Array.isArray(data?.tasks)) return [];
-  const migrated = data.tasks.map((task) => migrateTask(task)).filter((task): task is SavedTask => task !== undefined);
-  if (data.version !== 2) await chrome.storage.local.set({ [STORAGE_KEY]: { version: 2, tasks: migrated } satisfies StoredTasks });
-  return migrated.sort((a, b) => b.updatedAt - a.updatedAt);
+  const local = await loadLocalTasks();
+  const shared = await loadSharedTasks();
+  if (!shared) return local;
+  if (!shared.initialized) {
+    if (local.length > 0) await saveSharedTasks(local);
+    return local;
+  }
+  const tasks = shared.tasks.map(migrateTask).filter((task): task is SavedTask => task !== undefined).sort((a, b) => b.updatedAt - a.updatedAt);
+  await saveLocalTasks(tasks);
+  return tasks;
 }
 
 export function saveSavedTask(task: SavedTask, expectedRevision = 0): Promise<void> {
@@ -77,15 +82,54 @@ export function saveSavedTask(task: SavedTask, expectedRevision = 0): Promise<vo
     if (!existing && tasks.length >= MAX_TASKS) throw new Error("Saved task limit reached. Delete a task before adding another.");
     const next = [task, ...tasks.filter((candidate) => candidate.id !== task.id)]
       .sort((a, b) => b.updatedAt - a.updatedAt);
-    await chrome.storage.local.set({ [STORAGE_KEY]: { version: 2, tasks: next } satisfies StoredTasks });
+    await persistTasks(next);
   });
 }
 
 export function removeSavedTask(id: string): Promise<void> {
   return enqueue(async () => {
     const tasks = (await loadSavedTasks()).filter((task) => task.id !== id);
-    await chrome.storage.local.set({ [STORAGE_KEY]: { version: 2, tasks } satisfies StoredTasks });
+    await persistTasks(tasks);
   });
+}
+
+async function loadLocalTasks(): Promise<SavedTask[]> {
+  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  const data = stored[STORAGE_KEY] as Partial<StoredTasks> | undefined;
+  if (!Array.isArray(data?.tasks)) return [];
+  const tasks = data.tasks.map((task) => migrateTask(task)).filter((task): task is SavedTask => task !== undefined).sort((a, b) => b.updatedAt - a.updatedAt);
+  if (data.version !== 2) await saveLocalTasks(tasks);
+  return tasks;
+}
+
+async function saveLocalTasks(tasks: SavedTask[]): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEY]: { version: 2, tasks } satisfies StoredTasks });
+}
+
+async function loadSharedTasks(): Promise<SharedTasksResponse | undefined> {
+  if (!globalThis.chrome?.runtime?.sendMessage) return undefined;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "dsh-saved-tasks-load" }) as { ok?: boolean; initialized?: unknown; tasks?: unknown } | undefined;
+    if (response?.ok !== true || typeof response.initialized !== "boolean" || !Array.isArray(response.tasks)) return undefined;
+    return { initialized: response.initialized, tasks: response.tasks };
+  } catch {
+    return undefined;
+  }
+}
+
+async function saveSharedTasks(tasks: SavedTask[]): Promise<boolean> {
+  if (!globalThis.chrome?.runtime?.sendMessage) return false;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "dsh-saved-tasks-save", tasks }) as { ok?: boolean } | undefined;
+    return response?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+async function persistTasks(tasks: SavedTask[]): Promise<void> {
+  await saveLocalTasks(tasks);
+  await saveSharedTasks(tasks);
 }
 
 export async function loadTaskSetup(): Promise<TaskSetupRecord | undefined> {
