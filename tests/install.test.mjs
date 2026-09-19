@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { openChromeExtensionsPage } from '../scripts/open-chrome-extensions.mjs';
+import { installerWorkspaceFilters } from '../scripts/install.mjs';
 
 const installer = resolve('scripts/install.mjs');
 test('runtime lock contains only the supported DSH release, including projection cache', () => {
@@ -14,6 +15,10 @@ test('runtime lock contains only the supported DSH release, including projection
   for (const [path, pkg] of packages) assert.equal(pkg.version, '0.1.2-rc.1', path);
   assert.equal(lock.packages['node_modules/@deepseek-ai/dsh-session-projection-cache'].version, '0.1.2-rc.1');
   assert.ok(!lock.packages['node_modules/@deepseek-ai/dsh-host-apiproxy']);
+});
+
+test('installer excludes report-only workspace dependencies', () => {
+  assert.deepEqual(installerWorkspaceFilters, ['.', './dsh-plugin']);
 });
 
 test('opens the Chrome extensions page using the platform browser launcher', () => {

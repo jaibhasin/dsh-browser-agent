@@ -1,5 +1,6 @@
 packages:
   - dsh-plugin
+  - evals/memory-benchmark
 
 allowBuilds:
   esbuild: true

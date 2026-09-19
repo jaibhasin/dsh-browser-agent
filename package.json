@@ -42,7 +42,6 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-attachment": "0.1.2-rc.1",
-    "@resvg/resvg-js": "^2.6.2",
     "@types/chrome": "^0.0.270",
     "@types/node": "^24.10.1",
     "@types/react": "^19.1.10",

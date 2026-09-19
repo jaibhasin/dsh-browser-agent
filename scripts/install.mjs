@@ -15,6 +15,8 @@ const legacyRoot = join(dshHome, 'browser-agent-install');
 const profile = join(dshHome, 'profiles', profileName);
 const args = process.argv.slice(2);
 
+export const installerWorkspaceFilters = ['.', './dsh-plugin'];
+
 function run(command, argv, cwd) {
   const result = spawnSync(command, argv, { cwd, encoding: 'utf8', env: process.env, maxBuffer: 20 * 1024 * 1024 });
   if (result.error || result.status !== 0) {
@@ -81,7 +83,7 @@ function main() {
     const npmPrefix = npm ? [npm] : [];
     const pnpm = (...argv) => run(npmCommand, [...npmPrefix, 'exec', '--yes', '--package=pnpm@11.8.0', '--', 'pnpm', ...argv], stage);
     console.log('\ndsh Browser Agent setup\n\n[1/4] Downloading build tools and dependencies. This can take a few minutes...');
-    pnpm('install', '--frozen-lockfile');
+    pnpm('install', '--frozen-lockfile', ...installerWorkspaceFilters.flatMap(filter => ['--filter', filter]));
     console.log('[2/4] Building your browser extension and plugin...');
     pnpm('run', 'build:dsh-plugin');
     pnpm('run', 'build');
@@ -133,4 +135,6 @@ function main() {
   }
 }
 
-try { main(); } catch (error) { console.error(`Installation failed: ${error.message}`); process.exitCode = 1; }
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try { main(); } catch (error) { console.error(`Installation failed: ${error.message}`); process.exitCode = 1; }
+}
