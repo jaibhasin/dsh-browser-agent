@@ -49,6 +49,16 @@ Then click **Extensions > dsh Browser Agent** in Chrome and start chatting.
 
 Use the same start command next time; Ctrl+C stops the agent.
 
+### Start an existing `browser-agent` profile again
+
+If you set up the older `browser-agent` profile from a checkout, start its backend with this command on one line:
+
+```sh
+node "$HOME/.dsh/profiles/node_modules/@deepseek-ai/dsh/lib/bin.js" --profile browser-agent --no-open
+```
+
+Keep the terminal open while using the extension, and press Ctrl+C to stop the backend.
+
 ## Agent tools
 
 List of tools the **agent** has access to by default
