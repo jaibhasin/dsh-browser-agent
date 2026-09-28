@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { installModelSelection, type AgentHandle, type AgentOptions, type CreateAgentOptions, type ModelSelection } from "@deepseek-ai/dsh-agent";
 import { brandString } from "@deepseek-ai/dsh-brand";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
-import { admitPromptContent, type AttachmentStore, type ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
+import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
 import type { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import type { BridgePromptContentPart, BrowserSnapshotData, JsonValue, TaskDraftDefinition, TaskDraftQuestion, TaskDraftRequest, UserQuestion, UserQuestionResponse } from "../../shared/protocol.js";
@@ -80,12 +80,6 @@ interface BrowserWaitResult {
 interface AssistantMessageEvent {
   type: string;
   data?: { message?: { content?: unknown } };
-}
-
-interface AssistantChunkEvent {
-  type: "assistant/chunk";
-  seq: number;
-  data?: { chunk?: { type?: unknown; text?: unknown } };
 }
 
 interface ToolCallEvent {
@@ -314,6 +308,12 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       agentOptions: createBrowserAgentOptions(selection.provider, selection.model, agentOptions),
       setup: (agentCtx: Context) => {
         agentContext = agentCtx;
+        agentCtx.on("agent/assistant-stream", ({ agent, frame }) => {
+          if (frame.type !== "chunk" || frame.chunk.type !== "text-delta" || !frame.chunk.text) return;
+          const chat = activeChatsBySession.get(agent.session.id);
+          if (!chat) return;
+          bridge.sendChatDelta(chat.clientId, { id: chat.id, text: frame.chunk.text });
+        });
         agentCtx.systemPrompt.section({
           name: "dsh-browser-agent.instructions",
           order: 100,
@@ -399,12 +399,6 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   ctx.on("session/event", (session, event) => {
     const chat = activeChatsBySession.get(session.id as SessionId);
     if (!chat || session !== chat.handle.agent.session || event.seq < chat.firstEventSeq) return;
-    if (event.type === "assistant/chunk") {
-      const chunk = (event as AssistantChunkEvent).data?.chunk;
-      if (chunk?.type !== "text-delta" || typeof chunk.text !== "string" || !chunk.text) return;
-      bridge.sendChatDelta(chat.clientId, { id: chat.id, text: chunk.text });
-      return;
-    }
     if (event.type === "tool/call") {
       const call = event as ToolCallEvent;
       if (typeof call.data.callId !== "string" || typeof call.data.name !== "string") return;
@@ -452,7 +446,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         throw new Error("DSH image attachment storage is unavailable.");
       }
       const admittedContent = imageParts.length > 0 && attachments
-        ? await admitPromptContent(attachments, [...(promptText ? [{ type: "text" as const, text: promptText }] : []), ...imageParts])
+        ? await attachments.admitPromptContent([...(promptText ? [{ type: "text" as const, text: promptText }] : []), ...imageParts])
         : [{ type: "text" as const, text: promptText }];
       const message = createUserMessage({
         content: admittedContent,
