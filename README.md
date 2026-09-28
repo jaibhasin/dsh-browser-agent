@@ -37,10 +37,10 @@ $script = Join-Path $env:TEMP 'dsh-browser-install.ps1'; Invoke-WebRequest -UseB
 
 When the setup completes it prints the extension folder and start command you'll need next.
 
-Go to `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and select the folder the installer printed.
+First run the `node ".../start.mjs"` command from the installer and keep that terminal open.
+This starts DSH before the extension loads and tries to connect.
 
-Run the `node ".../start.mjs"` command from the installer and keep that terminal open.
-
+Then go to `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and select the folder the installer printed.
 
 Open the web address DSH prints, add your API key, and pick a model.
 

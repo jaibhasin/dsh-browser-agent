@@ -127,7 +127,41 @@ function main() {
     json(manifestPath + '.tmp', manifest);
     renameSync(manifestPath + '.tmp', manifestPath);
     write(join(root, 'start.mjs'), `import { pathToFileURL } from 'node:url';\nprocess.env.DSH_HOME = ${JSON.stringify(dshHome)};\nconst executable = ${JSON.stringify(executable)};\nprocess.argv = [process.execPath, executable, '--profile', '${profileName}', '--no-open'];\nconst { runCli } = await import(pathToFileURL(executable).href);\nif (typeof runCli !== 'function') throw new Error('The pinned DSH CLI has no runnable entry point.');\nawait runCli();\n`);
-    console.log(`\nSetup complete! Finish these steps in Google Chrome:\n\n1. Copy chrome://extensions into Chrome's address bar and press Enter.\n2. Turn on "Developer mode" using the switch in the top-right corner.\n3. Click "Load unpacked" in the top-left corner.\n4. Select this folder (select the folder itself, not a file inside it):\n\n   ${extension}\n\n   On Mac: press Cmd+Shift+G in the folder picker, paste the path,\n   press Return, then click Select.\n   On Windows: paste the path into the folder picker's address bar,\n   press Enter, then click Select Folder.\n   On Linux: press Ctrl+L in the folder picker, paste the path,\n   press Enter, then select the folder.\n\n${hadExtension ? 'Already have dsh Browser Agent installed? Click its circular Reload button instead of loading it again.\n\n' : ''}5. Copy and run this command in your terminal:\n\n   node "${join(root, 'start.mjs')}"\n\n   Keep that terminal open while using dsh Browser Agent.\n6. Open the local web address printed by DSH. Configure your API key\n   and choose a model there.\n7. In Chrome, click the puzzle-piece Extensions button, then dsh Browser Agent\n   to open its side panel. You can now start chatting!\n\nNext time, just run the command in step 5 and open dsh Browser Agent.\nTo stop it, press Ctrl+C in its terminal.\nIf port 7331 or 3080 is busy, stop your other DSH instance first.\n\nTo uninstall on any platform, stop DSH and run:\n   node "${join(stage, 'scripts', 'install.mjs')}" --uninstall\nThen remove dsh Browser Agent from chrome://extensions.\nPrevious builds are retained in ${root}.`);
+    console.log([
+      '',
+      'Setup complete! Finish these steps:',
+      '',
+      '1. Copy and run this command in your terminal before loading or reloading the extension:',
+      '',
+      `   node "${join(root, 'start.mjs')}"`,
+      '',
+      '   Keep that terminal open while using dsh Browser Agent.',
+      '2. In Chrome, open chrome://extensions and turn on "Developer mode" using the switch in the top-right corner.',
+      '3. Click "Load unpacked" in the top-left corner and select this folder (the folder itself, not a file inside it):',
+      '',
+      `   ${extension}`,
+      '',
+      '   On Mac: press Cmd+Shift+G in the folder picker, paste the path,',
+      '   press Return, then click Select.',
+      "   On Windows: paste the path into the folder picker's address bar,",
+      '   press Enter, then click Select Folder.',
+      '   On Linux: press Ctrl+L in the folder picker, paste the path,',
+      '   press Enter, then select the folder.',
+      ...(hadExtension ? ['   Already have dsh Browser Agent installed? Click its circular Reload button instead of loading it again.'] : []),
+      '4. Open the local web address printed by DSH. Configure your API key',
+      '   and choose a model there.',
+      '5. In Chrome, click the puzzle-piece Extensions button, then dsh Browser Agent',
+      '   to open its side panel. You can now start chatting!',
+      '',
+      'Next time, start DSH with the command in step 1 and open dsh Browser Agent.',
+      'To stop it, press Ctrl+C in the DSH terminal.',
+      'If port 7331 or 3080 is busy, stop your other DSH instance first.',
+      '',
+      'To uninstall on any platform, stop DSH and run:',
+      `   node "${join(stage, 'scripts', 'install.mjs')}" --uninstall`,
+      'Then remove dsh Browser Agent from chrome://extensions.',
+      `Previous builds are retained in ${root}.`,
+    ].join('\n'));
     if (openChromeExtensionsPage()) console.log('Chrome has been opened to chrome://extensions.');
     else console.log('Could not open Chrome automatically. Open chrome://extensions manually.');
   } finally {
