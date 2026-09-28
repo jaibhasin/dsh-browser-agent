@@ -8,12 +8,25 @@ import { openChromeExtensionsPage } from '../scripts/open-chrome-extensions.mjs'
 import { installerWorkspaceFilters } from '../scripts/install.mjs';
 
 const installer = resolve('scripts/install.mjs');
+const supportedDshVersion = '0.1.6-alpha.2';
 test('runtime lock contains only the supported DSH release, including projection cache', () => {
+  const manifest = JSON.parse(readFileSync('runtime/package.json', 'utf8'));
+  const packageManifest = JSON.parse(readFileSync('package.json', 'utf8'));
+  const pluginManifest = JSON.parse(readFileSync('dsh-plugin/package.json', 'utf8'));
   const lock = JSON.parse(readFileSync('runtime/package-lock.json', 'utf8'));
   const packages = Object.entries(lock.packages).filter(([path]) => /node_modules\/@deepseek-ai\/dsh(?:-[^/]+)?$/.test(path));
   assert.ok(packages.length > 0);
-  for (const [path, pkg] of packages) assert.equal(pkg.version, '0.1.2-rc.1', path);
-  assert.equal(lock.packages['node_modules/@deepseek-ai/dsh-session-projection-cache'].version, '0.1.2-rc.1');
+  assert.equal(manifest.dependencies['@deepseek-ai/dsh'], supportedDshVersion);
+  assert.equal(packageManifest.devDependencies['@deepseek-ai/dsh-attachment'], supportedDshVersion);
+  assert.equal(lock.packages[''].dependencies['@deepseek-ai/dsh'], supportedDshVersion);
+  for (const [path, pkg] of packages) assert.equal(pkg.version, supportedDshVersion, path);
+  for (const [name, version] of Object.entries(pluginManifest.peerDependencies)) {
+    if (name.startsWith('@deepseek-ai/dsh-')) assert.equal(version, `^${supportedDshVersion}`, name);
+  }
+  for (const [name, version] of Object.entries(pluginManifest.devDependencies)) {
+    if (name.startsWith('@deepseek-ai/dsh-')) assert.equal(version, supportedDshVersion, name);
+  }
+  assert.equal(lock.packages['node_modules/@deepseek-ai/dsh-session-projection-cache'].version, supportedDshVersion);
   assert.ok(!lock.packages['node_modules/@deepseek-ai/dsh-host-apiproxy']);
 });
 
