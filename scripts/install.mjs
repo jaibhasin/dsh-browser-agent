@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -27,6 +27,19 @@ function run(command, argv, cwd) {
 }
 function write(path, text) { writeFileSync(path, text, { mode: 0o600 }); }
 function json(path, value) { write(path, `${JSON.stringify(value, null, 2)}\n`); }
+function extensionIdentity(profile) {
+  const keyPath = join(profile, '.extension-public-key');
+  let key;
+  if (existsSync(keyPath)) key = readFileSync(keyPath, 'utf8').trim();
+  else {
+    key = generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+    mkdirSync(profile, { recursive: true, mode: 0o700 });
+    write(keyPath, `${key}\n`);
+  }
+  const digest = createHash('sha256').update(Buffer.from(key, 'base64')).digest().subarray(0, 16);
+  const id = [...digest].map(byte => String.fromCharCode(97 + (byte >> 4), 97 + (byte & 15))).join('');
+  return { key, id };
+}
 function checkOwned(path) {
   if (!existsSync(path)) return;
   if (lstatSync(path).isSymbolicLink() || !existsSync(join(path, '.installer-owner')) || readFileSync(join(path, '.installer-owner'), 'utf8') !== owner) {
@@ -74,9 +87,13 @@ function main() {
       });
     }
     const tokenPath = join(profile, '.bridge-token');
+    const { key: extensionKey, id: extensionId } = extensionIdentity(profile);
     const token = existsSync(tokenPath) ? readFileSync(tokenPath, 'utf8').trim() : randomBytes(32).toString('hex');
     if (!/^[a-f0-9]{64}$/.test(token)) throw new Error(`Invalid bridge token in ${tokenPath}`);
-    write(join(stage, 'extension', '.env.local'), `VITE_DSH_BRIDGE_TOKEN=${token}\n`);
+    write(join(stage, 'extension', '.env.local'), `VITE_DSH_BRIDGE_TOKEN=${token}\nVITE_DSH_EXTENSION_ID=${extensionId}\n`);
+    const stagedManifest = JSON.parse(readFileSync(join(stage, 'extension', 'manifest.json'), 'utf8'));
+    stagedManifest.key = extensionKey;
+    json(join(stage, 'extension', 'manifest.json'), stagedManifest);
     // Invoke npm's JS entry point directly on Windows, avoiding shell quoting of paths.
     const npm = process.platform === 'win32' ? join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js') : null;
     const npmCommand = npm ? process.execPath : 'npm';
@@ -123,7 +140,13 @@ function main() {
     symlinkSync(join(runtime, 'node_modules'), profileModules, process.platform === 'win32' ? 'junction' : 'dir');
     write(tokenPath, `${token}\n`);
     if (!existsSync(join(profile, 'cordis.yml'))) write(join(profile, 'cordis.yml'), '[]\n');
-    if (!existsSync(join(profile, 'cordis.patch.yml'))) write(join(profile, 'cordis.patch.yml'), `- id: dsh-browser-agent\n  config:\n    token: "${token}"\n    port: 7331\n`);
+    if (!existsSync(join(profile, 'cordis.patch.yml'))) write(join(profile, 'cordis.patch.yml'), `- id: dsh-browser-agent\n  config:\n    token: "${token}"\n    extensionId: "${extensionId}"\n    port: 7331\n`);
+    else {
+      const patchPath = join(profile, 'cordis.patch.yml');
+      let patch = readFileSync(patchPath, 'utf8');
+      if (!/^\s+extensionId:/m.test(patch)) patch = patch.replace(/(\s+token:.*\n)/, `$1    extensionId: "${extensionId}"\n`);
+      write(patchPath, patch);
+    }
     json(manifestPath + '.tmp', manifest);
     renameSync(manifestPath + '.tmp', manifestPath);
     write(join(root, 'start.mjs'), `import { pathToFileURL } from 'node:url';\nprocess.env.DSH_HOME = ${JSON.stringify(dshHome)};\nconst executable = ${JSON.stringify(executable)};\nprocess.argv = [process.execPath, executable, '--profile', '${profileName}', '--no-open'];\nconst { runCli } = await import(pathToFileURL(executable).href);\nif (typeof runCli !== 'function') throw new Error('The pinned DSH CLI has no runnable entry point.');\nawait runCli();\n`);

@@ -3,6 +3,7 @@ import { formatBridgeFailure } from "../../shared/provider-error";
 
 const DEFAULT_URL = "ws://127.0.0.1:7331";
 const BUILD_TOKEN = import.meta.env.VITE_DSH_BRIDGE_TOKEN ?? "";
+const BUILD_EXTENSION_ID = import.meta.env.VITE_DSH_EXTENSION_ID ?? "";
 const RECONNECT_MAX_MS = 30_000;
 const CONNECTION_WAIT_TIMEOUT_MS = 5_000;
 const DEFAULT_CHAT_TIMEOUT_MS = 120_000;
@@ -136,6 +137,7 @@ export class ExtensionBridge {
     return this.clientId;
   }
   private connect(config: BridgeConfiguration, clientId: string): void {
+    if (BUILD_EXTENSION_ID && chrome.runtime.id !== BUILD_EXTENSION_ID) return this.setStatus("error");
     if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) return;
     this.setStatus("connecting");
     const socket = new WebSocket(config.url);

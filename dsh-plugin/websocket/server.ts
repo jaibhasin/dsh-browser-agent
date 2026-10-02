@@ -4,6 +4,7 @@ import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type B
 
 export type DshBrowserBridgeOptions = {
   token: string;
+  extensionId: string;
   host?: "127.0.0.1";
   port?: number;
   requestTimeoutMs?: number;
@@ -30,12 +31,13 @@ export class DshBrowserWebSocketBridge {
 
   constructor(options: DshBrowserBridgeOptions) {
     if (options.token.length < 32) throw new Error("DSH browser bridge token must be at least 32 characters.");
+    if (!/^[a-p]{32}$/.test(options.extensionId)) throw new Error("DSH browser bridge extension ID is invalid.");
     this.options = { host: "127.0.0.1", port: 7331, requestTimeoutMs: 30_000, ...options };
   }
   async start(): Promise<void> {
     if (this.server) return;
     this.server = new WebSocketServer({ host: this.options.host, port: this.options.port, perMessageDeflate: false });
-    this.server.on("connection", (socket, request) => this.accept(socket, request.headers.origin));
+    this.server.on("connection", (socket, request) => this.accept(socket, request.headers.origin, request.headers.host));
     await new Promise<void>((resolve, reject) => { this.server?.once("listening", resolve); this.server?.once("error", reject); });
     this.heartbeatTimer = setInterval(() => {
       for (const client of this.clients.values()) {
@@ -107,8 +109,12 @@ export class DshBrowserWebSocketBridge {
       });
     });
   }
-  private accept(socket: WebSocket, origin: string | undefined): void {
-    if (!origin?.startsWith("chrome-extension://")) { socket.close(1008, "Chrome extension origin required"); return; }
+  private accept(socket: WebSocket, origin: string | undefined, host: string | undefined): void {
+    const expectedOrigin = `chrome-extension://${this.options.extensionId}`;
+    if (origin !== expectedOrigin) { socket.close(1008, "Expected Chrome extension origin required"); return; }
+    if (!host || !/^(127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i.test(host)) {
+      socket.close(1008, "Loopback host required"); return;
+    }
     let authenticated = false;
     let clientId: string | undefined;
     const authenticationTimeout = setTimeout(() => socket.close(1008, "Authentication timed out"), 5_000);

@@ -4,6 +4,7 @@ import { WebSocket } from "ws";
 import { DshBrowserWebSocketBridge } from "../dist/dsh-plugin/websocket/server.js";
 
 const token = "a".repeat(64);
+const extensionId = "abcdefghijklmnopabcdefghijklmnop";
 const clientOne = "11111111-1111-4111-8111-111111111111";
 const clientTwo = "22222222-2222-4222-8222-222222222222";
 
@@ -28,7 +29,7 @@ function waitForMessage(socket, predicate, timeoutMs = 2_000) {
 }
 
 async function connect(port, clientId) {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { origin: "chrome-extension://test" } });
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { origin: `chrome-extension://${extensionId}` } });
   await new Promise((resolve, reject) => {
     socket.once("open", resolve);
     socket.once("error", reject);
@@ -38,12 +39,25 @@ async function connect(port, clientId) {
   return socket;
 }
 
+async function rejected(port, { origin = `chrome-extension://${extensionId}`, host = `127.0.0.1:${port}`, protocolVersion = 2, suppliedToken = token }) {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { origin, host } });
+  await new Promise((resolve) => { socket.once("open", resolve); socket.once("error", resolve); });
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "hello", protocolVersion, token: suppliedToken, client: "chrome-extension", clientId: "33333333-3333-4333-8333-333333333333" }));
+  }
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Expected bridge to reject the connection.")), 2_000);
+    socket.once("close", () => { clearTimeout(timer); resolve(); });
+  });
+}
+
 const port = await freePort();
 const events = [];
 const chats = [];
 const disconnected = [];
 const bridge = new DshBrowserWebSocketBridge({
   token,
+  extensionId,
   port,
   onExtensionEvent: (clientId, event) => events.push({ clientId, event }),
   onClientDisconnect: (clientId) => disconnected.push(clientId),
@@ -54,6 +68,11 @@ const bridge = new DshBrowserWebSocketBridge({
 });
 
 await bridge.start();
+await rejected(port, { origin: "chrome-extension://another-extension-id" });
+await rejected(port, { origin: "chrome-extension://" });
+await rejected(port, { host: `example.com:${port}` });
+await rejected(port, { suppliedToken: "b".repeat(64) });
+await rejected(port, { protocolVersion: 999 });
 const first = await connect(port, clientOne);
 const second = await connect(port, clientTwo);
 assert.equal(bridge.isConnected(clientOne), true);
