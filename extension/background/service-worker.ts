@@ -182,8 +182,14 @@ bridge.setRequestHandler(async (request) => {
     return result;
   }
   if (request.method === "tabs") {
-    const includeAllTabs = (request.params as { includeAllTabs?: unknown } | undefined)?.includeAllTabs === true;
-    return await listBrowserTabs(includeAllTabs ? undefined : await getAgentOwnedTabIds());
+    const params = request.params as { includeAllTabs?: unknown; includeIncognito?: unknown } | undefined;
+    const includeAllTabs = params?.includeAllTabs;
+    const includeIncognito = params?.includeIncognito;
+    if ((includeAllTabs !== undefined && typeof includeAllTabs !== "boolean") || (includeIncognito !== undefined && typeof includeIncognito !== "boolean")) {
+      throw new Error("Tab-list options must be booleans.");
+    }
+    if (includeIncognito === true && includeAllTabs !== true) throw new Error("Incognito tabs can only be listed in include-all mode.");
+    return await listBrowserTabs(includeAllTabs === true ? undefined : await getAgentOwnedTabIds(), includeIncognito === true);
   }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });

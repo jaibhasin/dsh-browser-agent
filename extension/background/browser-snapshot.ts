@@ -213,9 +213,12 @@ function waitForTabLoad(tabId: number, timeoutMs: number): Promise<chrome.tabs.T
   });
 }
 
-/** List every currently open browser tab. */
-export async function listBrowserTabs(ownedTabIds?: readonly number[]): Promise<JsonValue> {
+/** List DSH-owned tabs by default; all-tab and incognito exposure must be opted into. */
+export async function listBrowserTabs(ownedTabIds?: readonly number[], includeIncognito = false): Promise<JsonValue> {
+  if (includeIncognito && !(await chrome.extension.isAllowedIncognitoAccess())) {
+    throw new Error("Incognito access is not enabled for this extension in Chrome. No incognito tabs were listed.");
+  }
   const tabs = await chrome.tabs.query({});
-  return { tabs: tabs.filter((tab) => tab.id !== undefined && tab.windowId !== undefined && !tab.incognito
+  return { tabs: tabs.filter((tab) => tab.id !== undefined && tab.windowId !== undefined && (includeIncognito || !tab.incognito)
     && (ownedTabIds === undefined || ownedTabIds.includes(tab.id))).map(toBrowserTab) };
 }
