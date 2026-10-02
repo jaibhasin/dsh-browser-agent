@@ -121,7 +121,7 @@ export async function getAgentSessionForTab(tabId: number): Promise<string | und
   return Object.entries(tabs).find(([, stored]) => stored.tabId === tabId)?.[0];
 }
 
-/** Returns tabs currently assigned to DSH sessions. */
+/** Returns live tab IDs assigned to DSH sessions. */
 export async function getAgentOwnedTabIds(): Promise<number[]> {
   const tabs = await readStoredAgentTabs();
   return [...new Set(Object.values(tabs).map(({ tabId }) => tabId))];

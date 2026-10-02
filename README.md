@@ -68,7 +68,7 @@ List of tools the **agent** has access to by default
 | `ask_user` | Asks the user for a missing choice or detail. |
 | `browser_snapshot` | Reads page text and gives buttons, links, and fields numbered references. |
 | `browser_navigate` | Opens an HTTP or HTTPS URL in the chat's assigned tab. |
-| `browser_tabs` | Lists tabs assigned to DSH sessions by default. Listing all regular tabs requires confirmation because their titles and URLs are shared with the chosen model provider. Incognito tabs require the extension's separate Chrome incognito access setting and a separate user confirmation. |
+| `browser_tabs` | Lists tabs assigned to DSH sessions. Listing all regular tabs requires confirmation because their titles and URLs are shared with the chosen model provider. Incognito tabs also require Chrome's separate incognito access setting and a separate user confirmation. |
 | `browser_wait` | Waits for the page to settle, then takes a fresh snapshot. |
 | `browser_screenshot` | Takes a PNG screenshot of the visible part of the chat's tab. |
 | `browser_scroll` | Scrolls up, down, left, or right by a number of pixels. |

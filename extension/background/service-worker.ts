@@ -1,6 +1,6 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
-import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
-import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentTabLiveness, getAgentTabState, getAgentTaskForId, getAgentTaskTab, markAgentTaskWaitingForInput, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, resumeAgentTaskAfterInput, startAgentTask, endAgentTask } from "./agent-tab";
+import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, resetBrowserSnapshotBaseline, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
+import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentOwnedTabIds, getAgentTabLiveness, getAgentTabState, getAgentTaskForId, getAgentTaskTab, markAgentTaskWaitingForInput, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, resumeAgentTaskAfterInput, startAgentTask, endAgentTask } from "./agent-tab";
 import { ATTENTION_SOUND_STORAGE_KEY, loadAttentionRequests, removeAttentionForSession as removeStoredAttentionForSession, removeAttentionRequest, saveAttentionRequest, setAttentionFocus, type AttentionRequest, type HumanApprovalRequest } from "../../shared/attention";
 import { DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES, type JsonValue, type UserQuestion } from "../../shared/protocol";
 import type { BenchmarkEvent, BenchmarkRunState, BenchmarkRunTask, BenchmarkTab, BenchmarkTabsResponse, BenchmarkRunResponse } from "../../shared/benchmark";
@@ -120,6 +120,9 @@ async function runBenchmark(runId: string, requestedTasks: Array<{ tab: Benchmar
 bridge.setChatDeltaHandler((delta) => {
   void chrome.runtime.sendMessage({ type: "dsh-chat-delta", delta }).catch(() => undefined);
 });
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url || changeInfo.status === "loading") resetBrowserSnapshotBaseline(tabId);
+});
 bridge.setChatProgressHandler((progress) => {
   void chrome.runtime.sendMessage({ type: "dsh-chat-progress", progress }).catch(() => undefined);
 });
@@ -129,7 +132,15 @@ bridge.setEventHandler((event, payload) => {
 });
 bridge.setRequestHandler(async (request) => {
   const taskTab = request.taskId ? await getAgentTaskTab(request.taskId) : undefined;
-  if (request.method === "snapshot") return await captureBrowserSnapshot(taskTab);
+  if (request.method === "snapshot") {
+    const params = request.params && typeof request.params === "object" && !Array.isArray(request.params) ? request.params as Record<string, unknown> : {};
+    const mode = params.mode;
+    if (mode !== undefined && !["interactive", "semantic", "text"].includes(mode as string)) throw new Error("Snapshot mode must be interactive, semantic, or text.");
+    if (params.changedOnly !== undefined && typeof params.changedOnly !== "boolean") throw new Error("changedOnly must be a boolean.");
+    if (params.scopeRef !== undefined && (!Number.isInteger(params.scopeRef) || (params.scopeRef as number) < 1)) throw new Error("scopeRef must be a positive ref number.");
+    if (params.maxDepth !== undefined && (!Number.isInteger(params.maxDepth) || (params.maxDepth as number) < 0 || (params.maxDepth as number) > 30)) throw new Error("maxDepth must be an integer from 0 to 30.");
+    return await captureBrowserSnapshot(taskTab, params as { mode?: "interactive" | "semantic" | "text"; changedOnly?: boolean; scopeRef?: number; maxDepth?: number });
+  }
   if (request.method === "wait") {
     const timeoutMs = (request.params as { timeoutMs?: unknown })?.timeoutMs;
     if (typeof timeoutMs !== "number" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 10_000) {
@@ -167,13 +178,14 @@ bridge.setRequestHandler(async (request) => {
     return result;
   }
   if (request.method === "tabs") {
-    const params = request.params;
-    if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("Tab-list options are required.");
-    const { includeAllTabs, includeIncognito } = params as { includeAllTabs?: unknown; includeIncognito?: unknown };
+    const params = request.params as { includeAllTabs?: unknown; includeIncognito?: unknown } | undefined;
+    const includeAllTabs = params?.includeAllTabs;
+    const includeIncognito = params?.includeIncognito;
     if ((includeAllTabs !== undefined && typeof includeAllTabs !== "boolean") || (includeIncognito !== undefined && typeof includeIncognito !== "boolean")) {
       throw new Error("Tab-list options must be booleans.");
     }
-    return await listBrowserTabs({ includeAllTabs: includeAllTabs === true, includeIncognito: includeIncognito === true });
+    if (includeIncognito === true && includeAllTabs !== true) throw new Error("Incognito tabs can only be listed in include-all mode.");
+    return await listBrowserTabs(includeAllTabs === true ? undefined : await getAgentOwnedTabIds(), includeIncognito === true);
   }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
