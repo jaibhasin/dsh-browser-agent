@@ -16,6 +16,7 @@ import { defaultSavedChatStorePath, SavedTaskStore } from "../saved-task-store.j
 import { convertDocuments } from "../document-converter.js";
 import { BrowserRetryLimitError, BrowserRetryGuard, type BrowserMutation } from "./browser-retry-guard.js";
 import { getTaskDraftTurnError, parseTaskDraftWithRetry, TASK_DRAFT_SCHEMA_PROMPT } from "../task-draft.js";
+import { UNTRUSTED_BROWSER_CONTENT_END, UNTRUSTED_BROWSER_CONTENT_START, wrapUntrustedBrowserContent } from "../../shared/untrusted-browser-content.js";
 
 export const name = "dsh-browser-snapshot";
 export const inject = ["tools", "agents", "agentDefaultModel", "workspaceRegistry", "attachments"];
@@ -648,7 +649,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       if (typeof url !== "string") throw new Error("Browser navigate requires a URL.");
       await requestHumanApproval("browser_navigate", url, exec.signal);
       const result = await requestBrowser("navigate", { url }, exec.signal);
-      return parseBrowserTabResult(result, "navigate");
+      const parsed = parseBrowserTabResult(result, "navigate");
+      return { tab: wrapBrowserTab(parsed.tab) };
     },
   }));
   ctx.tools.register(defineTool({
@@ -669,7 +671,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         throw new Error("The browser extension returned an invalid tab list.");
       }
       const tabs = (result as { tabs: unknown[] }).tabs.map((tab) => parseBrowserTab(tab, "tab list"));
-      return { tabs };
+      return { tabs: tabs.map(wrapBrowserTab) };
     },
   }));
   ctx.tools.register(defineTool({
@@ -689,7 +691,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { text?: unknown }).text !== "string") {
         throw new Error("The browser extension returned an invalid snapshot.");
       }
-      return { snapshot: (result as { text: string }).text };
+      const snapshot = (result as { text: string }).text;
+      return { snapshot: wrapUntrustedBrowserContent(snapshot, sourceUrlFromSnapshot(snapshot)) };
     },
   }));
   ctx.tools.register(defineTool({
@@ -746,7 +749,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         documentComplete: wait.documentComplete,
         domQuietForMs: Math.round(wait.domQuietForMs),
         busyElements: Math.round(wait.busyElements),
-        snapshot: wait.text,
+        snapshot: wrapUntrustedBrowserContent(wait.text, sourceUrlFromSnapshot(wait.text)),
       } satisfies BrowserWaitResult;
     },
   }));
@@ -782,7 +785,11 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
           },
         },
       },
-      render: (_args, value) => [{ type: "image", attachment: (value as ScreenshotToolResult).attachment }],
+      render: (_args, value) => [
+        { type: "text", text: `${UNTRUSTED_BROWSER_CONTENT_START}\nSource URL: (assigned browser tab; not included in screenshot response)\nScreenshot image follows.` },
+        { type: "image", attachment: (value as ScreenshotToolResult).attachment },
+        { type: "text", text: UNTRUSTED_BROWSER_CONTENT_END },
+      ],
     },
     async execute(_args, exec) {
       if (!attachments) throw new Error("DSH attachment storage is unavailable.");
@@ -821,7 +828,8 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
       if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { text?: unknown }).text !== "string") {
         throw new Error("The browser extension returned an invalid scroll result.");
       }
-      return { snapshot: (result as { text: string }).text };
+      const snapshot = (result as { text: string }).text;
+      return { snapshot: wrapUntrustedBrowserContent(snapshot, sourceUrlFromSnapshot(snapshot)) };
     },
   }));
   ctx.tools.register(defineTool({
@@ -925,6 +933,18 @@ function renderBrowserTab(tab: BrowserTab): string {
 
 function renderBrowserTabs(tabs: BrowserTab[]): string {
   return tabs.length === 0 ? "No browser tabs are open." : tabs.map(renderBrowserTab).join("\n\n");
+}
+
+function wrapBrowserTab(tab: BrowserTab): BrowserTab {
+  return {
+    ...tab,
+    title: wrapUntrustedBrowserContent(tab.title || "Untitled", tab.url),
+    url: wrapUntrustedBrowserContent(tab.url, tab.url),
+  };
+}
+
+function sourceUrlFromSnapshot(snapshot: string): string {
+  return snapshot.match(/^URL:\s*(.*)$/m)?.[1]?.trim() || "(URL unavailable)";
 }
 
 function parseUserQuestionResponse(value: unknown): UserQuestionResponse | undefined {
