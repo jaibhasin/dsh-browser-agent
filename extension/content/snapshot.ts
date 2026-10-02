@@ -43,7 +43,7 @@ if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
       return true;
     }
     if (message.type === SNAPSHOT_MESSAGE) {
-      sendResponse(collectSnapshot());
+      sendResponse(collectSnapshot(message as SnapshotOptions));
       return;
     }
     if (message.type === SCROLL_MESSAGE) {
@@ -85,6 +85,7 @@ if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
 }
 
 type ClickResult = { ok: true } | { ok: false; error: string };
+type SnapshotOptions = { mode?: "interactive" | "semantic" | "text"; scopeRef?: number; maxDepth?: number };
 
 function clearAnnotations(): void {
   clearTimeout(contentScriptState.__dshBrowserAnnotationTimer);
@@ -313,7 +314,7 @@ function countVisibleBusyElements(): number {
 }
 
 /** Runs in the current page and produces a bounded semantic DOM representation. */
-function collectSnapshot(): SnapshotResult {
+function collectSnapshot(options: SnapshotOptions = {}): SnapshotResult {
   const maxViewportNodes = 180;
   const maxOffscreenNodes = 70;
   const maxTextLength = 24_000;
@@ -374,7 +375,16 @@ function collectSnapshot(): SnapshotResult {
     const role = element.getAttribute("role");
     return tag === "button" || (tag === "a" && element.hasAttribute("href")) || (tag === "input" && (element as HTMLInputElement).type !== "hidden") || tag === "select" || tag === "textarea" || element.hasAttribute("contenteditable") || role === "textbox" || role === "button" || role === "link" || role === "menuitem" || role === "option" || role === "tab" || element.hasAttribute("onclick");
   };
-  for (const element of composedElements(document.body)) {
+  const mode = options.mode ?? "interactive";
+  const scope = Number.isInteger(options.scopeRef) ? contentScriptState[REFS_KEY]?.get(options.scopeRef!) : undefined;
+  const root = scope?.isConnected ? scope : document.body;
+  const maxDepth = Number.isInteger(options.maxDepth) ? Math.max(0, Math.min(30, options.maxDepth!)) : 30;
+  if (mode === "text") {
+    const cleanText = (root as HTMLElement).innerText.replace(/\s+/g, " ").trim().slice(0, maxTextLength);
+    const text = `URL: ${location.href}\nTitle: ${document.title}\n\n${cleanText}`;
+    return { text, fingerprint: hashSnapshot(text), refs: {} };
+  }
+  for (const element of composedElements(root)) {
     if (element === document.body) continue;
     const rendered = renderedState(element);
     if (!rendered) continue;
@@ -390,9 +400,10 @@ function collectSnapshot(): SnapshotResult {
     const suffix = name ? ` \"${name}\"` : "";
     let depth = 0; let parent = composedParent(element);
     while (parent && parent !== document.body) { depth += 1; parent = composedParent(parent); }
+    if (depth > maxDepth) continue;
     let ref: number | undefined;
     let parentRef: number | undefined;
-    if (isInteractive) {
+    if (isInteractive && (mode === "interactive" || mode === "semantic")) {
       const state = [element.getAttribute("aria-expanded") && `expanded=${element.getAttribute("aria-expanded")}`, (element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true") && "disabled"].filter(Boolean).join(" ");
       ref = nextRef++;
       refs.set(ref, element);
@@ -410,7 +421,7 @@ function collectSnapshot(): SnapshotResult {
       refMetadata.set(ref, metadata);
       controls.push(`[${ref}] ${role ?? tag}${suffix}${state ? ` ${state}` : ""} <${tag}${role ? ` role=${role}` : ""}${parentRef === undefined ? "" : ` parentRef=${parentRef}`}>`);
     }
-    nodes.push(`${"  ".repeat(Math.min(6, depth))}<${tag}${role ? ` role=${role}` : ""}${ref === undefined ? "" : ` ref=${ref}`}${parentRef === undefined ? "" : ` parentRef=${parentRef}`}>${suffix}`);
+    if (mode === "semantic" || isInteractive) nodes.push(`${"  ".repeat(Math.min(6, depth))}<${tag}${role ? ` role=${role}` : ""}${ref === undefined ? "" : ` ref=${ref}`}${parentRef === undefined ? "" : ` parentRef=${parentRef}`}>${suffix}`);
   }
   contentScriptState[REFS_KEY] = refs;
   contentScriptState.__dshBrowserHasSnapshot = true;
@@ -422,7 +433,7 @@ function collectSnapshot(): SnapshotResult {
     `Title: ${document.title}`,
     `Viewport: ${viewportWidth}x${viewportHeight} at scroll (${Math.round(scrollX)}, ${Math.round(scrollY)})`,
     "",
-    "Interactive elements currently visible in the viewport:",
+    ...(mode === "semantic" ? ["Semantic page structure:", ...(viewportNodes.length ? viewportNodes : ["(no visible semantic elements found)"])] : ["Interactive elements currently visible in the viewport:",
     ...(viewportControls.length ? viewportControls : ["(none found)"]),
     "",
     "Semantic DOM / accessibility projection for the current viewport:",
@@ -430,7 +441,7 @@ function collectSnapshot(): SnapshotResult {
     "",
     "Rendered but offscreen elements (not currently visible, may require scrolling):",
     ...(offscreenControls.length ? offscreenControls : ["(no offscreen interactive elements found)"]),
-    ...(offscreenNodes.length ? offscreenNodes : ["(no offscreen semantic elements found)"]),
+    ...(offscreenNodes.length ? offscreenNodes : ["(no offscreen semantic elements found)"])]),
     "",
     "Intentionally hidden, transparent, zero-size, and aria-hidden elements are omitted.",
   ].join("\n");
