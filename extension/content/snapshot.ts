@@ -11,6 +11,8 @@ const SCROLL_MESSAGE = "dsh-browser-scroll";
 const CLICK_MESSAGE = "dsh-browser-click";
 const TYPE_MESSAGE = "dsh-browser-type";
 const WAIT_MESSAGE = "dsh-browser-wait";
+const ANNOTATE_MESSAGE = "dsh-browser-annotate";
+const CLEAR_ANNOTATIONS_MESSAGE = "dsh-browser-clear-annotations";
 const LISTENER_INSTALLED_KEY = "__dshBrowserSnapshotListenerInstalled";
 const REFS_KEY = "__dshBrowserSnapshotRefs";
 
@@ -19,12 +21,27 @@ const contentScriptState = globalThis as typeof globalThis & {
   [LISTENER_INSTALLED_KEY]?: boolean;
   [REFS_KEY]?: Map<number, Element>;
   __dshBrowserSnapshotRefMetadata?: Map<number, RefMetadata>;
+  __dshBrowserHasSnapshot?: boolean;
+  __dshBrowserAnnotationOverlay?: HTMLElement;
+  __dshBrowserAnnotationTimer?: ReturnType<typeof setTimeout>;
 };
 contentScriptState[REFS_KEY] ??= new Map();
 contentScriptState.__dshBrowserSnapshotRefMetadata ??= new Map();
 if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     if (!message || typeof message !== "object" || !("type" in message)) return;
+    if (message.type === CLEAR_ANNOTATIONS_MESSAGE) {
+      clearAnnotations();
+      sendResponse({ ok: true });
+      return;
+    }
+    if (message.type === ANNOTATE_MESSAGE) {
+      void showAnnotations().then(sendResponse).catch((error: unknown) => {
+        clearAnnotations();
+        sendResponse({ error: error instanceof Error ? error.message : "Annotation failed." });
+      });
+      return true;
+    }
     if (message.type === SNAPSHOT_MESSAGE) {
       sendResponse(collectSnapshot(message as SnapshotOptions));
       return;
@@ -69,6 +86,70 @@ if (!contentScriptState[LISTENER_INSTALLED_KEY]) {
 
 type ClickResult = { ok: true } | { ok: false; error: string };
 type SnapshotOptions = { mode?: "interactive" | "semantic" | "text"; scopeRef?: number; maxDepth?: number };
+
+function clearAnnotations(): void {
+  clearTimeout(contentScriptState.__dshBrowserAnnotationTimer);
+  contentScriptState.__dshBrowserAnnotationOverlay?.remove();
+  delete contentScriptState.__dshBrowserAnnotationOverlay;
+  delete contentScriptState.__dshBrowserAnnotationTimer;
+}
+
+/** Draw using the latest snapshot's element identities, without allocating new refs. */
+async function showAnnotations(): Promise<{ ok: true }> {
+  clearAnnotations();
+  if (!contentScriptState.__dshBrowserHasSnapshot) {
+    throw new Error("Take a browser_snapshot before requesting an annotated screenshot.");
+  }
+  const host = document.createElement("div");
+  host.setAttribute("aria-hidden", "true");
+  host.style.cssText = "all:initial!important;position:fixed!important;inset:0!important;width:100%!important;height:100%!important;pointer-events:none!important;z-index:2147483647!important;";
+  const root = host.attachShadow({ mode: "closed" });
+  const style = document.createElement("style");
+  style.textContent = `
+    :host, * { pointer-events: none !important; }
+    .box { position: absolute; box-sizing: border-box; border: 2px solid #d000ff; }
+    .label { position: absolute; background: #4b006e; color: white; padding: 1px 3px;
+      border-radius: 3px; font: bold 12px/16px monospace; white-space: nowrap; }
+  `;
+  root.append(style);
+  const viewport = window.visualViewport;
+  const left = viewport?.offsetLeft ?? 0;
+  const top = viewport?.offsetTop ?? 0;
+  const right = left + (viewport?.width ?? document.documentElement.clientWidth);
+  const bottom = top + (viewport?.height ?? document.documentElement.clientHeight);
+  for (const [ref, element] of contentScriptState[REFS_KEY] ?? []) {
+    if (!element.isConnected || hiddenInComposedTree(element)) continue;
+    let labelled = false;
+    for (const rect of element.getClientRects()) {
+      const x = Math.max(left, rect.left), y = Math.max(top, rect.top);
+      const width = Math.min(right, rect.right) - x;
+      const height = Math.min(bottom, rect.bottom) - y;
+      if (rect.width <= 0 || rect.height <= 0 || width <= 0 || height <= 0) continue;
+      const box = document.createElement("div");
+      box.className = "box";
+      box.style.cssText = `left:${x}px;top:${y}px;width:${width}px;height:${height}px`;
+      root.append(box);
+      if (!labelled) {
+        const label = document.createElement("span");
+        label.className = "label";
+        label.textContent = `[${ref}]`;
+        const labelWidth = label.textContent.length * 8 + 6;
+        label.style.cssText = `left:${Math.max(left, Math.min(x, right - labelWidth))}px;top:${Math.max(top, Math.min(y - 18, bottom - 18))}px`;
+        root.append(label);
+        labelled = true;
+      }
+    }
+  }
+  contentScriptState.__dshBrowserAnnotationOverlay = host;
+  document.documentElement.append(host);
+  // Recover even if the background worker disappears before its finally block.
+  contentScriptState.__dshBrowserAnnotationTimer = setTimeout(clearAnnotations, 10_000);
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 250);
+    requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timeout); resolve(); }));
+  });
+  return { ok: true };
+}
 
 function composedParent(element: Element): Element | null {
   if (element.assignedSlot) return element.assignedSlot;
@@ -343,6 +424,7 @@ function collectSnapshot(options: SnapshotOptions = {}): SnapshotResult {
     if (mode === "semantic" || isInteractive) nodes.push(`${"  ".repeat(Math.min(6, depth))}<${tag}${role ? ` role=${role}` : ""}${ref === undefined ? "" : ` ref=${ref}`}${parentRef === undefined ? "" : ` parentRef=${parentRef}`}>${suffix}`);
   }
   contentScriptState[REFS_KEY] = refs;
+  contentScriptState.__dshBrowserHasSnapshot = true;
   contentScriptState.__dshBrowserSnapshotRefMetadata = refMetadata;
   const viewportWidth = Math.round(window.visualViewport?.width ?? document.documentElement.clientWidth);
   const viewportHeight = Math.round(window.visualViewport?.height ?? document.documentElement.clientHeight);

@@ -771,8 +771,10 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   }));
   ctx.tools.register(defineTool({
     name: "browser_screenshot",
-    description: "Capture and attach a PNG screenshot of the agent-owned tab's visible viewport. The assigned tab must be visible in its browser window; this tool fails rather than capture a different tab.",
-    parameters: {},
+    description: "Capture and attach a PNG screenshot of the agent-owned tab's visible viewport. Set annotate=true to overlay boxes and [ref] labels from the latest browser_snapshot on currently visible controls; take a snapshot first. Annotation does not refresh refs. The assigned tab must be visible in its browser window; this tool fails rather than capture a different tab.",
+    parameters: {
+      annotate: { type: "boolean", description: "Overlay existing snapshot ref labels on visible controls. Defaults to false." },
+    },
     output: {
       schema: {
         type: "object",
@@ -807,9 +809,11 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
         { type: "text", text: UNTRUSTED_BROWSER_CONTENT_END },
       ],
     },
-    async execute(_args, exec) {
+    async execute(args, exec) {
       if (!attachments) throw new Error("DSH attachment storage is unavailable.");
-      const result = await requestBrowser("screenshot", {}, exec.signal);
+      const annotate = (args as { annotate?: unknown }).annotate;
+      if (annotate !== undefined && typeof annotate !== "boolean") throw new Error("Screenshot annotate must be a boolean.");
+      const result = await requestBrowser("screenshot", { annotate: annotate ?? false }, exec.signal);
       if (!result || typeof result !== "object" || Array.isArray(result) ||
         typeof (result as { data?: unknown }).data !== "string" ||
         (result as { mediaType?: unknown }).mediaType !== "image/png") {

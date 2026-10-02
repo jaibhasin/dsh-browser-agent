@@ -148,7 +148,11 @@ bridge.setRequestHandler(async (request) => {
     }
     return await waitForBrowserSettled(timeoutMs, taskTab);
   }
-  if (request.method === "screenshot") return await captureBrowserScreenshot(taskTab);
+  if (request.method === "screenshot") {
+    const annotate = (request.params as { annotate?: unknown })?.annotate;
+    if (annotate !== undefined && typeof annotate !== "boolean") throw new Error("Screenshot annotate must be a boolean.");
+    return await captureBrowserScreenshot(taskTab, annotate ?? false);
+  }
   if (request.method === "scroll") {
     const params = request.params;
     if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("Scroll parameters are required.");

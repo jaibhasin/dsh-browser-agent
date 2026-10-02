@@ -70,12 +70,21 @@ List of tools the **agent** has access to by default
 | `browser_navigate` | Opens an HTTP or HTTPS URL in the chat's assigned tab. |
 | `browser_tabs` | Lists tabs assigned to DSH sessions. To include all non-incognito tabs, the user must explicitly confirm that their titles and URLs will be sent to the chosen model provider. |
 | `browser_wait` | Waits for the page to settle, then takes a fresh snapshot. |
-| `browser_screenshot` | Takes a PNG screenshot of the visible part of the chat's tab. |
+| `browser_screenshot` | Takes a PNG screenshot of the visible part of the chat's tab. Optional `annotate: true` adds boxes and numbered labels using the latest snapshot's refs. |
 | `browser_scroll` | Scrolls up, down, left, or right by a number of pixels. |
 | `browser_click` | Clicks a button, link, or other element by its reference number. |
 | `browser_type` | Types into a field by its reference number. |
 
 Type `/tools` in the extension to turn individual tools on or off.
+
+Annotated screenshots put the snapshot's numbers on the picture: if the snapshot
+lists `[1] Search`, the screenshot shows `[1]` beside the Search button, helping the
+agent see which button it can click. The extension briefly adds the labels over the
+page, takes the screenshot, then removes them.
+
+To use this, the agent takes `browser_snapshot`, then calls `browser_screenshot`
+with `annotate: true`. Only visible controls get labels. Refresh the snapshot if
+the page changes; omit `annotate` for a plain screenshot.
 
 ## Tabs and chat sessions
 

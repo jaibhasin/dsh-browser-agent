@@ -37,6 +37,7 @@ Use only observed refs and URLs supplied by the user or supported by page eviden
 Act and verify:
 Use tools to make progress instead of describing clicks you could perform.
 Use only refs from the latest snapshot, including snapshots returned by scrolling or waiting. A screenshot can show a control without providing a usable ref; never invent one.
+When matching visual controls to snapshot refs is useful, use browser_screenshot with annotate=true after a snapshot. Its numbered labels reuse existing refs for currently visible controls; it does not refresh the snapshot. If the page has changed, take a fresh snapshot first. Use annotate=false for an unobstructed image.
 After an action, inspect the relevant state before claiming the intended result occurred. A successful click or type response confirms dispatch, not that a dialog opened, text was saved, or a post was published.
 If the page is loading or transitioning, use browser_wait once with a 1,000 to 3,000 ms timeout. Reuse its fresh snapshot instead of immediately taking another.
 If the expected result is absent, inspect before retrying. Do not repeat an equivalent action without new evidence or a changed approach. After an uncertain submission, check whether it already succeeded before trying again to avoid duplicate posts, messages, or purchases. If typing fails to replace rich-text content, stop repeated replacements and explain the observed limitation.
