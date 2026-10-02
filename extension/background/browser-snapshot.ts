@@ -8,6 +8,8 @@ type ScrollDirection = "up" | "down" | "left" | "right";
 const CLICK_MESSAGE = "dsh-browser-click";
 const TYPE_MESSAGE = "dsh-browser-type";
 const WAIT_MESSAGE = "dsh-browser-wait";
+const snapshotBaselines = new Map<number, string>();
+export function resetBrowserSnapshotBaseline(tabId: number): void { snapshotBaselines.delete(tabId); }
 type ClickResult = { ok: true } | { ok: false; error: string };
 type TypeResult = { typed: true } | { typed: false; error: string };
 type WaitResult = {
@@ -47,15 +49,28 @@ async function actionTab(taskTab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab> {
 }
 
 /** Read the agent-owned tab's snapshot. */
-export async function captureBrowserSnapshot(taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
+export async function captureBrowserSnapshot(taskTab?: chrome.tabs.Tab, options: { mode?: "interactive" | "semantic" | "text"; changedOnly?: boolean; scopeRef?: number; maxDepth?: number } = {}): Promise<JsonValue> {
   const tab = await actionTab(taskTab);
   if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
-  const result = await chrome.tabs.sendMessage(tab.id, { type: SNAPSHOT_MESSAGE }) as unknown;
+  const result = await chrome.tabs.sendMessage(tab.id, { type: SNAPSHOT_MESSAGE, ...options }) as unknown;
   if (!isSnapshotData(result)) {
     throw new Error("The content script returned an invalid snapshot.");
   }
-  return result as SnapshotResult;
+  const snapshot = result as SnapshotResult;
+  if (!options.changedOnly) {
+    snapshotBaselines.set(tab.id, snapshot.text);
+    return snapshot;
+  }
+  const previous = snapshotBaselines.get(tab.id);
+  snapshotBaselines.set(tab.id, snapshot.text);
+  const before = new Set((previous ?? "").split("\n"));
+  const after = new Set(snapshot.text.split("\n"));
+  snapshot.text = previous === undefined ? snapshot.text : [
+    ...[...after].filter((line) => !before.has(line)).map((line) => `+ ${line}`),
+    ...[...before].filter((line) => !after.has(line)).map((line) => `- ${line}`),
+  ].join("\n") || "(no changes)";
+  return snapshot;
 }
 
 /** Capture the agent-owned tab when it is visible in its window. */
@@ -139,6 +154,7 @@ function isSnapshotData(value: unknown): value is BrowserSnapshotData {
 export async function navigateBrowser(url: string, taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
   const agentTab = await actionTab(taskTab);
   if (agentTab.id === undefined) throw new Error("The agent tab is unavailable.");
+  snapshotBaselines.delete(agentTab.id);
   await chrome.tabs.update(agentTab.id, { url });
   const tab = await waitForTabLoad(agentTab.id, 2_500);
   return { tab: toBrowserTab(tab) };
