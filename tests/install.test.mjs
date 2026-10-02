@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn as spawnProcess, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { openChromeExtensionsPage } from '../scripts/open-chrome-extensions.mjs';
 import { installerWorkspaceFilters } from '../scripts/install.mjs';
@@ -98,6 +98,23 @@ test('refuses an existing unmanaged profile without changing it', () => fixture(
   assert.equal(result.status, 1);
   assert.equal(readFileSync(join(profile, 'package.json'), 'utf8'), '{"private":true}');
   assert.deepEqual(readdirSync(home), ['profiles']);
+}));
+
+test('a failed dependency download leaves no unmanaged profile and permits retry', { skip: process.platform === 'win32' }, () => fixture(home => {
+  const bin = join(home, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'npm'), '#!/bin/sh\nexit 17\n', { mode: 0o700 });
+  const profile = join(home, 'profiles', 'dsh-browser-agent');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = spawnSync(process.execPath, [installer], {
+      env: { ...process.env, DSH_HOME: home, PATH: `${bin}${delimiter}${process.env.PATH}` }, encoding: 'utf8',
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /npm failed: 17/);
+    assert.doesNotMatch(result.stderr, /unmanaged/);
+    assert.equal(existsSync(profile), false);
+    assert.equal(existsSync(join(home, 'dsh-browser-agent', '.install-lock')), false);
+  }
 }));
 
 test('uninstall archives owned files and leaves other profiles intact', () => fixture(home => {

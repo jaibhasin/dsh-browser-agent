@@ -32,13 +32,16 @@ importers:
         version: 19.2.7(@types/react@19.2.18)
       '@vitejs/plugin-react':
         specifier: ^4.7.0
-        version: 4.7.0(vite@7.3.6(@types/node@24.13.3))
+        version: 4.7.0(vite@7.3.6(@types/node@24.13.3)(yaml@2.8.1))
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
       vite:
         specifier: ^7.1.3
-        version: 7.3.6(@types/node@24.13.3)
+        version: 7.3.6(@types/node@24.13.3)(yaml@2.8.1)
+      yaml:
+        specifier: 2.8.1
+        version: 2.8.1
 
   dsh-plugin:
     dependencies:
@@ -1047,6 +1050,11 @@ packages:
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
+  yaml@2.8.1:
+    resolution: {integrity: sha512-lcYcMxX2PO9XMGvAJkJ3OsNMw+/7FKes7/hgerGUYWIoWu5j/+YQqcZr5JnPZWzOsEBgMbSbiSTn/dv/69Mkpw==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
   zod@4.5.4:
     resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
 
@@ -1622,7 +1630,7 @@ snapshots:
     dependencies:
       '@types/node': 24.13.3
 
-  '@vitejs/plugin-react@4.7.0(vite@7.3.6(@types/node@24.13.3))':
+  '@vitejs/plugin-react@4.7.0(vite@7.3.6(@types/node@24.13.3)(yaml@2.8.1))':
     dependencies:
       '@babel/core': 7.29.7
       '@babel/plugin-transform-react-jsx-self': 7.29.7(@babel/core@7.29.7)
@@ -1630,7 +1638,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.0-beta.27
       '@types/babel__core': 7.20.5
       react-refresh: 0.17.0
-      vite: 7.3.6(@types/node@24.13.3)
+      vite: 7.3.6(@types/node@24.13.3)(yaml@2.8.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -1784,7 +1792,7 @@ snapshots:
       escalade: 3.2.0
       picocolors: 1.1.1
 
-  vite@7.3.6(@types/node@24.13.3):
+  vite@7.3.6(@types/node@24.13.3)(yaml@2.8.1):
     dependencies:
       esbuild: 0.28.2
       fdir: 6.5.0(picomatch@4.0.7)
@@ -1795,9 +1803,12 @@ snapshots:
     optionalDependencies:
       '@types/node': 24.13.3
       fsevents: 2.3.3
+      yaml: 2.8.1
 
   ws@8.21.3: {}
 
   yallist@3.1.1: {}
+
+  yaml@2.8.1: {}
 
   zod@4.5.4: {}
