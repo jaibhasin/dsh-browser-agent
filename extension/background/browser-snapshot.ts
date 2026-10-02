@@ -1,4 +1,5 @@
 import type { BrowserRefMetadata, BrowserSnapshotData, JsonValue } from "../../shared/protocol";
+import { getAgentOwnedTabIds } from "./agent-tab";
 
 const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
 const SCROLL_MESSAGE = "dsh-browser-scroll";
@@ -168,8 +169,21 @@ function waitForTabLoad(tabId: number, timeoutMs: number): Promise<chrome.tabs.T
   });
 }
 
-/** List every currently open browser tab. */
-export async function listBrowserTabs(): Promise<JsonValue> {
+/** List DSH-owned tabs by default; all-tab and incognito exposure must be opted into. */
+export async function listBrowserTabs(options: { includeAllTabs?: boolean; includeIncognito?: boolean } = {}): Promise<JsonValue> {
+  const includeAllTabs = options.includeAllTabs === true;
+  const includeIncognito = options.includeIncognito === true;
+  if (includeIncognito && !includeAllTabs) throw new Error("Incognito tabs can only be listed in include-all mode.");
+  if (includeIncognito && !(await chrome.extension.isAllowedIncognitoAccess())) {
+    throw new Error("Incognito access is not enabled for this extension in Chrome. No incognito tabs were listed.");
+  }
   const tabs = await chrome.tabs.query({});
-  return { tabs: tabs.filter((tab) => tab.id !== undefined && tab.windowId !== undefined).map(toBrowserTab) };
+  const ownedIds = includeAllTabs ? undefined : new Set(await getAgentOwnedTabIds());
+  return {
+    tabs: tabs
+      .filter((tab) => tab.id !== undefined && tab.windowId !== undefined)
+      .filter((tab) => includeIncognito || tab.incognito !== true)
+      .filter((tab) => ownedIds === undefined || ownedIds.has(tab.id!))
+      .map(toBrowserTab),
+  };
 }
