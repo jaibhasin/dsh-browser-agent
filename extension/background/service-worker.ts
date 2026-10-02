@@ -1,6 +1,6 @@
 import { ExtensionBridge, type BridgeConfiguration } from "./bridge";
 import { captureBrowserScreenshot, captureBrowserSnapshot, clickBrowserRef, listBrowserTabs, navigateBrowser, scrollBrowser, typeBrowserRef, waitForBrowserSettled } from "./browser-snapshot";
-import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentTabLiveness, getAgentTabState, getAgentTaskForId, getAgentTaskTab, markAgentTaskWaitingForInput, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, resumeAgentTaskAfterInput, startAgentTask, endAgentTask } from "./agent-tab";
+import { broadcastAgentTabState, cancelAgentTask, claimAgentTab, continueAgentTaskInBackground, focusOrRestoreAgentTab, getAgentOwnedTabIds, getAgentTabLiveness, getAgentTabState, getAgentTaskForId, getAgentTaskTab, markAgentTaskWaitingForInput, moveAgentTaskToTab, pauseAgentTaskForTab, releaseAgentTab, resumeAgentTask, resumeAgentTaskAfterInput, startAgentTask, endAgentTask } from "./agent-tab";
 import { ATTENTION_SOUND_STORAGE_KEY, loadAttentionRequests, removeAttentionForSession as removeStoredAttentionForSession, removeAttentionRequest, saveAttentionRequest, setAttentionFocus, type AttentionRequest, type HumanApprovalRequest } from "../../shared/attention";
 import { DOCUMENT_LIMITS, IMAGE_MEDIA_TYPES, type JsonValue, type UserQuestion } from "../../shared/protocol";
 import type { BenchmarkEvent, BenchmarkRunState, BenchmarkRunTask, BenchmarkTab, BenchmarkTabsResponse, BenchmarkRunResponse } from "../../shared/benchmark";
@@ -166,7 +166,10 @@ bridge.setRequestHandler(async (request) => {
     await broadcastAgentTabState();
     return result;
   }
-  if (request.method === "tabs") return await listBrowserTabs();
+  if (request.method === "tabs") {
+    const includeAllTabs = (request.params as { includeAllTabs?: unknown } | undefined)?.includeAllTabs === true;
+    return await listBrowserTabs(includeAllTabs ? undefined : await getAgentOwnedTabIds());
+  }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });
 

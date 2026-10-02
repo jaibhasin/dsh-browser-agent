@@ -169,7 +169,8 @@ function waitForTabLoad(tabId: number, timeoutMs: number): Promise<chrome.tabs.T
 }
 
 /** List every currently open browser tab. */
-export async function listBrowserTabs(): Promise<JsonValue> {
+export async function listBrowserTabs(ownedTabIds?: readonly number[]): Promise<JsonValue> {
   const tabs = await chrome.tabs.query({});
-  return { tabs: tabs.filter((tab) => tab.id !== undefined && tab.windowId !== undefined).map(toBrowserTab) };
+  return { tabs: tabs.filter((tab) => tab.id !== undefined && tab.windowId !== undefined && !tab.incognito
+    && (ownedTabIds === undefined || ownedTabIds.includes(tab.id))).map(toBrowserTab) };
 }
