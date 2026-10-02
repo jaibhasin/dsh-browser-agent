@@ -2,14 +2,15 @@ import { WebSocket } from "ws";
 
 const URL = process.env.BRIDGE_URL ?? "ws://127.0.0.1:7331";
 const TOKEN = process.env.BRIDGE_TOKEN;
+const EXTENSION_ID = process.env.BRIDGE_EXTENSION_ID;
 const SESSION_ID = process.env.BRIDGE_SESSION_ID ?? "bridge-smoke";
 
-if (!TOKEN) {
-  console.error("BRIDGE_TOKEN is required.");
+if (!TOKEN || !EXTENSION_ID) {
+  console.error("BRIDGE_TOKEN and BRIDGE_EXTENSION_ID are required.");
   process.exit(1);
 }
 
-const ws = new WebSocket(URL, { headers: { origin: "chrome-extension://abcdefghijklmnop" } });
+const ws = new WebSocket(URL, { headers: { origin: `chrome-extension://${EXTENSION_ID}` } });
 let finished = false;
 const timer = setTimeout(() => finish(2, "# timeout (60s)"), 60000);
 

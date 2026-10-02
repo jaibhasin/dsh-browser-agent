@@ -216,7 +216,9 @@ The installer pulls from this repo's `main` branch, so only run it from sources 
 The managed installation uses DSH `0.1.6-alpha.2` with a separate `dsh-browser-agent` profile.
 Files live under `~/.dsh/dsh-browser-agent` by default.
 Set `DSH_HOME` before installation to use another DSH data directory.
-The bridge listens on `127.0.0.1:7331` and authenticates WebSocket connections with the generated token.
+The bridge listens on `127.0.0.1:7331`. Connections must use the exact installed extension Origin, a loopback Host header, and the generated token. Installation retains a public key in `.extension-public-key` to keep the extension ID stable; the key is public, and the token remains the secret credential. The profile's `dsh-browser-agent` configuration includes `extensionId`; when configuring the bundle through environment variables, set `DSH_BROWSER_EXTENSION_ID` alongside `DSH_BROWSER_BRIDGE_TOKEN`.
+
+On the first upgrade from an installation without a manifest key, Chrome's extension ID changes. Remove the old extension and use **Load unpacked** with the installed folder; extension-local preferences will need to be set again. Subsequent updates retain the ID. Development setup writes the key into the built manifest without changing the checked-in source manifest.
 
 ### Set up a checkout
 

@@ -3,4 +3,5 @@
       name: '@jaibhasin/dsh-browser-agent'
       config:
         token: !!js process.env.DSH_BROWSER_BRIDGE_TOKEN
+        extensionId: !!js process.env.DSH_BROWSER_EXTENSION_ID
         port: 7331

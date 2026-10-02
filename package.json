@@ -13,7 +13,7 @@
     "build:dsh-plugin": "tsc --project dsh-plugin/tsconfig.json",
     "test:bridge-protocol": "node --experimental-strip-types tests/bridge-protocol.test.mjs",
     "test:provider-error": "node --experimental-strip-types --test tests/provider-error.test.mjs",
-    "test:bridge": "pnpm test:bridge-protocol && pnpm --dir dsh-plugin run test:bridge",
+    "test:bridge": "pnpm test:bridge-protocol && pnpm run build:dsh-plugin && node --test dsh-plugin/scripts/bridge-security-test.mjs && node dsh-plugin/scripts/multi-client-bridge-test.mjs",
     "test:image-attachments": "node --experimental-strip-types tests/image-attachments.test.mjs",
     "test:document-attachments": "node --experimental-strip-types tests/document-attachments.test.mjs",
     "test:document-converter": "pnpm run build:dsh-plugin && node tests/document-converter.test.mjs",
@@ -35,8 +35,9 @@
     "test:task-draft": "node --experimental-strip-types --test tests/task-draft.test.mjs",
     "setup:dsh-profile": "node scripts/setup-dsh-browser-profile.mjs",
     "preview": "vite preview --config vite.config.js",
-    "test:install": "node --test tests/install.test.mjs",
-    "test": "pnpm test:screenshot && pnpm test:benchmark && pnpm test:agent-tab && pnpm test:attention && pnpm test:browser-retry-guard && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:browser-agent-instructions && pnpm test:untrusted-browser-content && pnpm test:saved-task-store && pnpm test:chat-history && pnpm test:theme && pnpm test:voice && pnpm test:markdown-table && pnpm test:saved-tasks && pnpm test:task-draft && pnpm test:provider-error && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install && pnpm test:bridge-protocol"
+    "test:install": "node --test tests/install.test.mjs tests/bridge-install-config.test.mjs",
+    "test": "pnpm test:screenshot && pnpm test:benchmark && pnpm test:agent-tab && pnpm test:attention && pnpm test:browser-retry-guard && pnpm test:tab-switch && pnpm test:assistant-stream && pnpm test:browser-agent-instructions && pnpm test:untrusted-browser-content && pnpm test:saved-task-store && pnpm test:chat-history && pnpm test:theme && pnpm test:voice && pnpm test:markdown-table && pnpm test:saved-tasks && pnpm test:task-draft && pnpm test:provider-error && pnpm test:image-attachments && pnpm test:document-attachments && pnpm test:document-converter && pnpm test:install && pnpm test:bridge",
+    "test:bridge-smoke": "pnpm --dir dsh-plugin run test:bridge"
   },
   "dependencies": {
     "react": "^19.1.1",
@@ -50,7 +51,8 @@
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^4.7.0",
     "typescript": "^5.9.2",
-    "vite": "^7.1.3"
+    "vite": "^7.1.3",
+    "yaml": "2.8.1"
   },
   "keywords": [
     "deepseek",

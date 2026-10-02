@@ -23,6 +23,7 @@ export const inject = ["tools", "agents", "agentDefaultModel", "workspaceRegistr
 
 export interface BrowserSnapshotPluginConfig {
   token: string;
+  extensionId: string;
   port?: number;
 }
 
@@ -212,6 +213,7 @@ export async function apply(ctx: Context, config: BrowserSnapshotPluginConfig): 
   }
   const bridge = new DshBrowserWebSocketBridge({
     token: config.token,
+    extensionId: config.extensionId,
     port: config.port,
     onSavedTasks: async (_clientId, request) => {
       if (request.operation === "load") {

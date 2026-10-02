@@ -4,6 +4,7 @@ import { WebSocket } from "ws";
 import { DshBrowserWebSocketBridge } from "../dist/dsh-plugin/websocket/server.js";
 
 const token = "a".repeat(64);
+const extensionId = "abcdefghijklmnopabcdefghijklmnop";
 const clientOne = "11111111-1111-4111-8111-111111111111";
 const clientTwo = "22222222-2222-4222-8222-222222222222";
 
@@ -28,7 +29,7 @@ function waitForMessage(socket, predicate, timeoutMs = 2_000) {
 }
 
 async function connect(port, clientId) {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { origin: "chrome-extension://test" } });
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { origin: `chrome-extension://${extensionId}` } });
   await new Promise((resolve, reject) => {
     socket.once("open", resolve);
     socket.once("error", reject);
@@ -44,6 +45,7 @@ const chats = [];
 const disconnected = [];
 const bridge = new DshBrowserWebSocketBridge({
   token,
+  extensionId,
   port,
   onExtensionEvent: (clientId, event) => events.push({ clientId, event }),
   onClientDisconnect: (clientId) => disconnected.push(clientId),
