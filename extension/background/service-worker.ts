@@ -148,7 +148,11 @@ bridge.setRequestHandler(async (request) => {
     }
     return await waitForBrowserSettled(timeoutMs, taskTab);
   }
-  if (request.method === "screenshot") return await captureBrowserScreenshot(taskTab);
+  if (request.method === "screenshot") {
+    const annotate = (request.params as { annotate?: unknown })?.annotate;
+    if (annotate !== undefined && typeof annotate !== "boolean") throw new Error("Screenshot annotate must be a boolean.");
+    return await captureBrowserScreenshot(taskTab, annotate ?? false);
+  }
   if (request.method === "scroll") {
     const params = request.params;
     if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("Scroll parameters are required.");
@@ -178,8 +182,14 @@ bridge.setRequestHandler(async (request) => {
     return result;
   }
   if (request.method === "tabs") {
-    const includeAllTabs = (request.params as { includeAllTabs?: unknown } | undefined)?.includeAllTabs === true;
-    return await listBrowserTabs(includeAllTabs ? undefined : await getAgentOwnedTabIds());
+    const params = request.params as { includeAllTabs?: unknown; includeIncognito?: unknown } | undefined;
+    const includeAllTabs = params?.includeAllTabs;
+    const includeIncognito = params?.includeIncognito;
+    if ((includeAllTabs !== undefined && typeof includeAllTabs !== "boolean") || (includeIncognito !== undefined && typeof includeIncognito !== "boolean")) {
+      throw new Error("Tab-list options must be booleans.");
+    }
+    if (includeIncognito === true && includeAllTabs !== true) throw new Error("Incognito tabs can only be listed in include-all mode.");
+    return await listBrowserTabs(includeAllTabs === true ? undefined : await getAgentOwnedTabIds(), includeIncognito === true);
   }
   throw new Error(`Unsupported browser method: ${request.method}`);
 });

@@ -4,6 +4,7 @@ const SNAPSHOT_MESSAGE = "dsh-browser-snapshot";
 const SCROLL_MESSAGE = "dsh-browser-scroll";
 type SnapshotResult = BrowserSnapshotData;
 type BrowserScreenshotResult = { data: string; mediaType: "image/png" };
+const screenshotTabs = new Set<number>();
 type ScrollDirection = "up" | "down" | "left" | "right";
 const CLICK_MESSAGE = "dsh-browser-click";
 const TYPE_MESSAGE = "dsh-browser-type";
@@ -74,15 +75,35 @@ export async function captureBrowserSnapshot(taskTab?: chrome.tabs.Tab, options:
 }
 
 /** Capture the agent-owned tab when it is visible in its window. */
-export async function captureBrowserScreenshot(taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
+export async function captureBrowserScreenshot(taskTab?: chrome.tabs.Tab, annotate = false): Promise<JsonValue> {
   const tab = await actionTab(taskTab);
-  if (tab?.windowId === undefined) throw new Error("No active browser tab is available.");
+  if (tab.id === undefined || tab.windowId === undefined) throw new Error("No active browser tab is available.");
   if (!tab.active) throw new Error("The agent tab must be visible before it can be captured. Open the highlighted Agent tab, then retry the screenshot.");
-  const data = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
-  if (typeof data !== "string" || !data.startsWith("data:image/png;base64,")) {
-    throw new Error("The browser returned an invalid screenshot.");
+  if (screenshotTabs.has(tab.id)) throw new Error("A screenshot is already being captured for this tab. Retry after it finishes.");
+  screenshotTabs.add(tab.id);
+  try {
+    if (annotate) {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
+      const result = await chrome.tabs.sendMessage(tab.id, { type: "dsh-browser-annotate" }) as { ok?: boolean; error?: string } | undefined;
+      if (result?.ok !== true) throw new Error(result?.error ?? "The page could not draw screenshot annotations.");
+    }
+    // The user may have switched tabs while the overlay was being painted.
+    const current = await chrome.tabs.get(tab.id);
+    if (!current.active || current.windowId !== tab.windowId) throw new Error("The agent tab must remain visible while taking a screenshot.");
+    const data = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+    const after = await chrome.tabs.get(tab.id);
+    if (!after.active || after.windowId !== tab.windowId) throw new Error("The agent tab changed during screenshot capture. Retry with the agent tab visible.");
+    if (typeof data !== "string" || !data.startsWith("data:image/png;base64,")) {
+      throw new Error("The browser returned an invalid screenshot.");
+    }
+    return { data: data.slice("data:image/png;base64,".length), mediaType: "image/png" } satisfies BrowserScreenshotResult;
+  } finally {
+    if (annotate) {
+      // Navigation or tab closure can remove the receiving content script.
+      await chrome.tabs.sendMessage(tab.id, { type: "dsh-browser-clear-annotations" }).catch(() => undefined);
+    }
+    screenshotTabs.delete(tab.id);
   }
-  return { data: data.slice("data:image/png;base64,".length), mediaType: "image/png" } satisfies BrowserScreenshotResult;
 }
 
 /** Scroll the agent-owned tab and return its new snapshot. */
@@ -192,9 +213,12 @@ function waitForTabLoad(tabId: number, timeoutMs: number): Promise<chrome.tabs.T
   });
 }
 
-/** List every currently open browser tab. */
-export async function listBrowserTabs(ownedTabIds?: readonly number[]): Promise<JsonValue> {
+/** List DSH-owned tabs by default; all-tab and incognito exposure must be opted into. */
+export async function listBrowserTabs(ownedTabIds?: readonly number[], includeIncognito = false): Promise<JsonValue> {
+  if (includeIncognito && !(await chrome.extension.isAllowedIncognitoAccess())) {
+    throw new Error("Incognito access is not enabled for this extension in Chrome. No incognito tabs were listed.");
+  }
   const tabs = await chrome.tabs.query({});
-  return { tabs: tabs.filter((tab) => tab.id !== undefined && tab.windowId !== undefined && !tab.incognito
+  return { tabs: tabs.filter((tab) => tab.id !== undefined && tab.windowId !== undefined && (includeIncognito || !tab.incognito)
     && (ownedTabIds === undefined || ownedTabIds.includes(tab.id))).map(toBrowserTab) };
 }
