@@ -31,7 +31,10 @@ test('runtime lock contains only the supported DSH release, including projection
 });
 
 test('installer excludes report-only workspace dependencies', () => {
-  assert.deepEqual(installerWorkspaceFilters, ['.', './dsh-plugin']);
+  const rootManifest = JSON.parse(readFileSync('package.json', 'utf8'));
+  const pluginManifest = JSON.parse(readFileSync('dsh-plugin/package.json', 'utf8'));
+  assert.deepEqual(installerWorkspaceFilters, [rootManifest.name, pluginManifest.name]);
+  assert.deepEqual(installerWorkspaceFilters, ['dsh-browser-agent', '@jaibhasin/dsh-browser-agent']);
 });
 
 test('opens the Chrome extensions page using the platform browser launcher', () => {

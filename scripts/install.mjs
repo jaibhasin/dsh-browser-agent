@@ -16,7 +16,8 @@ const legacyRoot = join(dshHome, 'browser-agent-install');
 const profile = join(dshHome, 'profiles', profileName);
 const args = process.argv.slice(2);
 
-export const installerWorkspaceFilters = ['.', './dsh-plugin'];
+// Package selectors avoid platform-specific path matching (notably Windows drive paths).
+export const installerWorkspaceFilters = ['dsh-browser-agent', '@jaibhasin/dsh-browser-agent'];
 
 function run(command, argv, cwd) {
   const result = spawnSync(command, argv, { cwd, encoding: 'utf8', env: process.env, maxBuffer: 20 * 1024 * 1024 });
@@ -89,7 +90,7 @@ async function main() {
     const npmPrefix = npm ? [npm] : [];
     const pnpm = (...argv) => run(npmCommand, [...npmPrefix, 'exec', '--yes', '--package=pnpm@11.8.0', '--', 'pnpm', ...argv], stage);
     console.log('\ndsh Browser Agent setup\n\n[1/4] Downloading build tools and dependencies. This can take a few minutes...');
-    pnpm('install', '--frozen-lockfile', ...installerWorkspaceFilters.flatMap(filter => ['--filter', filter]));
+    pnpm('install', '--frozen-lockfile', '--prod=false', ...installerWorkspaceFilters.flatMap(filter => ['--filter', filter]));
     // Load YAML support from the staged install: the bootstrap checkout has no dependencies.
     const { upsertBridgeIdentityPatch } = await import(pathToFileURL(join(stage, 'scripts', 'bridge-profile-config.mjs')).href);
     const bridgePatch = upsertBridgeIdentityPatch(existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : '', extensionId, token);
