@@ -101,6 +101,7 @@ export async function scrollBrowser(direction: ScrollDirection, value: number, t
 export async function clickBrowserRef(ref: number, taskTab?: chrome.tabs.Tab): Promise<JsonValue> {
   const tab = await actionTab(taskTab);
   if (tab.id === undefined) throw new Error("The agent tab is unavailable.");
+  const urlBeforeClick = tab.url ?? "";
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/snapshot.js"] });
   const result = await chrome.tabs.sendMessage(tab.id, { type: CLICK_MESSAGE, ref }) as unknown;
   if (!result || typeof result !== "object" || Array.isArray(result) || typeof (result as { ok?: unknown }).ok !== "boolean") {
@@ -108,7 +109,14 @@ export async function clickBrowserRef(ref: number, taskTab?: chrome.tabs.Tab): P
   }
   const click = result as ClickResult & { target?: BrowserRefMetadata };
   if (!click.ok) throw new Error(click.error);
-  return { clicked: true, ...(click.target ? { target: click.target } : {}) };
+  // Read the tab again after dispatch so the result can report whether the
+  // click immediately changed its URL (including same-tab navigation).
+  const tabAfterClick = await chrome.tabs.get(tab.id);
+  return {
+    clicked: true,
+    urlChanged: (tabAfterClick.url ?? "") !== urlBeforeClick,
+    ...(click.target ? { target: click.target } : {}),
+  };
 }
 
 /** Fill a text control from the latest snapshot. */
