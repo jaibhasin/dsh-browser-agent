@@ -626,16 +626,18 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       clearAssistantStream();
       setPendingUserQuestion(undefined);
       // Best-effort stop: discard the agent task even if it's mid-flight.
-      await chrome.runtime.sendMessage({ type: "dsh-agent-discard-chat", sessionId: previousSessionId }).catch(() => undefined);
-      await forgetSession(previousSessionId);
-      setIsLoading(false);
+      // The local deletion is synchronous; shared storage may have a long
+      // queue of saves. It must not delay showing the new conversation.
+      void forgetSession(previousSessionId).catch(() => {
+        setSessionNotice("The previous chat could not be deleted from storage.");
+      });
+      await startFreshChatOnCurrentTab(previousSessionId);
     } finally {
       setIsStartingSession(false);
     }
-    await startFreshChatOnCurrentTab();
   }
 
-  async function startFreshChatOnCurrentTab() {
+  async function startFreshChatOnCurrentTab(previousSessionId?: string) {
     const sessionId = newSessionId();
     const createdAt = Date.now();
     deletedSessionIds.current.delete(sessionId);
@@ -647,19 +649,32 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       deniedDefault: toolSettings.deniedDefault,
       deniedByChat: { ...toolSettings.deniedByChat, [sessionId]: [...toolSettings.deniedDefault] },
     });
+    activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
     setSessionCreatedAt(createdAt);
     setMessages([]);
     setSessionLinks([]);
     setPrompt("");
     setDraftImages([]);
+    setDraftDocuments([]);
+    setIsHistoryOpen(false);
     setIsLoading(false);
     setAgentTabState({ activeTaskCount: 0 });
     currentTabId.current = undefined;
-    setSessionNotice("New chat ready on this tab.");
+    setSessionNotice("Starting a new chat on this tab...");
+    textareaRef.current?.focus();
+    // Cancel the old task before claiming its tab, after resetting the UI.
+    if (previousSessionId) {
+      await chrome.runtime.sendMessage({ type: "dsh-agent-discard-chat", sessionId: previousSessionId }).catch(() => undefined);
+    }
     const response = await chrome.runtime.sendMessage({ type: "dsh-agent-claim-tab", sessionId }) as { ok?: boolean; error?: string; displacedSessionIds?: string[] };
     if (!response?.ok) setSessionNotice(response?.error ?? "The new chat could not claim this tab.");
-    else await forgetDisplacedSessions(response.displacedSessionIds, sessionId);
+    else {
+      setSessionNotice("New chat ready on this tab.");
+      void forgetDisplacedSessions(response.displacedSessionIds, sessionId).catch(() => {
+        setSessionNotice("The previous chats could not be deleted from storage.");
+      });
+    }
     await refreshAgentTabState(sessionId);
     textareaRef.current?.focus();
   }
