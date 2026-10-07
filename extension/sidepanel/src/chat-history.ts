@@ -63,14 +63,17 @@ function isSavedChat(value: unknown): value is SavedChat {
 export async function loadChatHistory(): Promise<SavedChat[]> {
   const local = await loadLocalChatHistory();
   const shared = await loadSharedChatHistory();
-  if (!shared) return local;
+  if (!shared) return local.filter((chat) => !deletedChatIds.has(chat.id));
   if (!shared.initialized) {
-    if (local.length > 0) await saveSharedChatHistory(local);
-    return local;
+    const chats = local.filter((chat) => !deletedChatIds.has(chat.id));
+    if (chats.length > 0) await saveSharedChatHistory(chats);
+    return chats.filter((chat) => !deletedChatIds.has(chat.id));
   }
-  const chats = shared.chats.filter(isSavedChat).sort((a, b) => b.updatedAt - a.updatedAt);
+  // A UI reset can delete a chat while storage operations are still queued.
+  // Ignore those chats even if the shared store has not caught up yet.
+  const chats = shared.chats.filter(isSavedChat).filter((chat) => !deletedChatIds.has(chat.id)).sort((a, b) => b.updatedAt - a.updatedAt);
   await saveLocalChatHistory(chats);
-  return chats;
+  return chats.filter((chat) => !deletedChatIds.has(chat.id));
 }
 
 async function loadLocalChatHistory(): Promise<SavedChat[]> {
@@ -84,6 +87,7 @@ export function saveChat(chat: SavedChat): Promise<void> {
   return enqueueMutation(async () => {
     if (deletedChatIds.has(chat.id)) return;
     const chats = await loadChatHistory();
+    if (deletedChatIds.has(chat.id)) return;
     const existing = chats.find((candidate) => candidate.id === chat.id);
     // A delayed render should never replace a newer persisted snapshot.
     if (existing && existing.updatedAt > chat.updatedAt) return;

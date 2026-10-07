@@ -82,12 +82,13 @@ export function PanelHeader({
             type="button"
             onClick={() => void startNewSession()}
             disabled={isStartingSession}
+            aria-busy={isStartingSession}
             aria-label="New chat"
             title={isStartingSession ? "Starting..." : "Delete this chat and start a new one"}
           >
-            <svg viewBox="0 0 16 16" aria-hidden="true">
+            {isStartingSession ? <span aria-hidden="true">…</span> : <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M8 1.25a.75.75 0 0 1 .75.75v5.25H14a.75.75 0 0 1 0 1.5H8.75V14a.75.75 0 0 1-1.5 0V8.75H2a.75.75 0 0 1 0-1.5h5.25V2A.75.75 0 0 1 8 1.25Z" />
-            </svg>
+            </svg>}
           </button>
         </div>
       </header>
