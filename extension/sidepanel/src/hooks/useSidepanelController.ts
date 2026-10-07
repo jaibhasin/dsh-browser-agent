@@ -50,6 +50,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   const [streamingAssistant, setStreamingAssistant] = useState<StreamingAssistant>();
   const [isStopping, setIsStopping] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
+  const isStartingSessionRef = useRef(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [sessionNotice, setSessionNotice] = useState("");
   const { draftImages, setDraftImages, draftDocuments, setDraftDocuments, isAddingImage, imageInputRef, documentInputRef, addImageFiles, addAttachmentFiles } = useAttachments(isLoading, setSessionNotice);
@@ -207,7 +208,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
 
   async function refreshAgentTabState(sessionId = activeSessionIdRef.current) {
     const response = await chrome.runtime.sendMessage({ type: "dsh-agent-tab-state-request", sessionId }) as { ok?: boolean; state?: AgentTabState };
-    if (response?.ok && response.state) applyAgentTabState(response.state);
+    if (response?.ok && response.state && sessionId === activeSessionIdRef.current) applyAgentTabState(response.state);
   }
 
   useEffect(() => {
@@ -495,7 +496,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = prompt.trim();
-    if ((!text && draftImages.length === 0 && draftDocuments.length === 0) || isLoading || isAddingImage) return;
+    if ((!text && draftImages.length === 0 && draftDocuments.length === 0) || isLoading || isAddingImage || isStartingSessionRef.current) return;
 
     if (text.startsWith("/") && draftImages.length === 0 && draftDocuments.length === 0) {
       const commandParts = text.slice(1).trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -619,20 +620,31 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
    * "this tab already has a saved chat" prompt never appears.
    */
   async function startNewSession() {
-    if (isStartingSession) return;
+    // React state updates on the next render; the ref also guards rapid clicks
+    // and /new commands that arrive before that render.
+    if (isStartingSessionRef.current) return;
+    isStartingSessionRef.current = true;
     setIsStartingSession(true);
     try {
-      const previousSessionId = activeSessionId;
+      const previousSessionId = activeSessionIdRef.current;
+      const previousChatId = activeChatIdBySession.current.get(previousSessionId);
+      if (previousChatId) {
+        stoppedChatIds.current.add(previousChatId);
+        activeChatIds.current.delete(previousChatId);
+      }
       clearAssistantStream();
+      setPendingHumanApproval(undefined);
       setPendingUserQuestion(undefined);
-      // Best-effort stop: discard the agent task even if it's mid-flight.
       // The local deletion is synchronous; shared storage may have a long
       // queue of saves. It must not delay showing the new conversation.
       void forgetSession(previousSessionId).catch(() => {
         setSessionNotice("The previous chat could not be deleted from storage.");
       });
       await startFreshChatOnCurrentTab(previousSessionId);
+    } catch (error) {
+      setSessionNotice(error instanceof Error ? error.message : "The new chat could not be started.");
     } finally {
+      isStartingSessionRef.current = false;
       setIsStartingSession(false);
     }
   }
@@ -868,6 +880,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
   function runSavedTask(task: SavedTask) { setRunningTask(task); }
 
   async function runTaskWithInputs(task: SavedTask, values: Record<string, string>) {
+    if (isStartingSessionRef.current) return;
     let runPrompt: string;
     try { runPrompt = buildTaskRunPrompt(task, values); } catch (error) {
       setSessionNotice(error instanceof Error ? error.message : "Invalid task inputs.");
@@ -1326,6 +1339,7 @@ export function useSidepanelController(initialThemePreference: ThemePreference) 
       isAddingImage,
       sendMessage,
       isLoading,
+      isStartingSession,
       addAttachmentFiles,
       draftImages,
       setDraftImages,

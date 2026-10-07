@@ -19,6 +19,7 @@ type ComposerProps = {
   isAddingImage: boolean;
   sendMessage: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   isLoading: boolean;
+  isStartingSession: boolean;
   addAttachmentFiles: (files: readonly File[]) => Promise<void>;
   draftImages: DraftImage[];
   setDraftImages: React.Dispatch<React.SetStateAction<DraftImage[]>>;
@@ -61,6 +62,7 @@ export function Composer({
   isAddingImage,
   sendMessage,
   isLoading,
+  isStartingSession,
   addAttachmentFiles,
   draftImages,
   setDraftImages,
@@ -246,7 +248,7 @@ export function Composer({
             onClick={isLoading ? () => void stopMessage() : undefined}
             aria-label={isStopping ? "Stopping agent" : isLoading ? "Stop agent" : "Send message"}
             title={isStopping ? "Stopping agent" : isLoading ? "Stop agent" : "Send message"}
-            disabled={isStopping || voiceActive || (!isLoading && (connectionStatus !== "connected" || toolsMenuOpen))}
+            disabled={isStartingSession || isStopping || voiceActive || (!isLoading && (connectionStatus !== "connected" || toolsMenuOpen))}
           >
             {isLoading ? <span className="stop-indicator" aria-hidden="true" /> : (
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14.7 1.3a.75.75 0 0 0-.78-.17l-12 4.5a.75.75 0 0 0 .05 1.42l5.07 1.69 1.69 5.07a.75.75 0 0 0 1.42.05l4.5-12a.75.75 0 0 0 .05-.56ZM8.3 8.76l-.68-2.04 4.42-2.21-3.74 4.25Zm.47 3.06-1.18-3.55 4.32-4.9-3.14 8.45Z" /></svg>
