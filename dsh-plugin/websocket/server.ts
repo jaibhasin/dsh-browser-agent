@@ -4,6 +4,7 @@ import { PROTOCOL_VERSION, type BridgeChatDelta, type BridgeChatProgress, type B
 
 export type DshBrowserBridgeOptions = {
   token: string;
+  extensionId: string;
   host?: "127.0.0.1";
   port?: number;
   requestTimeoutMs?: number;
@@ -18,6 +19,12 @@ export type DshBrowserBridgeOptions = {
 type ConnectedClient = { clientId: string; socket: WebSocket };
 type PendingRequest = { clientId: string; resolve: (value: JsonValue) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout>; cleanup: () => void };
 
+/** Accept literal loopback hosts with an optional valid TCP port; never resolve DNS. */
+function isLoopbackHost(host: string | undefined): boolean {
+  const match = host?.match(/^(127\.0\.0\.1|localhost|\[::1\])(?::([0-9]{1,5}))?$/i);
+  return !!match && (!match[2] || (Number(match[2]) >= 1 && Number(match[2]) <= 65535));
+}
+
 /** Local DSH plugin transport. Registered DSH tools can delegate to request(). */
 export class DshBrowserWebSocketBridge {
   private static readonly HEARTBEAT_INTERVAL_MS = 20_000;
@@ -29,13 +36,22 @@ export class DshBrowserWebSocketBridge {
   private heartbeatTimer?: ReturnType<typeof setInterval>;
 
   constructor(options: DshBrowserBridgeOptions) {
-    if (options.token.length < 32) throw new Error("DSH browser bridge token must be at least 32 characters.");
-    this.options = { host: "127.0.0.1", port: 7331, requestTimeoutMs: 30_000, ...options };
+    if (typeof options.token !== "string" || options.token.length < 32) throw new Error("DSH browser bridge token must be at least 32 characters.");
+    if (!/^[a-p]{32}$/.test(options.extensionId)) throw new Error("DSH browser bridge extension ID is invalid.");
+    if (options.host !== undefined && options.host !== "127.0.0.1") throw new Error("DSH browser bridge must bind to 127.0.0.1.");
+    this.options = { ...options, host: "127.0.0.1", port: options.port ?? 7331, requestTimeoutMs: options.requestTimeoutMs ?? 30_000 };
   }
   async start(): Promise<void> {
     if (this.server) return;
-    this.server = new WebSocketServer({ host: this.options.host, port: this.options.port, perMessageDeflate: false });
-    this.server.on("connection", (socket, request) => this.accept(socket, request.headers.origin));
+    this.server = new WebSocketServer({
+      host: this.options.host, port: this.options.port, perMessageDeflate: false,
+      verifyClient: (info, done) => {
+        if (info.req.headers.origin !== `chrome-extension://${this.options.extensionId}`) return done(false, 403, "Expected Chrome extension origin required");
+        if (!isLoopbackHost(info.req.headers.host)) return done(false, 403, "Loopback host required");
+        done(true);
+      },
+    });
+    this.server.on("connection", (socket) => this.accept(socket));
     await new Promise<void>((resolve, reject) => { this.server?.once("listening", resolve); this.server?.once("error", reject); });
     this.heartbeatTimer = setInterval(() => {
       for (const client of this.clients.values()) {
@@ -107,12 +123,14 @@ export class DshBrowserWebSocketBridge {
       });
     });
   }
-  private accept(socket: WebSocket, origin: string | undefined): void {
-    if (!origin?.startsWith("chrome-extension://")) { socket.close(1008, "Chrome extension origin required"); return; }
+  /** Authenticate the first validated protocol message after the checked HTTP upgrade. */
+  private accept(socket: WebSocket): void {
     let authenticated = false;
     let clientId: string | undefined;
     const authenticationTimeout = setTimeout(() => socket.close(1008, "Authentication timed out"), 5_000);
+    socket.on("error", () => socket.terminate());
     socket.on("message", (data, isBinary) => {
+      if (socket.readyState !== WebSocket.OPEN) return;
       if (isBinary) return socket.close(1003, "Text messages only");
       const message = this.parse(data.toString());
       if (!message) return socket.close(1007, "Invalid bridge message");

@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
+import { extensionIdFromKey } from '../scripts/extension-identity.mjs';
 
 // Opt-in network test: installs real dependencies and boots DSH without an API key.
 test('fresh install, profile startup, update, and recoverable uninstall', { skip: process.env.DSH_INSTALL_E2E !== '1', timeout: 900_000 }, async () => {
@@ -28,6 +29,9 @@ test('fresh install, profile startup, update, and recoverable uninstall', { skip
     assert.match(output, /Developer mode/);
     assert.match(output, /Load unpacked/);
     const token = readFileSync(join(profile, '.bridge-token'), 'utf8');
+    const publicKey = readFileSync(join(profile, '.extension-public-key'), 'utf8').trim();
+    const extensionId = extensionIdFromKey(publicKey);
+    assert.equal(JSON.parse(readFileSync(join(root, 'extension', 'manifest.json'), 'utf8')).key, publicKey);
     const originalManifest = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8'));
     assert.equal(originalManifest.dsh.profile.bundles.at(-1), '@jaibhasin/dsh-browser-agent');
     // Use an available bridge port and an ephemeral web port, avoiding other DSH installs.
@@ -41,6 +45,7 @@ test('fresh install, profile startup, update, and recoverable uninstall', { skip
     writeFileSync(patchPath, patch);
     install();
     assert.equal(readFileSync(join(profile, '.bridge-token'), 'utf8'), token);
+    assert.equal(readFileSync(join(profile, '.extension-public-key'), 'utf8').trim(), publicKey);
     assert.equal(readFileSync(patchPath, 'utf8'), patch);
     const manifest = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8'));
     assert.notEqual(manifest.dependencies['@jaibhasin/dsh-browser-agent'], originalManifest.dependencies['@jaibhasin/dsh-browser-agent']);
@@ -54,7 +59,7 @@ test('fresh install, profile startup, update, and recoverable uninstall', { skip
     for (let attempt = 0; attempt < 100 && !authenticated; attempt++) {
       assert.equal(child.exitCode, null, logs);
       authenticated = await new Promise(resolve => {
-        socket = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { origin: 'chrome-extension://abcdefghijklmnop' } });
+        socket = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { origin: `chrome-extension://${extensionId}` } });
         const timer = setTimeout(() => { socket.terminate(); resolve(false); }, 2000);
         socket.on('error', () => { clearTimeout(timer); resolve(false); });
         socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocolVersion: 2, token: token.trim(), client: 'chrome-extension', clientId: '11111111-1111-4111-8111-111111111111' })));

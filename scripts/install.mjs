@@ -2,9 +2,10 @@ import { randomBytes } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { openChromeExtensionsPage } from './open-chrome-extensions.mjs';
+import { prepareExtensionIdentity } from './extension-identity.mjs';
 
 const profileName = 'dsh-browser-agent';
 const owner = 'jaibhasin/dsh-browser-agent:1';
@@ -15,7 +16,8 @@ const legacyRoot = join(dshHome, 'browser-agent-install');
 const profile = join(dshHome, 'profiles', profileName);
 const args = process.argv.slice(2);
 
-export const installerWorkspaceFilters = ['.', './dsh-plugin'];
+// Package selectors avoid platform-specific path matching (notably Windows drive paths).
+export const installerWorkspaceFilters = ['dsh-browser-agent', '@jaibhasin/dsh-browser-agent'];
 
 function run(command, argv, cwd) {
   const result = spawnSync(command, argv, { cwd, encoding: 'utf8', env: process.env, maxBuffer: 20 * 1024 * 1024 });
@@ -34,7 +36,7 @@ function checkOwned(path) {
   }
 }
 
-function main() {
+async function main() {
   if (args.includes('--help')) {
     console.log('Usage: node scripts/install.mjs [--uninstall]\nSupports macOS, Windows and Linux. Requires Node.js 22.19+ (22.x), or 24+, and internet access.\nDSH_HOME selects the DSH data directory. Stop this browser profile before updating.');
     return;
@@ -74,16 +76,24 @@ function main() {
       });
     }
     const tokenPath = join(profile, '.bridge-token');
+    const keyPath = join(profile, '.extension-public-key');
+    const installedManifestPath = join(root, 'extension', 'manifest.json');
+    const installedKey = existsSync(installedManifestPath) ? JSON.parse(readFileSync(installedManifestPath, 'utf8')).key : undefined;
+    const { key: extensionKey, id: extensionId } = prepareExtensionIdentity(keyPath, installedKey);
     const token = existsSync(tokenPath) ? readFileSync(tokenPath, 'utf8').trim() : randomBytes(32).toString('hex');
     if (!/^[a-f0-9]{64}$/.test(token)) throw new Error(`Invalid bridge token in ${tokenPath}`);
-    write(join(stage, 'extension', '.env.local'), `VITE_DSH_BRIDGE_TOKEN=${token}\n`);
+    const patchPath = join(profile, 'cordis.patch.yml');
+    write(join(stage, 'extension', '.env.local'), `VITE_DSH_BRIDGE_TOKEN=${token}\nVITE_DSH_EXTENSION_ID=${extensionId}\nVITE_DSH_EXTENSION_KEY=${extensionKey}\n`);
     // Invoke npm's JS entry point directly on Windows, avoiding shell quoting of paths.
     const npm = process.platform === 'win32' ? join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js') : null;
     const npmCommand = npm ? process.execPath : 'npm';
     const npmPrefix = npm ? [npm] : [];
     const pnpm = (...argv) => run(npmCommand, [...npmPrefix, 'exec', '--yes', '--package=pnpm@11.8.0', '--', 'pnpm', ...argv], stage);
     console.log('\ndsh Browser Agent setup\n\n[1/4] Downloading build tools and dependencies. This can take a few minutes...');
-    pnpm('install', '--frozen-lockfile', ...installerWorkspaceFilters.flatMap(filter => ['--filter', filter]));
+    pnpm('install', '--frozen-lockfile', '--prod=false', ...installerWorkspaceFilters.flatMap(filter => ['--filter', filter]));
+    // Load YAML support from the staged install: the bootstrap checkout has no dependencies.
+    const { upsertBridgeIdentityPatch } = await import(pathToFileURL(join(stage, 'scripts', 'bridge-profile-config.mjs')).href);
+    const bridgePatch = upsertBridgeIdentityPatch(existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : '', extensionId, token);
     console.log('[2/4] Building your browser extension and plugin...');
     pnpm('run', 'build:dsh-plugin');
     pnpm('run', 'build');
@@ -118,12 +128,14 @@ function main() {
     }
     mkdirSync(profile, { recursive: true, mode: 0o700 });
     write(join(profile, '.installer-owner'), owner);
+    write(keyPath, `${extensionKey}\n`);
     const profileModules = join(profile, 'node_modules');
     if (existsSync(profileModules)) renameSync(profileModules, join(profile, `node_modules-backup-${Date.now()}`));
     symlinkSync(join(runtime, 'node_modules'), profileModules, process.platform === 'win32' ? 'junction' : 'dir');
     write(tokenPath, `${token}\n`);
     if (!existsSync(join(profile, 'cordis.yml'))) write(join(profile, 'cordis.yml'), '[]\n');
-    if (!existsSync(join(profile, 'cordis.patch.yml'))) write(join(profile, 'cordis.patch.yml'), `- id: dsh-browser-agent\n  config:\n    token: "${token}"\n    port: 7331\n`);
+    write(patchPath + '.tmp', bridgePatch);
+    renameSync(patchPath + '.tmp', patchPath);
     json(manifestPath + '.tmp', manifest);
     renameSync(manifestPath + '.tmp', manifestPath);
     write(join(root, 'start.mjs'), `import { pathToFileURL } from 'node:url';\nprocess.env.DSH_HOME = ${JSON.stringify(dshHome)};\nconst executable = ${JSON.stringify(executable)};\nprocess.argv = [process.execPath, executable, '--profile', '${profileName}', '--no-open'];\nconst { runCli } = await import(pathToFileURL(executable).href);\nif (typeof runCli !== 'function') throw new Error('The pinned DSH CLI has no runnable entry point.');\nawait runCli();\n`);
@@ -170,5 +182,5 @@ function main() {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try { main(); } catch (error) { console.error(`Installation failed: ${error.message}`); process.exitCode = 1; }
+  main().catch(error => { console.error(`Installation failed: ${error.message}`); process.exitCode = 1; });
 }
