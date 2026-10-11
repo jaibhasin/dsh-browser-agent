@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
@@ -16,6 +16,14 @@ export function portInUse(port) {
     socket.once('error', () => finish(false));
     socket.setTimeout(800, () => finish(true));
   });
+}
+
+// Older managed installs used Chrome's unpacked path identity instead of a manifest key.
+export function installedExtensionId(extensionPath) {
+  const manifest = JSON.parse(readFileSync(join(extensionPath, 'manifest.json'), 'utf8'));
+  const identity = manifest.key ? Buffer.from(manifest.key, 'base64') : Buffer.from(resolve(extensionPath));
+  return createHash('sha256').update(identity).digest('hex').slice(0, 32)
+    .replace(/[0-9a-f]/g, digit => String.fromCharCode(97 + parseInt(digit, 16)));
 }
 
 export function authenticateBridge(WebSocket, { bridgePort, extensionId, token }) {
@@ -55,7 +63,7 @@ export class Supervisor {
   }
   publish(state, message, ready = false) {
     this.state = state;
-    this.report({ state, message, ready, settingsURL: `http://127.0.0.1:${this.config.webPort}` });
+    this.report({ state, message, ready, settingsURL: this.settingsURL ?? `http://127.0.0.1:${this.config.webPort}` });
   }
   async start() {
     if (this.child || this.state === 'starting' || this.stopping) return;
@@ -70,6 +78,8 @@ export class Supervisor {
         renameSync(this.config.logPath, this.config.logPath + '.previous');
       }
       const log = openSync(this.config.logPath, 'a', 0o600);
+      this.logStartOffset = statSync(this.config.logPath).size;
+      this.settingsURL = undefined;
       try {
         this.child = spawn(process.execPath, [this.config.startPath], {
           cwd: dirname(this.config.startPath), detached: true,
@@ -92,6 +102,7 @@ export class Supervisor {
       while (this.child === child && !this.stopping && Date.now() < deadline) {
         if (await this.healthy()) {
           if (this.child !== child || this.stopping) return;
+          this.readSettingsURL();
           this.publish('ready', 'Open the extension in Chrome. Your agent is ready.', true);
           this.monitor = setInterval(() => void this.checkHealth(), 4000);
           return;
@@ -107,11 +118,24 @@ export class Supervisor {
       this.publish('error', error.message);
     }
   }
+  readSettingsURL() {
+    const logs = readFileSync(this.config.logPath).subarray(this.logStartOffset).toString('utf8');
+    for (const candidate of logs.match(/http:\/\/127\.0\.0\.1:[0-9]+\/[^\s\u001b]*/g) ?? []) {
+      try {
+        const url = new URL(candidate);
+        if (url.port === String(this.config.webPort) && url.searchParams.has('token')) this.settingsURL = url.href;
+      } catch { /* Ignore incomplete startup log lines. */ }
+    }
+  }
   async healthy() {
     const [bridge, web] = await Promise.all([
       authenticateBridge(this.WebSocket, this.config),
       fetch(`http://127.0.0.1:${this.config.webPort}`, { signal: AbortSignal.timeout(1500), redirect: 'manual' })
-        .then(response => { void response.body?.cancel(); return response.status >= 200 && response.status < 400; }).catch(() => false),
+        .then(response => {
+          void response.body?.cancel();
+          // DSH's web app requires a browser session; 401 is its normal signed-out response.
+          return (response.status >= 200 && response.status < 400) || response.status === 401;
+        }).catch(() => false),
     ]);
     return bridge && web;
   }
@@ -178,8 +202,9 @@ async function main() {
     const bundle = [...base, ...patches].filter(item => item.id === 'dsh-browser-agent').reduce((all, item) => ({ ...all, ...item.config }), {});
     const web = [...base, ...patches].filter(item => item.id === 'webserver').reduce((all, item) => ({ ...all, ...item.config }), {});
     const token = readFileSync(join(profile, '.bridge-token'), 'utf8').trim();
-    if (!existsSync(config.startPath) || !/^[a-p]{32}$/.test(bundle.extensionId) || token.length < 32) throw new Error('Incomplete installation');
-    supervisor = new Supervisor({ ...config, token, extensionId: bundle.extensionId, bridgePort: bundle.port ?? 7331, webPort: web.port ?? 3080 }, WebSocket, report);
+    const extensionId = bundle.extensionId ?? installedExtensionId(join(config.dshHome, 'dsh-browser-agent', 'extension'));
+    if (!existsSync(config.startPath) || !/^[a-p]{32}$/.test(extensionId) || token.length < 32) throw new Error('Incomplete installation');
+    supervisor = new Supervisor({ ...config, token, extensionId, bridgePort: bundle.port ?? 7331, webPort: web.port ?? 3080 }, WebSocket, report);
     const input = createInterface({ input: process.stdin });
     input.on('line', command => {
       if (quitting) return;
