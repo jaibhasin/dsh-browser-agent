@@ -4,6 +4,8 @@
   "description": "A minimal DeepSeek Harness browser agent extension.",
   "private": true,
   "scripts": {
+    "build:macos": "node scripts/build-macos-app.mjs",
+    "test:macos": "node --test tests/macos-launcher.test.mjs",
     "measure:memory": "node scripts/measure-memory.mjs",
     "benchmark:memory": "node evals/memory-benchmark/benchmark-memory.mjs",
     "report:memory": "node scripts/render-memory-report.mjs",

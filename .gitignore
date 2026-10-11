@@ -16,3 +16,7 @@ memory-reports/
 *.key
 SAVE_AS_TASK.md
 VOICE_INPUT_PLAN.md
+.macos-build/
+*.app/
+*.log
+launcher.json
