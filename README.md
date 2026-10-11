@@ -49,6 +49,22 @@ Then click **Extensions > dsh Browser Agent** in Chrome and start chatting.
 
 Use the same start command next time; Ctrl+C stops the agent.
 
+### Open the agent as a Mac app
+
+**DSH Browser Agent.app** starts the installed agent when you open it.
+Wait for **Ready for Chrome**, then click **dsh Browser Agent** in Chrome’s Extensions menu.
+There is no need to open the repository or a terminal.
+
+The app includes start and stop controls, agent settings, logs, and a menu bar shortcut.
+Closing its window keeps the agent running.
+Choose **Quit Browser Agent** or press **Cmd+Q** to stop its services.
+
+To build the app from this checkout after installing the agent, run `pnpm build:macos` on a Mac with Xcode command line tools.
+Move `.macos-build/DSH Browser Agent.app` into Applications.
+The app includes its own Node executable and uses your existing managed installation and settings under `~/.dsh`.
+If you use another data directory, run `node scripts/build-macos-app.mjs --dsh-home /path/to/data`.
+Run `pnpm test:macos` to check authenticated startup, restart, port conflicts, and process cleanup.
+
 ### Start an existing `browser-agent` profile again
 
 If you set up the older `browser-agent` profile from a checkout, start its backend with this command on one line:
